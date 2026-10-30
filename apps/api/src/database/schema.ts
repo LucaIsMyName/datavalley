@@ -232,6 +232,18 @@ export const userFavorites = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.resourceType, table.resourceId] })],
 )
 
+export const userTableState = pgTable(
+  'user_table_state',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    sort: jsonb('sort'),
+    filter: jsonb('filter'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.tableId] })],
+)
+
 export const userRecentItems = pgTable('user_recent_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

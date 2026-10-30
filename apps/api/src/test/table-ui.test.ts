@@ -167,4 +167,27 @@ describe('table interactions', () => {
     })
     expect(saved.json().table.formatRules).toEqual(rules)
   })
+
+  it('remembers sort and filter for the signed-in user', async () => {
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'State', template: 'customers' } })
+    const projectId = project.json().project.id as string
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const people = (listed.json().tables as { id: string; name: string }[]).find((table) => table.name === 'People')
+    const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}` })
+    const nameId = (detail.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Name')!.id
+    const empty = await session.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}/state` })
+    expect(empty.statusCode).toBe(200)
+    expect(empty.json()).toEqual({ sort: null, filter: null })
+    const saved = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/tables/${people?.id}/state`,
+      payload: { sort: { columnId: nameId, direction: 'desc' }, filter: { op: 'contains', columnId: nameId, value: 'Ada' } },
+    })
+    expect(saved.statusCode).toBe(200)
+    const again = await session.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}/state` })
+    expect(again.json()).toEqual({
+      sort: { columnId: nameId, direction: 'desc' },
+      filter: { op: 'contains', columnId: nameId, value: 'Ada' },
+    })
+  })
 })

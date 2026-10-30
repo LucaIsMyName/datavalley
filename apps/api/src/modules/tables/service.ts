@@ -12,6 +12,7 @@ import {
   tableTags,
   tables,
   userRecentItems,
+  userTableState,
 } from '../../database/schema.js'
 import { columnTypeIds, defaultColumnIcon, nextTagColor, parseCell, readCell, type CellWrite, type ColumnShape } from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
@@ -554,4 +555,43 @@ export async function updateStatus(db: AppDatabase, subject: Subject, tableId: s
     .returning()
   if (!status) throw notFound()
   return status
+}
+
+function storedSort(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const sort = value as { columnId?: unknown; direction?: unknown }
+  if (typeof sort.columnId !== 'string' || sort.columnId.length === 0) return null
+  return { columnId: sort.columnId, direction: sort.direction === 'desc' ? 'desc' : 'asc' }
+}
+
+function storedFilter(value: unknown) {
+  if (value == null) return null
+  if (typeof value === 'object') return value
+  return null
+}
+
+export async function readUserTableState(db: AppDatabase, subject: Subject, tableId: string) {
+  await requireTable(db, subject, tableId, 'view')
+  if (subject.kind !== 'user') return { sort: null, filter: null }
+  const [row] = await db
+    .select()
+    .from(userTableState)
+    .where(and(eq(userTableState.userId, subject.id), eq(userTableState.tableId, tableId)))
+    .limit(1)
+  return { sort: row?.sort ?? null, filter: row?.filter ?? null }
+}
+
+export async function saveUserTableState(db: AppDatabase, subject: Subject, tableId: string, input: { sort?: unknown; filter?: unknown }) {
+  await requireTable(db, subject, tableId, 'view')
+  if (subject.kind !== 'user') return { sort: null, filter: null }
+  const sort = storedSort(input.sort)
+  const filter = storedFilter(input.filter)
+  await db
+    .insert(userTableState)
+    .values({ userId: subject.id, tableId, sort, filter })
+    .onConflictDoUpdate({
+      target: [userTableState.userId, userTableState.tableId],
+      set: { sort, filter, updatedAt: new Date() },
+    })
+  return { sort, filter }
 }

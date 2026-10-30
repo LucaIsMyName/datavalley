@@ -111,6 +111,14 @@ export function createSync() {
     pending.delete(key)
   }
 
+  function discard(key: string) {
+    const slot = pending.get(key)
+    if (!slot) return
+    if (slot.timer) clearTimeout(slot.timer)
+    slot.generation = -1
+    pending.delete(key)
+  }
+
   function watch(key: string, delay: number, run: () => void) {
     const current = watches.get(key)
     if (current) clearTimeout(current.timer)
@@ -124,7 +132,7 @@ export function createSync() {
     watches.set(key, { generation: next, timer })
   }
 
-  return { edit, flush, cancel, watch }
+  return { edit, flush, cancel, discard, watch }
 }
 
 export const sync = createSync()

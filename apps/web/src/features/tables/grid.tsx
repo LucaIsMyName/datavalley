@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
+import { ApiClientError, type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
 import { moveSelection, stylesForCell, type FilterNode, type FilterOperator, type FormatRule } from '@datavalley/shared'
 import { ArrowDown, ArrowUp, ArrowUpDown, Filter, GripVertical, Plus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
@@ -15,6 +15,7 @@ import { ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
+import { cellFormatError } from './cell-format'
 import { CellEditor } from './cells'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
@@ -31,7 +32,8 @@ const SWATCHES = ['#fde68a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7a
 const COLUMN_TYPES = ['text', 'long_text', 'mail', 'url', 'number', 'date', 'datetime', 'checkbox', 'select', 'tags', 'status', 'user', 'row_id', 'formula', 'relation']
 
 type PopoverState = {
-  kind: 'filter' | 'conditional' | 'row-color' | 'cell-color' | 'formula' | 'relation' | 'find' | 'view' | 'icon'
+  kind: 'filter' | 'conditional' | 'row-color' | 'cell-color' | 'formula' | 'relation' | 'find' | 'view' | 'icon' | 'new-column'
+  beforeId?: string
   columnId?: string
   rowId?: string
   x: number
@@ -76,6 +78,16 @@ function moveIdBefore(ids: string[], fromId: string, toId: string) {
   const index = next.indexOf(toId)
   if (index < 0) return ids
   next.splice(index, 0, fromId)
+  return next
+}
+
+function filtersFrom(node: FilterNode | null | undefined) {
+  const next: Record<string, { op: string; value: string }> = {}
+  const list = node && 'conditions' in node ? node.conditions : node ? [node] : []
+  for (const condition of list) {
+    if (!condition || !('columnId' in condition)) continue
+    next[condition.columnId] = { op: condition.op, value: condition.value == null ? '' : String(condition.value) }
+  }
   return next
 }
 
@@ -165,11 +177,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [filterInput, setFilterInput] = useState<Record<string, { op: string; value: string }>>({})
   const [filters, setFilters] = useState<Record<string, { op: string; value: string }>>({})
   const cellBaseline = useRef(new Map<string, unknown>())
+  const serverReject = useRef(new Map<string, string>())
+  const appliedState = useRef<string | null>(null)
   const [checked, setChecked] = useState<string[]>([])
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [columnAnchor, setColumnAnchor] = useState<string | null>(null)
   const [selected, setSelected] = useState({ row: 0, column: 0 })
   const [editing, setEditing] = useState<string | null>(null)
+  const [invalidCells, setInvalidCells] = useState<Record<string, { text: string; message: string }>>({})
+  const [newColumnType, setNewColumnType] = useState('text')
+  const [stateReady, setStateReady] = useState(false)
   const [renamingColumn, setRenamingColumn] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
@@ -241,6 +258,28 @@ export function TableScreen({ tableId }: { tableId: string }) {
     queryKey: ['views', tableId],
     queryFn: () => api.request<{ views: SavedView[] }>(`/tables/${tableId}/views`),
   })
+  const tableState = useQuery({
+    queryKey: ['table-state', tableId],
+    queryFn: () => api.request<{ sort: { columnId: string; direction: 'asc' | 'desc' } | null; filter: FilterNode | null }>(`/tables/${tableId}/state`),
+  })
+  useEffect(() => {
+    if (!tableState.isSuccess || !table || appliedState.current === tableId) return
+    appliedState.current = tableId
+    const savedSort = tableState.data.sort
+    const known = savedSort && (table.columns ?? []).some((column) => column.id === savedSort.columnId) ? savedSort : null
+    setSort(known && (known.direction === 'desc' || known.direction === 'asc') ? { columnId: known.columnId, direction: known.direction === 'desc' ? 'desc' : 'asc' } : null)
+    const next = filtersFrom(tableState.data.filter)
+    setFilters(next)
+    setFilterInput(next)
+    setStateReady(true)
+  }, [table, tableId, tableState.data, tableState.isSuccess])
+  useEffect(() => {
+    if (!stateReady || appliedState.current !== tableId) return
+    const timer = window.setTimeout(() => {
+      void api.request(`/tables/${tableId}/state`, { method: 'PUT', body: JSON.stringify({ sort, filter }) }).catch(() => setNotice(t('error')))
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [filter, sort, stateReady, t, tableId])
   const projectTables = useQuery({
     queryKey: ['tables', projectId],
     enabled: popover?.kind === 'relation' && Boolean(projectId),
@@ -372,10 +411,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
   }
 
-  async function insertColumn(beforeId?: string) {
+  function openNewColumn(beforeId: string | undefined, point: { x: number; y: number }) {
+    setNewColumnType('text')
+    setPopover({ kind: 'new-column', beforeId, ...point })
+  }
+
+  async function createColumn(type: string) {
+    const beforeId = popover?.kind === 'new-column' ? popover.beforeId : undefined
+    const point = { x: popover?.x ?? 16, y: popover?.y ?? 16 }
+    setPopover(null)
     const created = await api.request<{ column: Column }>(`/tables/${tableId}/columns`, {
       method: 'POST',
-      body: JSON.stringify({ name: nextLabel(columns.map((column) => column.name), 'Column'), type: 'text', ...(beforeId ? { beforeId } : {}) }),
+      body: JSON.stringify({ name: nextLabel(columns.map((column) => column.name), 'Column'), type, ...(beforeId ? { beforeId } : {}) }),
     })
     const snap: ColumnSnap = {
       id: created.column.id,
@@ -391,8 +438,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
       cells: [],
     }
     pushCommand(tableId, { kind: 'columns-created', columns: [snap] })
-    setRenamingColumn(created.column.id)
     await refresh()
+    if (type === 'formula') {
+      setFormulaDraft('')
+      setPopover({ kind: 'formula', columnId: created.column.id, ...point })
+      return
+    }
+    if (type === 'relation') {
+      setRelationTarget('')
+      setPopover({ kind: 'relation', columnId: created.column.id, ...point })
+      return
+    }
+    setRenamingColumn(created.column.id)
   }
 
   async function insertRow(beforeId?: string) {
@@ -407,11 +464,28 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await refresh()
   }
 
-  function scheduleCell(row: RowRecord, columnId: string, nextValue: unknown, delay = 300) {
+  function clearInvalid(key: string) {
+    setInvalidCells((current) => {
+      if (!current[key]) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+
+  function scheduleCell(row: RowRecord, column: Column, nextValue: unknown, delay = 300) {
+    const columnId = column.id
     const key = `cell:${row.id}:${columnId}`
+    const next = nextValue === '' ? null : nextValue
+    const formatKey = cellFormatError(column, next)
+    if (formatKey) {
+      sync.discard(key)
+      setInvalidCells((current) => ({ ...current, [key]: { text: next == null ? '' : String(next), message: t(formatKey) } }))
+      return
+    }
+    clearInvalid(key)
     if (!cellBaseline.current.has(key)) cellBaseline.current.set(key, row.cells[columnId] ?? null)
     const previous = cellBaseline.current.get(key) ?? null
-    const next = nextValue === '' ? null : nextValue
     const paint = delay === 0
     sync.edit(key, {
       draft: next,
@@ -423,14 +497,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
       commit: async (draft) => {
         if (draft === previous) return { row: { ...(readCachedRow(queryClient, tableId, row.id) ?? row), cells: { ...row.cells, [columnId]: draft } } }
         const current = readCachedRow(queryClient, tableId, row.id) ?? row
-        return api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ version: current.version, cells: { [columnId]: draft } }),
-        })
+        try {
+          return await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ version: current.version, cells: { [columnId]: draft } }),
+          })
+        } catch (error) {
+          if (error instanceof ApiClientError && error.status === 400) serverReject.current.set(key, error.message)
+          throw error
+        }
       },
       accept: (result) => {
         mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } } : item))
         cellBaseline.current.delete(key)
+        clearInvalid(key)
         const saved = result.row.cells[columnId] ?? null
         if (saved !== previous) {
           pushCommand(tableId, {
@@ -442,8 +522,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
         setNotice('')
       },
       rollback: () => {
-        mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: previous } } : item))
+        const message = serverReject.current.get(key)
+        serverReject.current.delete(key)
         cellBaseline.current.delete(key)
+        if (message) {
+          setInvalidCells((current) => ({ ...current, [key]: { text: next == null ? '' : String(next), message } }))
+          return
+        }
+        mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: previous } } : item))
         setNotice(t('error'))
       },
     })
@@ -723,17 +809,25 @@ export function TableScreen({ tableId }: { tableId: string }) {
   async function reorderColumns(nextIds: string[]) {
     const before = columns.map((column) => column.id)
     if (before.join() === nextIds.join()) return
-    await api.request(`/tables/${tableId}/columns/order`, { method: 'PUT', body: JSON.stringify({ columnIds: nextIds }) })
-    pushCommand(tableId, { kind: 'column-order', before, after: nextIds })
-    await refresh()
+    try {
+      await api.request(`/tables/${tableId}/columns/order`, { method: 'PUT', body: JSON.stringify({ columnIds: nextIds }) })
+      pushCommand(tableId, { kind: 'column-order', before, after: nextIds })
+      await refresh()
+    } catch {
+      setNotice(t('error'))
+    }
   }
 
   async function reorderRow(rowId: string, beforeId: string) {
     const index = rows.findIndex((row) => row.id === rowId)
     const beforeNextId = rows[index + 1]?.id ?? null
-    await api.request(`/tables/${tableId}/rows/move`, { method: 'POST', body: JSON.stringify({ rowId, beforeId }) })
-    pushCommand(tableId, { kind: 'row-moved', rowId, beforeNextId, afterNextId: beforeId })
-    await refresh()
+    try {
+      await api.request(`/tables/${tableId}/rows/move`, { method: 'POST', body: JSON.stringify({ rowId, beforeId }) })
+      pushCommand(tableId, { kind: 'row-moved', rowId, beforeNextId, afterNextId: beforeId })
+      await refresh()
+    } catch {
+      setNotice(t('error'))
+    }
   }
 
   async function hideColumn(column: Column, hidden: boolean) {
@@ -825,6 +919,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   function openColumnMenu(event: ReactMouseEvent, column: Column) {
     event.stopPropagation()
+    const point = anchor(event)
     openMenu(event, [
       { id: 'rename', label: t('rename'), onSelect: () => setRenamingColumn(column.id) },
       ...COLUMN_TYPES.map((type) => ({
@@ -847,8 +942,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       })),
       { id: 'sort', label: t('sort'), onSelect: () => cycleSort(column.id) },
       { id: 'filter', label: t('filter'), onSelect: () => setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) }) },
-      { id: 'left', label: t('insertLeft'), onSelect: () => void insertColumn(column.id) },
-      { id: 'right', label: t('insertRight'), onSelect: () => void insertColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id) },
+      { id: 'left', label: t('insertLeft'), onSelect: () => openNewColumn(column.id, point) },
+      { id: 'right', label: t('insertRight'), onSelect: () => openNewColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id, point) },
       { id: 'duplicate', label: t('duplicate'), onSelect: () => void duplicateSelectedColumns([column.id]) },
       { id: 'fill', label: t('fillDown'), disabled: checked.length < 2, onSelect: () => void fillDown(column.id) },
       { id: 'conditional', label: t('conditionalColor'), onSelect: () => setPopover({ kind: 'conditional', columnId: column.id, ...anchor(event) }) },
@@ -901,7 +996,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       { id: 'edit', label: t('rename'), disabled: !writable(column), onSelect: () => setEditing(`${row.id}:${column.id}`) },
       { id: 'copy', label: t('copy'), onSelect: () => void navigator.clipboard.writeText(showCell(row.cells[column.id])) },
       { id: 'paste', label: t('paste'), onSelect: () => void navigator.clipboard.readText().then((text) => pasteTsv(text)) },
-      { id: 'clear', label: t('clearCell'), disabled: !writable(column), onSelect: () => { scheduleCell(row, column.id, '', 0); void sync.flush(`cell:${row.id}:${column.id}`) } },
+      { id: 'clear', label: t('clearCell'), disabled: !writable(column), onSelect: () => { scheduleCell(row, column, '', 0); void sync.flush(`cell:${row.id}:${column.id}`) } },
       { id: 'color', label: t('cellColor'), onSelect: () => setPopover({ kind: 'cell-color', rowId: row.id, columnId: column.id, ...anchor(event) }) },
     ])
   }
@@ -933,14 +1028,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
     if (!sortValue) setSort(null)
     else if (typeof sortValue === 'string') setSort({ columnId: sortValue, direction: definition.direction === 'desc' ? 'desc' : 'asc' })
     else setSort({ columnId: sortValue.columnId, direction: sortValue.direction === 'desc' ? 'desc' : 'asc' })
-    const next: Record<string, { op: string; value: string }> = {}
-    const node = definition.filter
-    const list = node && 'conditions' in node ? node.conditions : node ? [node] : []
-    for (const condition of list) {
-      if (!condition || !('columnId' in condition)) continue
-      next[condition.columnId] = { op: condition.op, value: condition.value == null ? '' : String(condition.value) }
-    }
+    const next = filtersFrom(definition.filter)
     setFilters(next)
+    setFilterInput(next)
   }
 
   async function exportCsv() {
@@ -991,24 +1081,28 @@ export function TableScreen({ tableId }: { tableId: string }) {
   ])
   const rulesSignature = JSON.stringify(table?.formatRules ?? [])
   const targetSignature = JSON.stringify((targetRows.data?.rows ?? []).map((row) => row.id))
+  const invalidSignature = JSON.stringify(invalidCells)
   const tableColumns = useMemo<ColumnDef<RowRecord>[]>(
     () => [
       {
         id: 'select',
         header: () => (
-          <input
-            ref={selectAllRef}
-            type="checkbox"
-            aria-label={t('selectAll')}
-            checked={allChecked}
-            onChange={() => {
-              if (allChecked) {
-                setChecked([])
-                return
-              }
-              void loadEveryRow().then((loaded) => setChecked(loaded.map((row) => row.id)))
-            }}
-          />
+          <div className="flex h-10 items-center gap-1 px-1">
+            <span className="inline-flex size-3.5 shrink-0" aria-hidden="true" />
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              aria-label={t('selectAll')}
+              checked={allChecked}
+              onChange={() => {
+                if (allChecked) {
+                  setChecked([])
+                  return
+                }
+                void loadEveryRow().then((loaded) => setChecked(loaded.map((row) => row.id)))
+              }}
+            />
+          </div>
         ),
         size: 72,
         cell: ({ row }) => (
@@ -1016,18 +1110,21 @@ export function TableScreen({ tableId }: { tableId: string }) {
             className="flex h-9 items-center gap-1 px-1"
             onContextMenu={(event) => openRowMenu(event, row.original)}
           >
-            <button
-              type="button"
+            <span
+              role="button"
+              tabIndex={0}
               draggable
               aria-label={t('reorder')}
-              className="text-muted-foreground"
+              className="inline-flex shrink-0 cursor-grab text-muted-foreground"
+              onMouseDown={(event) => event.stopPropagation()}
               onDragStart={(event) => {
+                event.stopPropagation()
                 event.dataTransfer.setData('text/plain', `row:${row.original.id}`)
                 event.dataTransfer.effectAllowed = 'move'
               }}
             >
               <GripVertical className="size-3.5" />
-            </button>
+            </span>
             <input
               type="checkbox"
               aria-label={row.original.id}
@@ -1056,21 +1153,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const ruleStyle = stylesForCell(rules, row.original.cells, column.id)
           const background = row.original.backgrounds?.[column.id] || row.original.color || ruleStyle.background
           const active = editing === `${row.original.id}:${column.id}`
-          const text = showCell(value)
+          const invalid = invalidCells[`cell:${row.original.id}:${column.id}`]
+          const text = invalid?.text ?? showCell(value)
           return (
             <div
-              className="h-9 px-2"
+              className="flex h-9 min-w-0 items-center overflow-hidden px-2"
               style={{ color: ruleStyle.color, background, fontWeight: ruleStyle.bold ? 700 : 400 }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
             >
               {active && column.type === 'relation' ? (
                 <select
                   autoFocus
-                  className="h-7 w-full bg-transparent text-sm outline-none"
+                  className="h-9 w-full bg-transparent text-sm outline-none"
                   defaultValue={text}
                   aria-label={`Edit ${column.name}`}
                   onChange={(event) => {
-                    scheduleCell(row.original, column.id, event.target.value, 0)
+                    scheduleCell(row.original, column, event.target.value, 0)
                     void sync.flush(`cell:${row.original.id}:${column.id}`)
                     setEditing(null)
                   }}
@@ -1092,12 +1190,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   tags={table?.tags ?? []}
                   statuses={table?.statuses ?? []}
                   members={membersQuery.data?.members ?? []}
-                  onEdit={(value, delay) => scheduleCell(row.original, column.id, value, delay)}
+                  hint={invalid?.message}
+                  onEdit={(value, delay) => scheduleCell(row.original, column, value, delay)}
                   onFlush={() => {
-                    void sync.flush(`cell:${row.original.id}:${column.id}`).catch(() => setNotice(t('error'))).finally(() => setEditing(null))
+                    void sync.flush(`cell:${row.original.id}:${column.id}`).catch((error: unknown) => {
+                      if (!(error instanceof ApiClientError) || error.status !== 400) setNotice(t('error'))
+                    }).finally(() => setEditing(null))
                   }}
                   onCancel={() => {
                     sync.cancel(`cell:${row.original.id}:${column.id}`)
+                    clearInvalid(`cell:${row.original.id}:${column.id}`)
                     setEditing(null)
                   }}
                   onOpen={() => {
@@ -1116,7 +1218,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         },
       })),
     ],
-    [allChecked, catalogSignature, checked, columnSignature, editing, rulesSignature, t, targetSignature],
+    [allChecked, catalogSignature, checked, columnSignature, editing, invalidSignature, rulesSignature, t, targetSignature],
   )
   const grid = useReactTable({ data: rows, columns: tableColumns, getCoreRowModel: getCoreRowModel() })
   const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 36, overscan: 8 })
@@ -1178,24 +1280,25 @@ export function TableScreen({ tableId }: { tableId: string }) {
           })
         }}
       />
-      <div ref={parentRef} tabIndex={0} className="relative h-[calc(100vh-8.5rem)] min-h-80 overflow-auto rounded-md border border-border bg-card" onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
+      <div className="relative h-[calc(100vh-8.5rem)] min-h-80">
+      <div ref={parentRef} tabIndex={0} className="h-full overflow-auto rounded-md border border-border bg-card" onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
         if (editing) return
         const text = event.clipboardData.getData('text/plain')
         if (!text.includes('\t') && !text.includes('\n')) return
         event.preventDefault()
         void pasteTsv(text)
       }}>
-        <table className="border-collapse text-sm" style={{ width: Math.max(72 + visible.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0) + 40, 0), minWidth: '100%' }}>
+        <table className="table-fixed border-collapse text-sm" style={{ width: 72 + visible.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0) + 40 }}>
           <thead className="sticky top-0 z-10 bg-muted">
             <tr>
-              <th className="h-10 w-16 border-b border-border px-2 text-left">{flexRender(grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header, grid.getHeaderGroups()[0]?.headers[0]?.getContext())}</th>
+              <th className="h-10 w-[4.5rem] border-b border-border p-0 text-left">{flexRender(grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header, grid.getHeaderGroups()[0]?.headers[0]?.getContext())}</th>
               {visible.map((column) => {
                 const activeSort = sort?.columnId === column.id
                 const filtered = Boolean(filterInput[column.id] && (filterInput[column.id].op === 'empty' || filterInput[column.id].op === 'not_empty' || filterInput[column.id].value))
                 return (
                   <th
                     key={column.id}
-                    className={`group relative h-10 border-b border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''}`}
+                    className={`group relative h-10 overflow-visible border-b border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''}`}
                     style={{ width: widths[column.id] ?? column.width }}
                     onDragOver={(event: DragEvent) => event.preventDefault()}
                     onDrop={(event: DragEvent) => {
@@ -1207,20 +1310,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     onClick={(event) => chooseColumns(event, column.id)}
                     onContextMenu={(event) => openColumnMenu(event, column)}
                   >
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
+                    <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                      <span
+                        role="button"
+                        tabIndex={0}
                         draggable
                         aria-label={t('reorder')}
-                        className="text-muted-foreground"
+                        className="inline-flex shrink-0 cursor-grab text-muted-foreground"
+                        onMouseDown={(event) => event.stopPropagation()}
                         onClick={(event) => event.stopPropagation()}
                         onDragStart={(event) => {
+                          event.stopPropagation()
                           event.dataTransfer.setData('text/plain', `column:${column.id}`)
                           event.dataTransfer.effectAllowed = 'move'
                         }}
                       >
                         <GripVertical className="size-3.5" />
-                      </button>
+                      </span>
                       <button type="button" aria-label={t('icon')} className="text-muted-foreground" onClick={(event) => { event.stopPropagation(); setPopover({ kind: 'icon', columnId: column.id, ...anchor(event) }) }}>
                         <ColumnIcon name={String(column.config.icon ?? defaultIcon(column.type))} />
                       </button>
@@ -1228,7 +1334,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         <QuietInput
                           autoFocus
                           label={t('rename')}
-                          className="h-7 min-w-0 flex-1 bg-transparent outline-none"
+                          className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
                           value={column.name}
                           onDraft={(next) => scheduleColumnName(column, next)}
                           onFlush={() => {
@@ -1265,7 +1371,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     <div
                       role="separator"
                       aria-label={t('resize')}
-                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize"
+                      className="absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize"
                       onMouseDown={(event) => {
                         event.preventDefault()
                         event.stopPropagation()
@@ -1292,7 +1398,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       data-header-control
                       aria-label={t('insertColumn')}
                       className="absolute -right-2.5 top-1/2 z-20 hidden h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card group-hover:flex"
-                      onClick={(event) => { event.stopPropagation(); void insertColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id) }}
+                      onClick={(event) => { event.stopPropagation(); openNewColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id, anchor(event)) }}
                     >
                       <Plus className="size-3" />
                     </button>
@@ -1300,7 +1406,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 )
               })}
               <th className="w-10 border-b border-border">
-                <button type="button" aria-label={t('insertColumn')} className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent" onClick={() => void insertColumn()}>
+                <button type="button" aria-label={t('insertColumn')} className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent" onClick={(event) => openNewColumn(undefined, anchor(event))}>
                   <Plus className="size-4" />
                 </button>
               </th>
@@ -1320,11 +1426,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     event.preventDefault()
                     const payload = event.dataTransfer.getData('text/plain')
                     if (!payload.startsWith('row:')) return
+                    if (sort) setSort(null)
                     void reorderRow(payload.slice(4), row.original.id)
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="border-b border-border p-0">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                    <td key={cell.id} className="overflow-hidden border-b border-border p-0">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
                   ))}
                   <td className="border-b border-border" />
                 </tr>
@@ -1356,8 +1463,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
             </tr>
           </tbody>
         </table>
+      </div>
         {checked.length > 0 || selectedColumns.length > 0 ? (
-          <div className="sticky bottom-3 z-20 mx-auto flex w-fit items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-md">
+          <div className="absolute bottom-3 left-1/2 z-20 flex w-max -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-md">
             <span className="text-sm">{t('selectedCount', { count: checked.length + selectedColumns.length })}</span>
             {checked.length > 0 ? <Button type="button" variant="outline" onClick={() => void duplicateSelectedRows(checked)}>{t('duplicateRows')}</Button> : null}
             {selectedColumns.length > 0 ? <Button type="button" variant="outline" onClick={() => void duplicateSelectedColumns(selectedColumns)}>{t('duplicateColumns')}</Button> : null}
@@ -1374,6 +1482,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
       {popover ? (
         <div data-popover className="fixed z-40 w-64 rounded-md border border-border bg-card p-3 shadow-md" style={{ left: popover.x, top: popover.y }}>
           {popover.kind === 'find' ? <Input aria-label={t('find')} value={searchInput} onChange={(event) => { const value = event.target.value; setSearchInput(value); sync.watch(`find:${tableId}`, 300, () => setSearch(value)) }} /> : null}
+          {popover.kind === 'new-column' ? (
+            <div className="flex flex-col gap-2">
+              <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('columnType')} value={newColumnType} onChange={(event) => setNewColumnType(event.target.value)}>
+                {COLUMN_TYPES.map((type) => <option key={type} value={type}>{t(`type_${type}`)}</option>)}
+              </select>
+              <Button type="button" onClick={() => void createColumn(newColumnType)}>{t('confirm')}</Button>
+            </div>
+          ) : null}
           {popover.kind === 'filter' && popoverColumn ? (
             <div className="flex flex-col gap-2">
               <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('operator')} value={filterInput[popoverColumn.id]?.op ?? operatorsFor(popoverColumn.type)[0]} onChange={(event) => { const next = { ...filterInput, [popoverColumn.id]: { op: event.target.value, value: filterInput[popoverColumn.id]?.value ?? '' } }; setFilterInput(next); sync.watch(`filter:${tableId}`, 300, () => setFilters(next)) }}>

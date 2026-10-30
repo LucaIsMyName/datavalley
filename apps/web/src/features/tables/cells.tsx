@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CatalogItem, Column, RowRecord } from '@datavalley/api-client'
+import { CircleAlert } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import { api } from '../../lib/api'
 
@@ -46,6 +47,7 @@ export function CellEditor({
   onCancel,
   onOpen,
   onCreated,
+  hint,
 }: {
   column: Column
   row: RowRecord
@@ -60,6 +62,7 @@ export function CellEditor({
   onCancel: () => void
   onOpen: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
+  hint?: string | null
 }) {
   if (column.type === 'row_id') {
     const shown = column.config.style === 'uuid' ? row.id : String(row.rowNumber || '')
@@ -83,17 +86,39 @@ export function CellEditor({
         </button>
       )
     }
+    const shown = hint ? text : column.type === 'number' || column.type === 'currency' || column.type === 'datetime' ? formatCell(column, row.cells[column.id]) : text
     return (
-      <button type="button" className="h-full w-full truncate text-left" aria-label={`Edit ${column.name}`} onClick={onOpen}>
-        {column.type === 'number' || column.type === 'currency' || column.type === 'datetime' ? formatCell(column, row.cells[column.id]) : text}
-      </button>
+      <div className="flex h-full min-w-0 flex-1 items-center gap-1">
+        <button type="button" className="h-9 min-w-0 flex-1 truncate text-left leading-9" aria-label={`Edit ${column.name}`} onClick={onOpen}>
+          {shown}
+        </button>
+        {hint ? <FormatHint message={hint} /> : null}
+      </div>
     )
   }
   if (column.type === 'date' || column.type === 'datetime') return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
   if (column.type === 'tags') return <TagEditor tableId={tableId} column={column} row={row} tags={tags} onEdit={onEdit} onFlush={onFlush} onCreated={onCreated} />
   if (column.type === 'status') return <StatusEditor tableId={tableId} column={column} row={row} statuses={statuses} onEdit={onEdit} onFlush={onFlush} onCreated={onCreated} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
-  return <TextEditor label={`Edit ${column.name}`} value={text} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
+  return (
+    <div className="flex h-full min-w-0 flex-1 items-center gap-1">
+      <TextEditor label={`Edit ${column.name}`} value={text} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
+      {hint ? <FormatHint message={hint} /> : null}
+    </div>
+  )
+}
+
+function FormatHint({ message }: { message: string }) {
+  return (
+    <span className="group/hint relative inline-flex shrink-0">
+      <span tabIndex={0} aria-label={message} className="text-danger outline-none">
+        <CircleAlert className="size-3.5" />
+      </span>
+      <span role="tooltip" className="pointer-events-none absolute bottom-full right-0 z-30 mb-1 hidden w-max max-w-56 rounded-md border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md group-hover/hint:block group-focus-within/hint:block">
+        {message}
+      </span>
+    </span>
+  )
 }
 
 function TextEditor({ label, value, onEdit, onFlush, onCancel }: { label: string; value: string; onEdit: (value: string) => void; onFlush: () => void; onCancel: () => void }) {
@@ -102,7 +127,7 @@ function TextEditor({ label, value, onEdit, onFlush, onCancel }: { label: string
     <input
       autoFocus
       aria-label={label}
-      className="h-7 w-full bg-transparent outline-none"
+      className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
       value={draft}
       onChange={(event) => { setDraft(event.target.value); onEdit(event.target.value) }}
       onBlur={onFlush}
@@ -120,8 +145,8 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
   const [time, setTime] = useState(raw.includes('T') ? raw.slice(11, 16) : '')
   return (
     <div className="flex h-full items-center gap-1">
-      <input aria-label={`Edit ${column.name}`} type="date" className="h-7 bg-transparent outline-none" value={date} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); const next = column.type === 'datetime' && time ? `${nextDate}T${time}` : nextDate; onEdit(next, 0); onFlush() }} />
-      {column.type === 'datetime' ? <input aria-label={`${column.name} time`} type="time" className="h-7 bg-transparent outline-none" value={time} onChange={(event) => { const nextTime = event.target.value; setTime(nextTime); onEdit(nextTime ? `${date}T${nextTime}` : date, 0); onFlush() }} /> : null}
+      <input aria-label={`Edit ${column.name}`} type="date" className="h-9 bg-transparent outline-none" value={date} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); const next = column.type === 'datetime' && time ? `${nextDate}T${time}` : nextDate; onEdit(next, 0); onFlush() }} />
+      {column.type === 'datetime' ? <input aria-label={`${column.name} time`} type="time" className="h-9 bg-transparent outline-none" value={time} onChange={(event) => { const nextTime = event.target.value; setTime(nextTime); onEdit(nextTime ? `${date}T${nextTime}` : date, 0); onFlush() }} /> : null}
     </div>
   )
 }

@@ -107,6 +107,27 @@ describe('sync engine', () => {
     expect(stored).toBe('after')
   })
 
+  it('drops a pending edit without rolling it back', async () => {
+    vi.useFakeTimers()
+    const engine = createSync()
+    const seen: string[] = []
+    engine.edit('cell', {
+      draft: 'A',
+      delay: 300,
+      apply: () => seen.push('apply'),
+      commit: async () => {
+        seen.push('commit')
+        return {}
+      },
+      accept: () => seen.push('accept'),
+      rollback: () => seen.push('rollback'),
+    })
+    engine.discard('cell')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(seen).toEqual(['apply'])
+    vi.useRealTimers()
+  })
+
   it('runs a watched read once after the pause', async () => {
     vi.useFakeTimers()
     const engine = createSync()
