@@ -186,9 +186,9 @@ export async function queryRows(
   const join = sortColumn
     ? sql`LEFT JOIN table_cells sc ON sc.row_id = r.id AND sc.column_id = ${sortColumn.id}::uuid`
     : sql``
-  const rows = await many<{ id: string; position: string; version: number; color: string | null; sort_value: string | null }>(
+  const rows = await many<{ id: string; position: string; version: number; color: string | null; notes: string | null; row_number: number | null; sort_value: string | null }>(
     db,
-    sql`SELECT r.id, r.position, r.version::int AS version, r.color, ${sortColumn ? sortSql(sortColumn.type) : sql`NULL`} AS sort_value
+    sql`SELECT r.id, r.position, r.version::int AS version, r.color, r.notes, r.row_number::int AS row_number, ${sortColumn ? sortSql(sortColumn.type) : sql`NULL`} AS sort_value
         FROM table_rows r
         ${join}
         WHERE r.table_id = ${input.tableId}::uuid
@@ -217,6 +217,8 @@ export async function queryRows(
       position: String(row.position),
       version: Number(row.version),
       color: row.color == null ? null : String(row.color),
+      notes: row.notes == null ? '' : String(row.notes),
+      rowNumber: Number(row.row_number ?? 0),
     })),
     nextCursor,
   }
@@ -240,15 +242,26 @@ export async function footerFor(
   const columns = new Map(input.columns.map((column) => [column.id, column]))
   const filter = compileFilter(input.filter, columns)
   const numeric = input.column.type === 'number' || input.column.type === 'currency'
-  const field = numeric ? sql`c.value_number` : sql`c.value_text`
-  const [row] = await many<{ count: number; sum: string | null; avg: string | null; min: string | null; max: string | null }>(
+  const field = numeric
+    ? sql`c.value_number`
+    : input.column.type === 'tags' || input.column.type === 'user' || input.column.type === 'status'
+      ? sql`c.value_jsonb`
+      : input.column.type === 'checkbox'
+        ? sql`c.value_bool`
+        : input.column.type === 'datetime'
+          ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
+          : sql`c.value_text`
+  const [row] = await many<{ count: number; filled: number; sum: string | null; avg: string | null; min: string | null; max: string | null; median: string | null; unique: number }>(
     db,
     sql`SELECT
-          count(c.id)::int AS count,
+          count(*)::int AS count,
+          count(${field})::int AS filled,
           ${numeric ? sql`sum(${field})` : sql`NULL`} AS sum,
           ${numeric ? sql`avg(${field})` : sql`NULL`} AS avg,
           min(${field}) AS min,
-          max(${field}) AS max
+          max(${field}) AS max,
+          ${numeric ? sql`percentile_cont(0.5) WITHIN GROUP (ORDER BY ${field})` : sql`NULL`} AS median,
+          count(DISTINCT ${field})::int AS unique
         FROM table_rows r
         LEFT JOIN table_cells c ON c.row_id = r.id AND c.column_id = ${input.column.id}::uuid
         WHERE r.table_id = ${input.tableId}::uuid
@@ -263,10 +276,16 @@ export async function footerFor(
               AND g.effect = 'deny'
           )`,
   )
+  const count = Number(row?.count ?? 0)
+  const filled = Number(row?.filled ?? 0)
   return {
-    count: Number(row?.count ?? 0),
+    count,
+    filled,
+    empty: count - filled,
+    unique: Number(row?.unique ?? 0),
     sum: row?.sum == null ? null : Number(row.sum),
     avg: row?.avg == null ? null : Number(row.avg),
+    median: row?.median == null ? null : Number(row.median),
     min: row?.min == null ? null : numeric ? Number(row.min) : row.min,
     max: row?.max == null ? null : numeric ? Number(row.max) : row.max,
   }

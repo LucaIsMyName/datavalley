@@ -18,6 +18,7 @@ export type RowSnap = {
   cells: Record<string, unknown>
   color: string | null
   backgrounds: Record<string, string>
+  notes?: string
 }
 
 export type ColumnSnap = {
@@ -120,10 +121,10 @@ async function createFromSnap(tableId: string, row: RowSnap) {
     method: 'POST',
     body: JSON.stringify({ cells: row.cells, ...(row.nextId ? { beforeId: row.nextId } : {}) }),
   })
-  if (row.color || Object.keys(row.backgrounds).length > 0) {
+  if (row.color || row.notes || Object.keys(row.backgrounds).length > 0) {
     await api.request(`/rows/${created.row.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ version: created.row.version, cells: {}, color: row.color, backgrounds: row.backgrounds }),
+      body: JSON.stringify({ version: created.row.version, cells: {}, color: row.color, backgrounds: row.backgrounds, notes: row.notes ?? '' }),
     })
   }
   return created.row.id

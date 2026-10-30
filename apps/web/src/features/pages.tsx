@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiClientError, type Project, type TableRecord, type User } from '@datavalley/api-client'
@@ -13,6 +13,7 @@ import { useContextMenu } from '../components/context-menu'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states'
 import { TableScreen } from './tables/grid'
 import { api } from '../lib/api'
+import { sync } from '../lib/sync'
 import { applyTheme, useSession } from '../stores/session'
 
 export function LoginPage() {
@@ -294,6 +295,47 @@ export function ProjectsPage() {
   )
 }
 
+function ProjectDescription({ projectId, value }: { projectId: string; value: string }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [text, setText] = useState(value)
+  const focused = useRef(false)
+  const baseline = useRef(value)
+  useEffect(() => {
+    if (focused.current) return
+    setText(value)
+    baseline.current = value
+  }, [value])
+  return (
+    <textarea
+      aria-label={t('description')}
+      className="min-h-16 w-full resize-y bg-transparent text-sm text-muted-foreground outline-none"
+      value={text}
+      placeholder={t('description')}
+      onFocus={() => { focused.current = true }}
+      onChange={(event) => {
+        const next = event.target.value
+        setText(next)
+        sync.edit(`project:${projectId}:description`, {
+          draft: next,
+          delay: 300,
+          apply: () => undefined,
+          commit: (draft) => api.request<{ project: Project }>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify({ description: draft }) }),
+          accept: (result) => {
+            baseline.current = result.project.description
+            queryClient.setQueryData(['project', projectId], result)
+          },
+          rollback: () => setText(baseline.current),
+        })
+      }}
+      onBlur={() => {
+        focused.current = false
+        void sync.flush(`project:${projectId}:description`)
+      }}
+    />
+  )
+}
+
 export function ProjectPage() {
   const { projectId = '' } = useParams()
   const { t } = useTranslation()
@@ -323,6 +365,7 @@ export function ProjectPage() {
         </Button>
       }
     >
+      <ProjectDescription projectId={projectId} value={project.data?.project.description ?? ''} />
       {tables.data?.tables.length === 0 ? <EmptyState title={t('emptyTables')} body={t('emptyTablesBody')} /> : null}
       <div className="grid gap-3 md:grid-cols-2">
         {tables.data?.tables.map((table) => (

@@ -46,7 +46,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
 
   app.patch('/projects/:id', async (request) => {
     if (!request.subject) throw unauthorized()
-    const body = request.body as { name?: string; settings?: Record<string, unknown> }
+    const body = request.body as { name?: string; description?: string; settings?: Record<string, unknown> }
     return { project: await updateProject(db, request.subject, (request.params as { id: string }).id, body) }
   })
 

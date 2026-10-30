@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { parseCsv, toCsv, type FilterNode } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
-import { formulas, relations, relationRecords, tableCells, tableRows } from '../../database/schema.js'
+import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
 import { allows, loadGrants } from '../../security/access.js'
@@ -40,13 +40,17 @@ async function cellsFor(db: AppDatabase, rowIds: string[]) {
 
 function presentRows(
   columns: LoadedColumn[],
-  page: { id: string; position: string; version: number; color?: string | null }[],
+  page: { id: string; position: string; version: number; color?: string | null; notes?: string | null; rowNumber?: number | null }[],
   cells: (typeof tableCells.$inferSelect)[],
 ) {
   return page.map((row) => {
     const values: Record<string, unknown> = {}
     const backgrounds: Record<string, string> = {}
     for (const column of columns) {
+      if (column.type === 'row_id') {
+        values[column.id] = column.config.style === 'uuid' ? row.id : row.rowNumber ?? null
+        continue
+      }
       const cell = cells.find((item) => item.rowId === row.id && item.columnId === column.id)
       values[column.id] = readCell(column, cell ? {
         valueText: cell.valueText,
@@ -57,7 +61,16 @@ function presentRows(
       } : undefined)
       if (cell?.background) backgrounds[column.id] = cell.background
     }
-    return { id: row.id, position: row.position, version: row.version, color: row.color ?? null, cells: values, backgrounds }
+    return {
+      id: row.id,
+      position: row.position,
+      version: row.version,
+      color: row.color ?? null,
+      notes: row.notes ?? '',
+      rowNumber: row.rowNumber ?? 0,
+      cells: values,
+      backgrounds,
+    }
   })
 }
 
@@ -98,6 +111,26 @@ export async function listRows(
     }
   }
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
+}
+
+async function assertReferences(db: AppDatabase, tableId: string, projectId: string, column: LoadedColumn, input: unknown) {
+  if (input == null || input === '') return
+  if (column.type === 'tags' || column.type === 'user') {
+    const ids = Array.isArray(input) ? input.map(String) : []
+    if (ids.length === 0) return
+    const unique = new Set(ids)
+    if (column.type === 'tags') {
+      const found = await db.select({ id: tableTags.id }).from(tableTags).where(and(eq(tableTags.tableId, tableId), inArray(tableTags.id, ids)))
+      if (found.length !== unique.size) throw badRequest('Unknown tag')
+      return
+    }
+    const found = await db.select({ userId: projectMembers.userId }).from(projectMembers).where(and(eq(projectMembers.projectId, projectId), inArray(projectMembers.userId, ids)))
+    if (found.length !== unique.size) throw badRequest('Unknown user')
+  }
+  if (column.type === 'status') {
+    const [found] = await db.select({ id: tableStatuses.id }).from(tableStatuses).where(and(eq(tableStatuses.tableId, tableId), eq(tableStatuses.id, String(input)))).limit(1)
+    if (!found) throw badRequest('Unknown status')
+  }
 }
 
 async function writeCell(db: AppDatabase, tableId: string, rowId: string, column: LoadedColumn, value: unknown, background?: string | null) {
@@ -179,7 +212,7 @@ export async function createRow(
   cells: Record<string, unknown> = {},
   placement: { beforeId?: string; afterId?: string } = {},
 ) {
-  await requireTable(db, subject, tableId, 'create')
+  const table = await requireTable(db, subject, tableId, 'create')
   const columns = await loadColumns(db, tableId)
   const existing = await db
     .select({ id: tableRows.id, position: tableRows.position })
@@ -188,10 +221,16 @@ export async function createRow(
     .orderBy(asc(tableRows.position))
   const position = positionBetween(existing, placement.beforeId, placement.afterId)
   const row = await db.transaction(async (tx) => {
-    const [created] = await tx.insert(tableRows).values({ tableId, position, createdBy: subject.id }).returning()
+    const [numbered] = await tx
+      .update(tables)
+      .set({ nextRowNumber: sql`${tables.nextRowNumber} + 1` })
+      .where(eq(tables.id, tableId))
+      .returning({ nextRowNumber: tables.nextRowNumber })
+    const [created] = await tx.insert(tableRows).values({ tableId, position, rowNumber: numbered.nextRowNumber - 1, createdBy: subject.id }).returning()
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)
       if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
+      await assertReferences(tx as unknown as AppDatabase, tableId, table.projectId, column, value)
       await writeCell(tx as unknown as AppDatabase, tableId, created.id, column, value)
     }
     return created
@@ -226,7 +265,7 @@ export async function patchRow(
   db: AppDatabase,
   subject: Subject,
   rowId: string,
-  input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null> },
+  input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; notes?: string },
 ) {
   const { row, table, grants } = await assertRow(db, subject, rowId, 'edit')
   if (row.version !== input.version) throw conflict('This row was changed by someone else')
@@ -247,12 +286,14 @@ export async function patchRow(
         version: row.version + 1,
         updatedAt: new Date(),
         ...('color' in input ? { color: input.color ?? null } : {}),
+        ...('notes' in input ? { notes: input.notes ?? '' } : {}),
       })
       .where(and(eq(tableRows.id, row.id), eq(tableRows.version, input.version)))
       .returning()
     if (updated.length === 0) throw conflict('This row was changed by someone else')
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
+      await assertReferences(tx as unknown as AppDatabase, table.id, table.projectId, column, value)
       await writeCell(tx as unknown as AppDatabase, table.id, row.id, column, value)
     }
     for (const [columnId, background] of Object.entries(input.backgrounds ?? {})) {
@@ -312,7 +353,7 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
     const { row } = await assertRow(db, subject, rowId, 'view')
     const cells = await cellsFor(db, [row.id])
     const copy = await createRow(db, subject, tableId)
-    if (row.color) await db.update(tableRows).set({ color: row.color }).where(eq(tableRows.id, copy.id))
+    if (row.color || row.notes) await db.update(tableRows).set({ color: row.color, notes: row.notes }).where(eq(tableRows.id, copy.id))
     const columns = await loadColumns(db, tableId)
     for (const cell of cells) {
       const column = columns.find((item) => item.id === cell.columnId)
@@ -415,7 +456,20 @@ export async function exportCsv(db: AppDatabase, subject: Subject, tableId: stri
   }
   const cells = await cellsFor(db, all.map((row) => row.id))
   const rendered = presentRows(columns, all, cells)
-  const lines = [columns.map((column) => column.name), ...rendered.map((row) => columns.map((column) => display(row.cells[column.id])))]
+  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, table.id))
+  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id))
+  const members = await db
+    .select({ userId: projectMembers.userId, username: users.username })
+    .from(projectMembers)
+    .innerJoin(users, eq(users.id, projectMembers.userId))
+    .where(eq(projectMembers.projectId, table.projectId))
+  const label = (column: LoadedColumn, value: unknown) => {
+    if (column.type === 'tags' && Array.isArray(value)) return value.map((id) => tags.find((tag) => tag.id === id)?.name ?? String(id)).join('|')
+    if (column.type === 'status' && typeof value === 'string') return statuses.find((status) => status.id === value)?.name ?? value
+    if (column.type === 'user' && Array.isArray(value)) return value.map((id) => members.find((member) => member.userId === id)?.username ?? String(id)).join('|')
+    return display(value)
+  }
+  const lines = [[...columns.map((column) => column.name), 'Notes'], ...rendered.map((row) => [...columns.map((column) => label(column, row.cells[column.id])), row.notes ?? ''])]
   return { csv: toCsv(lines), rowCount: rendered.length, truncated: Boolean(cursor) }
 }
 

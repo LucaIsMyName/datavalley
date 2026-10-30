@@ -3,7 +3,8 @@
 Application metadata and dynamic CRM data live in one PostgreSQL database. Creating a CRM table does not create a physical database table.
 
 - `tables` and `table_columns` describe the schema. `tables.format_rules` stores conditional colors for the table.
-- `table_rows` stores identity, fractional `position`, an integer `version`, and an optional row `color`.
+- `table_rows` stores identity, fractional `position`, an integer `version`, an optional row `color`, markdown `notes`, and a `row_number` taken from `tables.next_row_number`. Deleted numbers are not reused.
+- `projects.description` is optional text. `table_tags` and `table_statuses` are catalogs scoped to one table, unique by name ignoring case. Tag, user, and status cells store ids in `value_jsonb`. A `row_id` column is not writable: it shows the row id or the sequence number.
 - `table_cells` stores one sparse typed value per non-empty cell: text, numeric, boolean, timestamptz, or jsonb. A cell can also store a `background` color, including when it has no value. `mail` is stored as text and must be an email address.
 - Empty cells are absent.
 - `column_options` stores select and radio choices.

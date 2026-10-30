@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { generateKeyBetween } from 'fractional-indexing'
 import type { AppDatabase } from '../../database/client.js'
 import { columnOptions, tableCells, tableColumns, tableRows, tables } from '../../database/schema.js'
@@ -16,8 +17,9 @@ export async function seedStarter(db: AppDatabase, projectId: string, userId: st
     .returning()
   const [row] = await db
     .insert(tableRows)
-    .values({ tableId: table.id, position: generateKeyBetween(null, null), createdBy: userId })
+    .values({ tableId: table.id, position: generateKeyBetween(null, null), rowNumber: 1, createdBy: userId })
     .returning()
+  await db.update(tables).set({ nextRowNumber: 2 }).where(eq(tables.id, table.id))
   await db.insert(tableCells).values([
     { tableId: table.id, rowId: row.id, columnId: nameColumn.id, valueText: 'John Doe' },
     { tableId: table.id, rowId: row.id, columnId: mailColumn.id, valueText: 'john@doe.com' },

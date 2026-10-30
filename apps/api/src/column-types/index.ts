@@ -17,9 +17,32 @@ export const columnTypeIds = [
   'formula',
   'relation',
   'lookup',
+  'tags',
+  'user',
+  'status',
+  'row_id',
 ] as const
 
 export type ColumnTypeId = (typeof columnTypeIds)[number]
+
+export function defaultColumnIcon(type: string) {
+  if (type === 'long_text') return 'AlignLeft'
+  if (type === 'number') return 'Hash'
+  if (type === 'currency') return 'Coins'
+  if (type === 'mail') return 'Mail'
+  if (type === 'url') return 'Link'
+  if (type === 'date') return 'Calendar'
+  if (type === 'datetime') return 'CalendarClock'
+  if (type === 'checkbox') return 'CheckSquare'
+  if (type === 'select' || type === 'radio' || type === 'status') return 'CircleDot'
+  if (type === 'tags' || type === 'multi_select') return 'Tags'
+  if (type === 'user') return 'Users'
+  if (type === 'row_id') return 'Fingerprint'
+  if (type === 'formula' || type === 'lookup') return 'FunctionSquare'
+  if (type === 'relation') return 'ArrowRightLeft'
+  if (type === 'media') return 'Paperclip'
+  return 'Type'
+}
 
 export type ColumnOption = { id: string; label: string; color: string | null; position: string }
 
@@ -59,12 +82,19 @@ export function operatorsFor(type: string): string[] {
   if (type === 'select' || type === 'radio' || type === 'multi_select' || type === 'relation') {
     return ['eq', 'neq', 'empty', 'not_empty']
   }
-  if (type === 'formula' || type === 'lookup' || type === 'media') return ['empty', 'not_empty']
+  if (type === 'formula' || type === 'lookup' || type === 'media' || type === 'row_id') return ['empty', 'not_empty']
+  if (type === 'tags' || type === 'user' || type === 'status') return ['eq', 'neq', 'empty', 'not_empty']
   return textOperators()
 }
 
 export function isWritable(type: string) {
-  return type !== 'formula' && type !== 'lookup'
+  return type !== 'formula' && type !== 'lookup' && type !== 'row_id'
+}
+
+export const tagColors = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
+
+export function nextTagColor(used: number) {
+  return tagColors[used % tagColors.length]
 }
 
 function one(partial: Partial<CellWrite>): CellWrite {
@@ -103,6 +133,8 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
     case 'currency': {
       const numeric = typeof input === 'number' ? input : Number(String(input).trim())
       if (!Number.isFinite(numeric)) throw badRequest(`${column.name} must be a number`)
+      const variant = column.type === 'currency' ? 'money' : String(column.config.variant ?? 'float')
+      if (variant === 'integer' && !Number.isInteger(numeric)) throw badRequest(`${column.name} must be a whole number`)
       return one({ valueNumber: numeric.toFixed(4) })
     }
     case 'date': {
@@ -113,10 +145,22 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
       return one({ valueText: value })
     }
     case 'datetime': {
-      const date = new Date(String(input))
+      const raw = String(input)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return one({ valueText: raw })
+      const date = new Date(raw)
       if (Number.isNaN(date.getTime())) throw badRequest(`${column.name} must be a date and time`)
       return one({ valueTimestamptz: date })
     }
+    case 'tags': {
+      const values = Array.isArray(input) ? input.map(String) : String(input).split('|').map((part) => part.trim()).filter(Boolean)
+      return one({ valueJsonb: { tagIds: values } })
+    }
+    case 'user': {
+      const values = Array.isArray(input) ? input.map(String) : String(input).split('|').map((part) => part.trim()).filter(Boolean)
+      return one({ valueJsonb: { userIds: values } })
+    }
+    case 'status':
+      return one({ valueJsonb: { statusId: String(input) } })
     case 'checkbox':
       return one({ valueBool: input === true || input === 'true' || input === '1' || input === 'yes' })
     case 'select':
@@ -145,7 +189,20 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
     return row.valueNumber == null ? null : Number(row.valueNumber)
   }
   if (column.type === 'datetime') {
+    if (row.valueText) return row.valueText
     return row.valueTimestamptz ? new Date(row.valueTimestamptz).toISOString() : null
+  }
+  if (column.type === 'tags') {
+    const value = row.valueJsonb as { tagIds?: string[] } | null
+    return value?.tagIds ?? null
+  }
+  if (column.type === 'user') {
+    const value = row.valueJsonb as { userIds?: string[] } | null
+    return value?.userIds ?? null
+  }
+  if (column.type === 'status') {
+    const value = row.valueJsonb as { statusId?: string } | null
+    return value?.statusId ?? null
   }
   if (column.type === 'select' || column.type === 'radio') {
     const value = row.valueJsonb as { optionId?: string } | null
@@ -166,7 +223,7 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
 export function coerceImport(column: ColumnShape, raw: string): CellWrite | null {
   if (raw.trim() === '') return null
   if (column.type === 'checkbox') return parseCell(column, ['true', 'yes', '1'].includes(raw.trim().toLowerCase()))
-  if (column.type === 'multi_select') return parseCell(column, raw.split('|').map((part) => part.trim()))
+  if (column.type === 'multi_select' || column.type === 'tags' || column.type === 'user') return parseCell(column, raw.split('|').map((part) => part.trim()))
   return parseCell(column, raw.trim())
 }
 

@@ -8,10 +8,12 @@ import {
   tableCells,
   tableColumns,
   tableRows,
+  tableStatuses,
+  tableTags,
   tables,
   userRecentItems,
 } from '../../database/schema.js'
-import { columnTypeIds, parseCell, readCell, type CellWrite, type ColumnShape } from '../../column-types/index.js'
+import { columnTypeIds, defaultColumnIcon, nextTagColor, parseCell, readCell, type CellWrite, type ColumnShape } from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
@@ -168,7 +170,9 @@ export async function getTable(db: AppDatabase, subject: Subject, tableId: strin
         set: { openedAt: new Date() },
       })
   }
-  return { ...presentTable(table), columns: (await loadColumns(db, table.id)).map(presentColumn) }
+  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, table.id)).orderBy(asc(tableTags.name))
+  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id)).orderBy(asc(tableStatuses.position))
+  return { ...presentTable(table), columns: (await loadColumns(db, table.id)).map(presentColumn), tags, statuses }
 }
 
 export async function updateTable(
@@ -239,7 +243,11 @@ export async function addColumn(
         name: input.name.trim(),
         description: input.description ?? '',
         type: input.type,
-        config: input.config ?? {},
+        config: {
+          icon: defaultColumnIcon(input.type),
+          ...(input.type === 'row_id' ? { style: 'sequence' } : {}),
+          ...(input.config ?? {}),
+        },
         position,
       })
       .returning()
@@ -442,10 +450,21 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       await db.insert(columnOptions).values({ columnId: created.id, label: option.label, color: option.color, position: option.position })
     }
   }
+  await db.update(tables).set({ nextRowNumber: table.nextRowNumber }).where(eq(tables.id, copy.id))
+  const tagMap = new Map<string, string>()
+  for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))) {
+    const [created] = await db.insert(tableTags).values({ tableId: copy.id, name: tag.name, color: tag.color }).returning()
+    tagMap.set(tag.id, created.id)
+  }
+  const statusMap = new Map<string, string>()
+  for (const status of await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId))) {
+    const [created] = await db.insert(tableStatuses).values({ tableId: copy.id, name: status.name, color: status.color, position: status.position }).returning()
+    statusMap.set(status.id, created.id)
+  }
   if (includeData) {
     const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, tableId))
     for (const row of rows) {
-      const [created] = await db.insert(tableRows).values({ tableId: copy.id, position: row.position, color: row.color, createdBy: subject.id }).returning()
+      const [created] = await db.insert(tableRows).values({ tableId: copy.id, position: row.position, color: row.color, notes: row.notes, rowNumber: row.rowNumber, createdBy: subject.id }).returning()
       const cells = await db.select().from(tableCells).where(eq(tableCells.rowId, row.id))
       if (cells.length) {
         await db.insert(tableCells).values(
@@ -457,7 +476,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
             valueNumber: cell.valueNumber,
             valueBool: cell.valueBool,
             valueTimestamptz: cell.valueTimestamptz,
-            valueJsonb: cell.valueJsonb,
+            valueJsonb: remapCatalog(cell.valueJsonb, tagMap, statusMap),
             background: cell.background,
           })),
         )
@@ -482,4 +501,57 @@ export async function moveTable(db: AppDatabase, subject: Subject, tableId: stri
   const [updated] = await db.update(tables).set({ projectId, updatedAt: new Date() }).where(eq(tables.id, table.id)).returning()
   await writeAudit(db, subject, { action: 'table.move', resourceType: 'table', resourceId: tableId, metadata: { from: table.projectId, to: projectId } })
   return presentTable(updated)
+}
+
+function remapCatalog(value: unknown, tags: Map<string, string>, statuses: Map<string, string>) {
+  if (!value || typeof value !== 'object') return value
+  const record = value as { tagIds?: string[]; statusId?: string; userIds?: string[] }
+  if (Array.isArray(record.tagIds)) return { ...record, tagIds: record.tagIds.map((id) => tags.get(id) ?? id) }
+  if (typeof record.statusId === 'string') return { ...record, statusId: statuses.get(record.statusId) ?? record.statusId }
+  return value
+}
+
+export async function createTag(db: AppDatabase, subject: Subject, tableId: string, name: string) {
+  await requireTable(db, subject, tableId, 'edit')
+  const trimmed = name.trim()
+  if (!trimmed) throw badRequest('Tag name is required')
+  const existing = await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))
+  const match = existing.find((tag) => tag.name.toLowerCase() === trimmed.toLowerCase())
+  if (match) return match
+  const [tag] = await db.insert(tableTags).values({ tableId, name: trimmed, color: nextTagColor(existing.length) }).returning()
+  return tag
+}
+
+export async function updateTag(db: AppDatabase, subject: Subject, tableId: string, tagId: string, color: string) {
+  await requireTable(db, subject, tableId, 'edit')
+  const [tag] = await db.update(tableTags).set({ color }).where(and(eq(tableTags.id, tagId), eq(tableTags.tableId, tableId))).returning()
+  if (!tag) throw notFound()
+  return tag
+}
+
+export async function createStatus(db: AppDatabase, subject: Subject, tableId: string, name: string) {
+  await requireTable(db, subject, tableId, 'edit')
+  const trimmed = name.trim()
+  if (!trimmed) throw badRequest('Status name is required')
+  const existing = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId)).orderBy(asc(tableStatuses.position))
+  const match = existing.find((status) => status.name.toLowerCase() === trimmed.toLowerCase())
+  if (match) return match
+  const [status] = await db.insert(tableStatuses).values({
+    tableId,
+    name: trimmed,
+    color: nextTagColor(existing.length),
+    position: positionBetween(existing),
+  }).returning()
+  return status
+}
+
+export async function updateStatus(db: AppDatabase, subject: Subject, tableId: string, statusId: string, input: { color?: string; name?: string }) {
+  await requireTable(db, subject, tableId, 'edit')
+  const [status] = await db
+    .update(tableStatuses)
+    .set({ color: input.color, name: input.name?.trim() || undefined })
+    .where(and(eq(tableStatuses.id, statusId), eq(tableStatuses.tableId, tableId)))
+    .returning()
+  if (!status) throw notFound()
+  return status
 }

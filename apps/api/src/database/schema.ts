@@ -115,6 +115,7 @@ export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   name: text('name').notNull(),
+  description: text('description').notNull().default(''),
   settings: jsonb('settings').notNull().default({}),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   createdBy: uuid('created_by'),
@@ -141,6 +142,7 @@ export const tables = pgTable(
     headerConfig: jsonb('header_config').notNull().default({}),
     footerConfig: jsonb('footer_config').notNull().default({}),
     formatRules: jsonb('format_rules').notNull().default([]),
+    nextRowNumber: integer('next_row_number').notNull().default(1),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdBy: uuid('created_by'),
     ...timestamps,
@@ -162,6 +164,29 @@ export const tableColumns = pgTable('table_columns', {
   ...timestamps,
 })
 
+export const tableTags = pgTable(
+  'table_tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color').notNull(),
+  },
+  (table) => [uniqueIndex('table_tags_name_idx').on(table.tableId, table.name)],
+)
+
+export const tableStatuses = pgTable(
+  'table_statuses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color').notNull(),
+    position: text('position').notNull(),
+  },
+  (table) => [uniqueIndex('table_statuses_name_idx').on(table.tableId, table.name)],
+)
+
 export const columnOptions = pgTable('column_options', {
   id: uuid('id').primaryKey().defaultRandom(),
   columnId: uuid('column_id').notNull().references(() => tableColumns.id, { onDelete: 'cascade' }),
@@ -176,6 +201,8 @@ export const tableRows = pgTable('table_rows', {
     position: text('position').notNull(),
     version: integer('version').notNull().default(1),
     color: text('color'),
+    notes: text('notes').notNull().default(''),
+    rowNumber: integer('row_number').notNull().default(0),
     createdBy: uuid('created_by'),
   ...timestamps,
 })

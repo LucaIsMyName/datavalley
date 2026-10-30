@@ -54,8 +54,17 @@ export type User = {
 export type Project = {
   id: string
   name: string
+  description: string
   archivedAt: string | null
   organizationId: string
+}
+
+export type CatalogItem = {
+  id: string
+  tableId: string
+  name: string
+  color: string
+  position?: string
 }
 
 export type Column = {
@@ -81,6 +90,8 @@ export type TableRecord = {
   formatRules: FormatRule[]
   archivedAt: string | null
   columns?: Column[]
+  tags?: CatalogItem[]
+  statuses?: CatalogItem[]
 }
 
 export type RowRecord = {
@@ -88,6 +99,8 @@ export type RowRecord = {
   position: string
   version: number
   color: string | null
+  notes: string
+  rowNumber: number
   cells: Record<string, unknown>
   backgrounds: Record<string, string>
 }

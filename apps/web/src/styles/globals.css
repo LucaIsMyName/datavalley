@@ -16,14 +16,14 @@
 
 :root {
   --background: #f6f7f4;
-  --foreground: #1c2430;
+  --foreground: #252525;
   --card: #ffffff;
-  --muted: #e7ebe4;
-  --muted-foreground: #5d6b66;
-  --border: #d5ddd6;
-  --primary: #0f6e56;
-  --primary-foreground: #f4fffb;
-  --accent: #e5f4ee;
+  --muted: #dfdfdf;
+  --muted-foreground: #3a3a3a;
+  --border: #aaaaaa;
+  --primary: #1c0f6e;
+  --primary-foreground: #3a3a3e;
+  --accent: #e5e6f4;
   --danger: #9f2d2d;
   color-scheme: light;
 }
