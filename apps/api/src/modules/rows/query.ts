@@ -245,9 +245,9 @@ export async function footerFor(
   const field = numeric
     ? sql`c.value_number`
     : input.column.type === 'tags' || input.column.type === 'user' || input.column.type === 'status'
-      ? sql`c.value_jsonb`
+      ? sql`c.value_jsonb::text`
       : input.column.type === 'checkbox'
-        ? sql`c.value_bool`
+        ? sql`c.value_bool::text`
         : input.column.type === 'datetime'
           ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
           : sql`c.value_text`

@@ -7,12 +7,14 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Filter, GripVertical, Plus, X } from '
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
+import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
@@ -39,9 +41,7 @@ type PopoverState = {
   beforeId?: string
   columnId?: string
   rowId?: string
-  x: number
-  y: number
-}
+} & ViewportAnchor
 
 type ConfirmState = { title: string; body: string; run: () => Promise<void> }
 
@@ -158,9 +158,9 @@ function QuietInput({
   )
 }
 
-function anchor(event: ReactMouseEvent) {
+function anchor(event: ReactMouseEvent): ViewportAnchor {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  return { x: rect.left, y: rect.bottom + 4 }
+  return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
 }
 
 export function TableScreen({ tableId }: { tableId: string }) {
@@ -416,14 +416,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
   }
 
-  function openNewColumn(beforeId: string | undefined, point: { x: number; y: number }) {
+  function openNewColumn(beforeId: string | undefined, point: ViewportAnchor) {
     setNewColumnType('text')
     setPopover({ kind: 'new-column', beforeId, ...point })
   }
 
   async function createColumn(type: string) {
     const beforeId = popover?.kind === 'new-column' ? popover.beforeId : undefined
-    const point = { x: popover?.x ?? 16, y: popover?.y ?? 16 }
+    const point = popover
+      ? { left: popover.left, top: popover.top, right: popover.right, bottom: popover.bottom }
+      : { left: 16, top: 16, right: 16, bottom: 16 }
     setPopover(null)
     const created = await api.request<{ column: Column }>(`/tables/${tableId}/columns`, {
       method: 'POST',
@@ -678,12 +680,25 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await run()
   }
 
-  async function saveFormula(column: Column) {
-    await api.request('/formulas/validate', { method: 'POST', body: JSON.stringify({ tableId, expression: formulaDraft }) })
-    setPopover(null)
+  async function persistFormula(column: Column, expression: string) {
+    await api.request('/formulas/validate', { method: 'POST', body: JSON.stringify({ tableId, expression }) })
+    if (column.type === 'formula') {
+      await api.request(`/columns/${column.id}/formula`, { method: 'POST', body: JSON.stringify({ expression }) })
+      await refresh()
+      return
+    }
     await applyType(column, 'formula', async () => {
-      await api.request(`/columns/${column.id}/formula`, { method: 'POST', body: JSON.stringify({ expression: formulaDraft }) })
+      await api.request(`/columns/${column.id}/formula`, { method: 'POST', body: JSON.stringify({ expression }) })
     })
+  }
+
+  async function saveFormula(column: Column) {
+    try {
+      await persistFormula(column, formulaDraft)
+      setPopover(null)
+    } catch (error) {
+      setNotice(error instanceof ApiClientError ? error.message : t('error'))
+    }
   }
 
   async function saveRelation(column: Column, toTableId = relationTarget) {
@@ -934,7 +949,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         disabled: type === column.type,
         onSelect: () => {
           if (type === 'formula') {
-            setFormulaDraft('')
+            setFormulaDraft(column.formula ?? '')
             setFormulaFunction('')
             setPopover({ kind: 'formula', columnId: column.id, ...anchor(event) })
             return
@@ -1000,7 +1015,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   function openCellMenu(event: ReactMouseEvent, row: RowRecord, column: Column) {
     event.stopPropagation()
     openMenu(event, [
-      { id: 'edit', label: t('rename'), disabled: !writable(column), onSelect: () => setEditing(`${row.id}:${column.id}`) },
+      { id: 'edit', label: t('rename'), disabled: !writable(column) && column.type !== 'formula', onSelect: () => setEditing(`${row.id}:${column.id}`) },
       { id: 'copy', label: t('copy'), onSelect: () => void navigator.clipboard.writeText(showCell(row.cells[column.id])) },
       { id: 'paste', label: t('paste'), onSelect: () => void navigator.clipboard.readText().then((text) => pasteTsv(text)) },
       { id: 'clear', label: t('clearCell'), disabled: !writable(column), onSelect: () => { scheduleCell(row, column, '', 0); void sync.flush(`cell:${row.id}:${column.id}`) } },
@@ -1080,6 +1095,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     column.config.currency ?? null,
     column.config.style ?? null,
     column.config.toTableId ?? null,
+    column.formula ?? null,
   ]))
   const catalogSignature = JSON.stringify([
     (table?.tags ?? []).map((tag) => [tag.id, tag.name, tag.color]),
@@ -1192,8 +1208,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 <CellEditor
                   column={column}
                   row={row.original}
-                  active={active && writable(column)}
+                  active={active && (writable(column) || column.type === 'formula')}
                   text={text}
+                  expression={column.formula ?? ''}
                   tableId={tableId}
                   tags={table?.tags ?? []}
                   statuses={table?.statuses ?? []}
@@ -1219,6 +1236,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     tags: kind === 'tag' ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item] : current.tags,
                     statuses: kind === 'status' ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item] : current.statuses,
                   }))}
+                  onFormula={async (expression) => {
+                    const key = `cell:${row.original.id}:${column.id}`
+                    try {
+                      await persistFormula(column, expression)
+                      clearInvalid(key)
+                      setEditing(null)
+                    } catch (error) {
+                      const message = error instanceof ApiClientError ? error.message : t('error')
+                      setInvalidCells((current) => ({ ...current, [key]: { text: expression, message } }))
+                      throw error
+                    }
+                  }}
                 />
               )}
             </div>
@@ -1473,7 +1502,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 <td className="border-t border-border" />
               </tr>
             ) : null}
-            <tr>
+            <tr className="sticky bottom-0 bg-background">
               <td colSpan={visible.length + 2} className="border-b border-border">
                 <button type="button" className="flex h-9 items-center gap-1 px-2 text-muted-foreground hover:text-foreground" onClick={() => void insertRow()}>
                   <Plus className="size-3.5" />
@@ -1503,7 +1532,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         ) : null}
       </div>
       {popover ? (
-        <div data-popover className={`fixed z-40 rounded-md border border-border bg-card p-3 shadow-md ${popover.kind === 'formula' ? 'w-80' : 'w-64'}`} style={{ left: popover.x, top: popover.y }}>
+        <AnchoredLayer popover prefer="below" align="start" anchor={popover} className={`rounded-md border border-border bg-card p-3 shadow-md ${popover.kind === 'formula' ? 'w-80' : 'w-64'}`}>
           {popover.kind === 'find' ? <Input aria-label={t('find')} value={searchInput} onChange={(event) => { const value = event.target.value; setSearchInput(value); sync.watch(`find:${tableId}`, 300, () => setSearch(value)) }} /> : null}
           {popover.kind === 'new-column' ? (
             <div className="flex flex-col gap-2">
@@ -1589,7 +1618,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
               </label>
             </div>
           ) : null}
-        </div>
+        </AnchoredLayer>
       ) : null}
       <NotesDrawer tableId={tableId} row={rows.find((row) => row.id === drawerRowId) ?? null} onClose={() => setDrawerRowId(null)} />
       <ConfirmDialog

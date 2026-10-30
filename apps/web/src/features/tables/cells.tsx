@@ -1,12 +1,26 @@
-import { useState } from 'react'
-import type { CatalogItem, Column, RowRecord } from '@datavalley/api-client'
-import { CircleAlert, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ApiClientError, type CatalogItem, type Column, type RowRecord } from '@datavalley/api-client'
+import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { AnchoredLayer } from '../../components/anchored-layer'
 import { Badge } from '../../components/ui/badge'
 import { api } from '../../lib/api'
+import type { ViewportAnchor } from '../../lib/place-in-viewport'
 
 const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
+const swatch: Record<string, string> = {
+  amber: 'bg-amber-200',
+  green: 'bg-green-200',
+  blue: 'bg-blue-200',
+  red: 'bg-red-200',
+  violet: 'bg-violet-200',
+  orange: 'bg-orange-200',
+  pink: 'bg-pink-200',
+  teal: 'bg-teal-200',
+  slate: 'bg-slate-200',
+  yellow: 'bg-yellow-200',
+}
 
 export function formatCell(column: Column, value: unknown) {
   if (value == null || value === '') return ''
@@ -34,11 +48,16 @@ function names(ids: unknown, catalog: CatalogItem[]) {
   return list.map((id) => catalog.find((item) => item.id === id) ?? { id, name: id, color: 'slate', tableId: '' })
 }
 
+function checkedValue(value: unknown) {
+  return value === true || value === 'true' || value === '1' || value === 'yes'
+}
+
 export function CellEditor({
   column,
   row,
   active,
   text,
+  expression,
   tableId,
   tags,
   statuses,
@@ -48,31 +67,39 @@ export function CellEditor({
   onCancel,
   onOpen,
   onCreated,
+  onFormula,
   hint,
 }: {
   column: Column
   row: RowRecord
   active: boolean
   text: string
+  expression: string
   tableId: string
   tags: CatalogItem[]
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
-  onEdit: (value: string | string[], delay?: number) => void
+  onEdit: (value: string | string[] | boolean, delay?: number) => void
   onFlush: () => void
   onCancel: () => void
   onOpen: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
+  onFormula: (expression: string) => Promise<void>
   hint?: string | null
 }) {
   if (column.type === 'row_id') {
     const shown = column.config.style === 'uuid' ? row.id : String(row.rowNumber || '')
     return <span className="block h-full truncate leading-9 text-muted-foreground">{shown}</span>
   }
+  if (column.type === 'checkbox') {
+    return <CheckboxEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
+  }
+  if (column.type === 'tags') {
+    return <TagEditor tableId={tableId} column={column} row={row} tags={tags} active={active} onEdit={onEdit} onFlush={onFlush} onOpen={onOpen} onCreated={onCreated} />
+  }
   if (!active) {
-    if (column.type === 'tags' || column.type === 'status') {
-      const catalog = column.type === 'tags' ? tags : statuses
-      const items = column.type === 'tags' ? names(row.cells[column.id], catalog) : names(row.cells[column.id] ? [row.cells[column.id]] : [], catalog)
+    if (column.type === 'status') {
+      const items = names(row.cells[column.id] ? [row.cells[column.id]] : [], statuses)
       return (
         <button type="button" className="flex h-full w-full items-center gap-1 overflow-hidden text-left" aria-label={`Edit ${column.name}`} onClick={onOpen}>
           {items.map((item) => <Badge key={item.id} color={item.color}>{item.name}</Badge>)}
@@ -98,9 +125,11 @@ export function CellEditor({
     )
   }
   if (column.type === 'date' || column.type === 'datetime') return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
-  if (column.type === 'tags') return <TagEditor tableId={tableId} column={column} row={row} tags={tags} onEdit={onEdit} onFlush={onFlush} onCreated={onCreated} />
   if (column.type === 'status') return <StatusEditor tableId={tableId} column={column} row={row} statuses={statuses} onEdit={onEdit} onFlush={onFlush} onCreated={onCreated} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
+  if (column.type === 'formula') {
+    return <FormulaEditor label={`Edit ${column.name}`} value={hint ? text : expression} hint={hint} onSave={onFormula} onCancel={onCancel} />
+  }
   return (
     <div className="flex h-full min-w-0 flex-1 items-center gap-1">
       <TextEditor label={`Edit ${column.name}`} value={text} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
@@ -110,14 +139,29 @@ export function CellEditor({
 }
 
 function FormatHint({ message }: { message: string }) {
+  const triggerRef = useRef<HTMLSpanElement>(null)
+  const [anchor, setAnchor] = useState<ViewportAnchor | null>(null)
+  function show() {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setAnchor({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+  }
   return (
-    <span className="group/hint relative inline-flex shrink-0">
-      <span tabIndex={0} aria-label={message} className="text-danger outline-none">
+    <span className="inline-flex shrink-0" onMouseEnter={show} onMouseLeave={() => setAnchor(null)} onFocus={show} onBlur={() => setAnchor(null)}>
+      <span ref={triggerRef} tabIndex={0} aria-label={message} className="text-danger outline-none">
         <CircleAlert className="size-3.5" />
       </span>
-      <span role="tooltip" className="pointer-events-none absolute bottom-full right-0 z-30 mb-1 hidden w-max max-w-56 rounded-md border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md group-hover/hint:block group-focus-within/hint:block">
-        {message}
-      </span>
+      {anchor ? (
+        <AnchoredLayer
+          anchor={anchor}
+          prefer="above"
+          align="end"
+          role="tooltip"
+          className="pointer-events-none w-max max-w-56 rounded-md border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md"
+        >
+          {message}
+        </AnchoredLayer>
+      ) : null}
     </span>
   )
 }
@@ -135,6 +179,67 @@ function TextEditor({ label, value, onEdit, onFlush, onCancel }: { label: string
       onKeyDown={(event) => {
         if (event.key === 'Enter') event.currentTarget.blur()
         if (event.key === 'Escape') { event.preventDefault(); onCancel() }
+      }}
+    />
+  )
+}
+
+function FormulaEditor({ label, value, hint, onSave, onCancel }: { label: string; value: string; hint?: string | null; onSave: (expression: string) => Promise<void>; onCancel: () => void }) {
+  const [draft, setDraft] = useState(value)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const done = useRef(false)
+  async function commit() {
+    if (done.current) return
+    if (draft.trim() === value.trim()) {
+      done.current = true
+      onCancel()
+      return
+    }
+    done.current = true
+    try {
+      await onSave(draft)
+    } catch {
+      done.current = false
+      inputRef.current?.focus()
+    }
+  }
+  return (
+    <div className="flex h-full min-w-0 flex-1 items-center gap-1">
+      <input
+        ref={inputRef}
+        autoFocus
+        aria-label={label}
+        className="h-9 min-w-0 flex-1 bg-transparent font-mono leading-9 outline-none"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => { void commit() }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.blur()
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            done.current = true
+            onCancel()
+          }
+        }}
+      />
+      {hint ? <FormatHint message={hint} /> : null}
+    </div>
+  )
+}
+
+function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: boolean, delay?: number) => void; onFlush: () => void }) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={`Edit ${column.name}`}
+      className="size-4"
+      checked={checkedValue(value)}
+      onChange={(event) => {
+        onEdit(event.target.checked, 0)
+        onFlush()
       }}
     />
   )
@@ -164,52 +269,186 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
   )
 }
 
-function TagEditor({ tableId, column, row, tags, onEdit, onFlush, onCreated }: { tableId: string; column: Column; row: RowRecord; tags: CatalogItem[]; onEdit: (value: string[], delay?: number) => void; onFlush: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen, onCreated }: { tableId: string; column: Column; row: RowRecord; tags: CatalogItem[]; active: boolean; onEdit: (value: string[], delay?: number) => void; onFlush: () => void; onOpen: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+  const { t } = useTranslation()
   const selected = Array.isArray(row.cells[column.id]) ? (row.cells[column.id] as string[]) : []
   const [name, setName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ tagId: string; anchor: ViewportAnchor } | null>(null)
+  const pending = useRef(false)
+  const skipBlur = useRef(false)
+  useEffect(() => {
+    if (!menu) return
+    const close = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-tag-menu]') || target?.closest('[data-tag-chevron]')) return
+      setMenu(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
   function choose(next: string[]) {
     onEdit(next, 0)
     onFlush()
   }
+  async function saveName(tag: CatalogItem) {
+    if (pending.current) return
+    const trimmed = draft.trim()
+    if (!trimmed || trimmed === tag.name) {
+      setRenamingId(null)
+      setRenameError(null)
+      return
+    }
+    pending.current = true
+    try {
+      const result = await api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags/${tag.id}`, { method: 'PATCH', body: JSON.stringify({ name: trimmed }) })
+      onCreated('tag', { ...result.tag, tableId })
+      setRenameError(null)
+      setRenamingId(null)
+    } catch (error) {
+      pending.current = false
+      setRenameError(error instanceof ApiClientError ? error.message : t('error'))
+    }
+  }
+  const menuTag = menu ? names([menu.tagId], tags)[0] : null
   return (
-    <div className="flex h-full items-center gap-1 overflow-hidden">
+    <div className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden" onClick={onOpen}>
       {names(selected, tags).map((tag) => (
-        <span key={tag.id} className="inline-flex items-center gap-0.5">
-          <button type="button" onClick={() => choose(selected.filter((id) => id !== tag.id))}>
-            <Badge color={tag.color}>{tag.name}</Badge>
-          </button>
-          <select
-            aria-label={`${tag.name} color`}
-            className="h-6 bg-transparent text-xs outline-none"
-            value={palette.includes(tag.color) ? tag.color : 'slate'}
-            onChange={(event) => {
-              void api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags/${tag.id}`, { method: 'PATCH', body: JSON.stringify({ color: event.target.value }) }).then((result) => onCreated('tag', { ...result.tag, tableId }))
+        <Badge key={tag.id} color={tag.color} className="gap-0.5 pr-1">
+          {renamingId === tag.id ? (
+            <input
+              autoFocus
+              aria-label={t('rename')}
+              className="bg-transparent text-xs outline-none"
+              style={{ width: `${Math.max(draft.length, 2)}ch` }}
+              value={draft}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={() => {
+                if (skipBlur.current) {
+                  skipBlur.current = false
+                  return
+                }
+                void saveName(tag)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void saveName(tag)
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  skipBlur.current = true
+                  pending.current = false
+                  setRenameError(null)
+                  setRenamingId(null)
+                }
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="truncate"
+              onClick={(event) => {
+                event.stopPropagation()
+                pending.current = false
+                setRenameError(null)
+                setDraft(tag.name)
+                setRenamingId(tag.id)
+              }}
+            >
+              {tag.name}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label={t('color')}
+            data-tag-chevron=""
+            className="inline-flex shrink-0"
+            onClick={(event) => {
+              event.stopPropagation()
+              if (menu?.tagId === tag.id) {
+                setMenu(null)
+                return
+              }
+              const rect = event.currentTarget.getBoundingClientRect()
+              setMenu({ tagId: tag.id, anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } })
             }}
           >
-            {palette.map((color) => <option key={color} value={color}>{color}</option>)}
-          </select>
-        </span>
+            <ChevronDown className="size-3" />
+          </button>
+        </Badge>
       ))}
-      <input
-        autoFocus
-        aria-label={`Edit ${column.name}`}
-        className="h-7 min-w-16 flex-1 bg-transparent outline-none"
-        value={name}
-        placeholder="Tag"
-        onChange={(event) => setName(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter') return
-          event.preventDefault()
-          const trimmed = name.trim()
-          if (!trimmed) return
-          void api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags`, { method: 'POST', body: JSON.stringify({ name: trimmed }) }).then((result) => {
-            onCreated('tag', { ...result.tag, tableId })
-            choose(selected.includes(result.tag.id) ? selected : [...selected, result.tag.id])
-            setName('')
-          })
-        }}
-      />
+      {active ? (
+        <input
+          autoFocus={renamingId == null}
+          aria-label={`Edit ${column.name}`}
+          className="h-7 min-w-16 flex-1 bg-transparent outline-none"
+          value={name}
+          placeholder="Tag"
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            const trimmed = name.trim()
+            if (!trimmed) return
+            void api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags`, { method: 'POST', body: JSON.stringify({ name: trimmed }) }).then((result) => {
+              onCreated('tag', { ...result.tag, tableId })
+              choose(selected.includes(result.tag.id) ? selected : [...selected, result.tag.id])
+              setName('')
+            })
+          }}
+        />
+      ) : null}
+      {renameError ? <FormatHint message={renameError} /> : null}
+      {menu && menuTag ? (
+        <TagColorMenu
+          tag={menuTag}
+          anchor={menu.anchor}
+          onColor={(color) => {
+            void api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags/${menuTag.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
+              onCreated('tag', { ...result.tag, tableId })
+              setMenu(null)
+            })
+          }}
+          onRemove={() => {
+            choose(selected.filter((id) => id !== menuTag.id))
+            setMenu(null)
+          }}
+        />
+      ) : null}
     </div>
+  )
+}
+
+function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; anchor: ViewportAnchor; onColor: (color: string) => void; onRemove: () => void }) {
+  const { t } = useTranslation()
+  const current = palette.includes(tag.color) ? tag.color : 'slate'
+  return (
+    <AnchoredLayer anchor={anchor} prefer="below" align="start" tagMenu className="w-40 rounded-md border border-border bg-card p-2 shadow-md">
+      <div className="flex flex-wrap gap-1">
+        {palette.map((color) => (
+          <button
+            key={color}
+            type="button"
+            aria-label={color}
+            className={`h-5 w-5 rounded-full border border-border ${swatch[color] ?? swatch.slate} ${color === current ? 'ring-2 ring-foreground' : ''}`}
+            onClick={() => onColor(color)}
+          />
+        ))}
+      </div>
+      <button type="button" className="mt-2 w-full text-left text-sm" onClick={onRemove}>{t('clearCell')}</button>
+    </AnchoredLayer>
   )
 }
 
@@ -279,4 +518,3 @@ function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column;
     </select>
   )
 }
-

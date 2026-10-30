@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { AnchoredLayer } from './anchored-layer'
 
 export type MenuItem = {
   id: string
@@ -33,9 +34,6 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     }
   }, [menu])
 
-  const left = menu ? Math.max(8, Math.min(menu.x, window.innerWidth - 220)) : 0
-  const top = menu ? Math.max(8, Math.min(menu.y, window.innerHeight - 12 - menu.items.length * 32)) : 0
-
   return (
     <MenuContext.Provider
       value={(event, items) => {
@@ -45,11 +43,13 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     >
       {children}
       {menu ? (
-        <div
+        <AnchoredLayer
           ref={menuRef}
           role="menu"
-          className="fixed z-50 min-w-52 rounded-md border border-border bg-card p-1 shadow-md"
-          style={{ left, top }}
+          prefer="below"
+          align="start"
+          anchor={{ left: menu.x, top: menu.y, right: menu.x, bottom: menu.y }}
+          className="min-w-52 rounded-md border border-border bg-card p-1 shadow-md"
         >
           {menu.items.map((item) => (
             <button
@@ -66,7 +66,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
               {item.label}
             </button>
           ))}
-        </div>
+        </AnchoredLayer>
       ) : null}
     </MenuContext.Provider>
   )

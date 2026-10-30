@@ -81,6 +81,61 @@ describe('table fields', () => {
     await expect(harness.db.insert(tableTags).values({ tableId, name: 'Lead', color: 'red' })).rejects.toThrow()
   })
 
+  it('returns a formula source and renames a tag without taking another tag name', async () => {
+    const { tableId } = await blankTable('Formula tags')
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const total = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Total', type: 'formula' } })
+    const amountId = amount.json().column.id as string
+    const totalId = total.json().column.id as string
+    const saved = await session.inject({
+      method: 'POST',
+      url: `/api/v1/columns/${totalId}/formula`,
+      payload: { expression: `{${amountId}}` },
+    })
+    expect(saved.statusCode).toBe(200)
+    const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}` })
+    const formulaColumn = (detail.json().table.columns as { id: string; formula: string | null }[]).find((column) => column.id === totalId)
+    expect(formulaColumn?.formula).toBe(`{${amountId}}`)
+    const first = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Lead' } })
+    await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Customer' } })
+    const tagId = first.json().tag.id as string
+    const renamed = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/tags/${tagId}`,
+      payload: { name: 'Prospect' },
+    })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json().tag.name).toBe('Prospect')
+    const duplicate = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/tags/${tagId}`,
+      payload: { name: 'customer' },
+    })
+    expect(duplicate.statusCode).toBe(400)
+    const empty = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/tags/${tagId}`,
+      payload: { name: '   ' },
+    })
+    expect(empty.statusCode).toBe(400)
+    const color = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/tags/${tagId}`,
+      payload: { color: 'blue' },
+    })
+    expect(color.statusCode).toBe(200)
+    expect(color.json().tag).toMatchObject({ name: 'Prospect', color: 'blue' })
+    const flag = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Paid', type: 'checkbox' } })
+    const flagId = flag.json().column.id as string
+    const row = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [flagId]: true } } })
+    expect(row.statusCode).toBe(200)
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    expect(listed.json().rows[0].cells[flagId]).toBe(true)
+    const footer = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/footer` })
+    expect(footer.statusCode).toBe(200)
+    expect(footer.json().footer[flagId].filled).toBe(1)
+  })
+
   it('assigns a status and refuses a user who is not a project member', async () => {
     const { tableId, projectId } = await blankTable('People fields')
     const statusColumn = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Stage', type: 'status' } })

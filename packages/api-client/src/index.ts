@@ -78,6 +78,7 @@ export type Column = {
   width: number
   frozen: boolean
   options: { id: string; label: string; color: string | null; position: string }[]
+  formula?: string | null
 }
 
 export type TableRecord = {

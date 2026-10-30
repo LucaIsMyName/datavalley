@@ -4,6 +4,7 @@ import type { Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
+  formulas,
   relations,
   tableCells,
   tableColumns,
@@ -173,7 +174,17 @@ export async function getTable(db: AppDatabase, subject: Subject, tableId: strin
   }
   const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, table.id)).orderBy(asc(tableTags.name))
   const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id)).orderBy(asc(tableStatuses.position))
-  return { ...presentTable(table), columns: (await loadColumns(db, table.id)).map(presentColumn), tags, statuses }
+  const storedFormulas = await db.select().from(formulas).where(eq(formulas.tableId, table.id))
+  const formulaByColumn = new Map(storedFormulas.map((item) => [item.columnId, item.source]))
+  return {
+    ...presentTable(table),
+    columns: (await loadColumns(db, table.id)).map((column) => ({
+      ...presentColumn(column),
+      formula: formulaByColumn.get(column.id) ?? null,
+    })),
+    tags,
+    statuses,
+  }
 }
 
 export async function updateTable(
@@ -523,9 +534,20 @@ export async function createTag(db: AppDatabase, subject: Subject, tableId: stri
   return tag
 }
 
-export async function updateTag(db: AppDatabase, subject: Subject, tableId: string, tagId: string, color: string) {
+export async function updateTag(db: AppDatabase, subject: Subject, tableId: string, tagId: string, input: { color?: string; name?: string }) {
   await requireTable(db, subject, tableId, 'edit')
-  const [tag] = await db.update(tableTags).set({ color }).where(and(eq(tableTags.id, tagId), eq(tableTags.tableId, tableId))).returning()
+  const patch: { color?: string; name?: string } = {}
+  if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
+  if (input.name != null) {
+    const trimmed = input.name.trim()
+    if (!trimmed) throw badRequest('Tag name is required')
+    const existing = await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))
+    const clash = existing.find((tag) => tag.id !== tagId && tag.name.toLowerCase() === trimmed.toLowerCase())
+    if (clash) throw badRequest('A tag with that name already exists')
+    patch.name = trimmed
+  }
+  if (!patch.color && !patch.name) throw badRequest('Tag name is required')
+  const [tag] = await db.update(tableTags).set(patch).where(and(eq(tableTags.id, tagId), eq(tableTags.tableId, tableId))).returning()
   if (!tag) throw notFound()
   return tag
 }
