@@ -54,10 +54,10 @@ function bindSort(type: string, value: string): SQL {
   return sql`${value}`
 }
 
-function compileCondition(condition: FilterCondition, columns: Map<string, ColumnShape>): SQL {
+function compileCondition(condition: FilterCondition, columns: Map<string, ColumnShape>): SQL | null {
   const column = columns.get(condition.columnId)
-  if (!column) throw badRequest('Unknown filter column')
-  if (!operatorsFor(column.type).includes(condition.op)) throw badRequest(`Unsupported filter for ${column.type}`)
+  if (!column) return null
+  if (!operatorsFor(column.type).includes(condition.op)) return null
   const id = column.id
   if (condition.op === 'empty') {
     return sql`NOT EXISTS (SELECT 1 FROM table_cells c WHERE c.row_id = r.id AND c.column_id = ${id}::uuid)`
@@ -66,13 +66,14 @@ function compileCondition(condition: FilterCondition, columns: Map<string, Colum
     return sql`EXISTS (SELECT 1 FROM table_cells c WHERE c.row_id = r.id AND c.column_id = ${id}::uuid)`
   }
   const predicate = comparison(column, condition)
+  if (!predicate) return null
   return sql`EXISTS (SELECT 1 FROM table_cells c WHERE c.row_id = r.id AND c.column_id = ${id}::uuid AND ${predicate})`
 }
 
-function comparison(column: ColumnShape, condition: FilterCondition): SQL {
+function comparison(column: ColumnShape, condition: FilterCondition): SQL | null {
   const value = condition.value
   const valueTo = condition.valueTo
-  const text = (field: SQL) => {
+  const text = (field: SQL): SQL | null => {
     if (condition.op === 'eq') return sql`${field} = ${String(value ?? '')}`
     if (condition.op === 'neq') return sql`${field} <> ${String(value ?? '')}`
     if (condition.op === 'contains') return sql`${field} ILIKE ${'%' + escapeLike(String(value ?? '')) + '%'} ESCAPE '\\'`
@@ -82,7 +83,7 @@ function comparison(column: ColumnShape, condition: FilterCondition): SQL {
     if (condition.op === 'gt') return sql`${field} > ${String(value ?? '')}`
     if (condition.op === 'lt') return sql`${field} < ${String(value ?? '')}`
     if (condition.op === 'between') return sql`${field} >= ${String(value ?? '')} AND ${field} <= ${String(valueTo ?? '')}`
-    throw badRequest('Unsupported filter')
+    return null
   }
   if (column.type === 'number' || column.type === 'currency') {
     if (condition.op === 'eq') return sql`c.value_number = ${String(value)}::numeric`
@@ -114,16 +115,23 @@ function comparison(column: ColumnShape, condition: FilterCondition): SQL {
   return text(sql`c.value_text`)
 }
 
-function compileFilter(filter: FilterNode | null | undefined, columns: Map<string, ColumnShape>): SQL {
-  if (!filter) return sql`TRUE`
+function compileNode(filter: FilterNode, columns: Map<string, ColumnShape>): SQL | null {
   if (isFilterGroup(filter)) {
-    if (filter.conditions.length === 0) return sql`TRUE`
-    const parts = filter.conditions.map((condition) => compileFilter(condition, columns))
+    const parts = filter.conditions.flatMap((condition) => {
+      const compiled = compileNode(condition, columns)
+      return compiled ? [compiled] : []
+    })
+    if (parts.length === 0) return null
     return filter.op === 'and'
       ? sql`(${sql.join(parts, sql` AND `)})`
       : sql`(${sql.join(parts, sql` OR `)})`
   }
   return compileCondition(filter, columns)
+}
+
+function compileFilter(filter: FilterNode | null | undefined, columns: Map<string, ColumnShape>): SQL {
+  if (!filter) return sql`TRUE`
+  return compileNode(filter, columns) ?? sql`TRUE`
 }
 
 function keyset(cursor: Cursor | null, sort: { type: string; direction: 'asc' | 'desc' } | null): SQL {

@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import { eq } from 'drizzle-orm'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { testEnv } from '../../config/env.js'
 import { createDatabase, type AppDatabase } from '../../database/client.js'
 import { organizations, permissionGrants, projects, tableCells, tableColumns, tableRows, tables, users } from '../../database/schema.js'
@@ -67,12 +67,15 @@ async function seed() {
 }
 
 describe('row query', () => {
+  beforeAll(async () => {
+    await seed()
+  })
+
   afterAll(async () => {
     await close?.()
   })
 
   it('filters, sorts, and paginates without loading every row into one page', async () => {
-    await seed()
     const columns = [
       { id: textId, name: 'Name', type: 'text', config: {} },
       { id: numberId, name: 'Amount', type: 'number', config: {} },
@@ -111,5 +114,36 @@ describe('row query', () => {
     expect(names.rows).toHaveLength(1)
     const stored = await db.select().from(tableRows).where(eq(tableRows.tableId, tableId))
     expect(stored).toHaveLength(3)
+  })
+
+  it('skips filters the query cannot apply and keeps the rest', async () => {
+    const formulaId = '00000000-0000-4000-8000-000000000001'
+    const columns = [
+      { id: textId, name: 'Name', type: 'text', config: {} },
+      { id: numberId, name: 'Amount', type: 'number', config: {} },
+      { id: formulaId, name: 'Total', type: 'formula', config: {} },
+    ]
+    const base = { tableId, columns, subjectType: 'user' as const, subjectId, limit: 10 }
+    const skipped = await queryRows(db, {
+      ...base,
+      filter: { op: 'contains', columnId: formulaId, value: 'nope' },
+    })
+    expect(skipped.rows).toHaveLength(3)
+    const mixed = await queryRows(db, {
+      ...base,
+      filter: {
+        op: 'and',
+        conditions: [
+          { op: 'contains', columnId: formulaId, value: 'nope' },
+          { op: 'eq', columnId: textId, value: 'Name 1' },
+        ],
+      },
+    })
+    expect(mixed.rows).toHaveLength(1)
+    const unknown = await queryRows(db, {
+      ...base,
+      filter: { op: 'eq', columnId: '00000000-0000-4000-8000-000000000099', value: 'Name 0' },
+    })
+    expect(unknown.rows).toHaveLength(3)
   })
 })
