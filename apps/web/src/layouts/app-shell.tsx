@@ -8,6 +8,7 @@ import { applyTheme, useSession } from '../stores/session'
 import { ContextMenuProvider } from '../components/context-menu'
 import { HeaderSearch } from '../components/command-palette'
 import { Button } from '../components/ui/button'
+import { Toaster } from '../components/ui/sonner'
 
 const links = [
   { to: '/', key: 'dashboard', icon: LayoutDashboard, end: true },
@@ -101,6 +102,7 @@ export function AppShell() {
         </main>
       </div>
     </div>
+    <Toaster />
     </ContextMenuProvider>
   )
 }

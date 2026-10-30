@@ -26,6 +26,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router'
+import { toast } from 'sonner'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
 import { ConfirmDialog } from '../../components/confirm-dialog'
@@ -38,6 +39,7 @@ import { sync } from '../../lib/sync'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { CellEditor } from './cells'
+import { editFailureMessage } from './edit-error'
 import { FORMULA_HELP } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
@@ -222,6 +224,10 @@ function QuietInput({
   )
 }
 
+function showEditError(message: string) {
+  toast.error(message, { id: 'table-edit-error' })
+}
+
 function anchor(event: ReactMouseEvent): ViewportAnchor {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
@@ -402,7 +408,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           method: 'PUT',
           body: JSON.stringify({ sort, filter }),
         })
-        .catch(() => setNotice(t('error')))
+        .catch(() => showEditError(t('error')))
     }, 300)
     return () => window.clearTimeout(timer)
   }, [filter, sort, stateReady, t, tableId])
@@ -489,7 +495,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       const ran = await (direction === 'undo' ? undoTable(tableId) : redoTable(tableId))
       if (ran) await refresh()
     } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : t('error'))
+      const message = editFailureMessage(caught, t('error'))
+      if (message) showEditError(message)
     }
   }
 
@@ -548,7 +555,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       },
       rollback: () => {
         patchCachedTable(queryClient, tableId, (current) => ({ ...current, name: before }))
-        setNotice(t('error'))
+        showEditError(t('error'))
       },
     })
   }
@@ -712,7 +719,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         mapCachedRows(queryClient, tableId, (item) =>
           item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: previous } } : item,
         )
-        setNotice(t('error'))
+        showEditError(t('error'))
       },
     })
   }
@@ -755,7 +762,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             item.id === column.id ? { ...item, name: before } : item,
           ),
         }))
-        setNotice(t('error'))
+        showEditError(t('error'))
       },
     })
   }
@@ -943,7 +950,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       await persistFormula(column, formulaDraft)
       setPopover(null)
     } catch (error) {
-      setNotice(error instanceof ApiClientError ? error.message : t('error'))
+      const message = editFailureMessage(error, t('error'))
+      if (message) showEditError(message)
     }
   }
 
@@ -1117,7 +1125,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       pushCommand(tableId, { kind: 'column-order', before, after: nextIds })
       await refresh()
     } catch {
-      setNotice(t('error'))
+      showEditError(t('error'))
     }
   }
 
@@ -1132,7 +1140,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       pushCommand(tableId, { kind: 'row-moved', rowId, beforeNextId, afterNextId: beforeId })
       await refresh()
     } catch {
-      setNotice(t('error'))
+      showEditError(t('error'))
     }
   }
 
@@ -1232,7 +1240,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       })
       setNotice('')
     } catch {
-      setNotice(t('error'))
+      showEditError(t('error'))
       await refresh()
     }
   }
@@ -1687,8 +1695,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     void sync
                       .flush(`cell:${row.original.id}:${column.id}`)
                       .catch((error: unknown) => {
-                        if (!(error instanceof ApiClientError) || error.status !== 400)
-                          setNotice(t('error'))
+                        const message = editFailureMessage(error, t('error'), { cell: true })
+                        if (message) showEditError(message)
                       })
                       .finally(() => setEditing(null))
                   }}
@@ -1892,7 +1900,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           value={table.name}
           onDraft={scheduleName}
           onFlush={() =>
-            void sync.flush(`table:${tableId}:name`).catch(() => setNotice(t('error')))
+            void sync.flush(`table:${tableId}:name`).catch(() => showEditError(t('error')))
           }
           onCancel={() => sync.cancel(`table:${tableId}:name`)}
           onContextMenu={openTitleMenu}
@@ -2024,7 +2032,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                             onFlush={() => {
                               void sync
                                 .flush(`column:${column.id}:name`)
-                                .catch(() => setNotice(t('error')))
+                                .catch(() => showEditError(t('error')))
                                 .finally(() => setRenamingColumn(null))
                             }}
                             onCancel={() => {
