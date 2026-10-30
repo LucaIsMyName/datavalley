@@ -1,0 +1,14 @@
+[Unit]
+Description=Datavalley worker
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/datavalley
+EnvironmentFile=/opt/datavalley/.env
+ExecStart=/usr/bin/npm run start -w @datavalley/worker
+Restart=on-failure
+User=datavalley
+
+[Install]
+WantedBy=multi-user.target

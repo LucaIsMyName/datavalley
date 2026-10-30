@@ -1,0 +1,41 @@
+{
+  "name": "datavalley",
+  "version": "0.0.2",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted modular CRM",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @datavalley/api\" \"npm run dev -w @datavalley/web\"",
+    "dev:api": "npm run dev -w @datavalley/api",
+    "dev:web": "npm run dev -w @datavalley/web",
+    "dev:worker": "npm run dev -w @datavalley/worker",
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/formula-engine/tsconfig.json --noEmit && tsc -p packages/plugin-sdk/tsconfig.json --noEmit && tsc -p packages/api-client/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/worker/tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "migrate": "tsx apps/api/src/database/migrate-cli.ts",
+    "openapi:generate": "tsx apps/api/src/scripts/generate-openapi.ts",
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "explain:rows": "tsx scripts/explain-rows.ts",
+    "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.15.21",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.28.0",
+    "prettier": "^3.5.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.33.0",
+    "vitest": "^3.2.4"
+  }
+}

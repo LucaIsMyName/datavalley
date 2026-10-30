@@ -1,0 +1,14 @@
+[Unit]
+Description=Datavalley API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/datavalley
+EnvironmentFile=/opt/datavalley/.env
+ExecStart=/usr/bin/npm run start -w @datavalley/api
+Restart=on-failure
+User=datavalley
+
+[Install]
+WantedBy=multi-user.target
