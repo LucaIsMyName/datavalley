@@ -3,10 +3,10 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ApiClientError, type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
 import { moveSelection, stylesForCell, type FilterNode, type FilterOperator, type FormatRule } from '@datavalley/shared'
-import { ArrowDown, ArrowUp, ArrowUpDown, Filter, GripVertical, Plus } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Filter, GripVertical, Plus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { useContextMenu } from '../../components/context-menu'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
@@ -17,6 +17,7 @@ import { sync } from '../../lib/sync'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { CellEditor } from './cells'
+import { FORMULA_HELP } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
 import {
@@ -29,6 +30,8 @@ import {
 } from './history'
 
 const SWATCHES = ['#fde68a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa', '#e5e7eb']
+const GUTTER_WIDTH = 60
+const ADD_COLUMN_WIDTH = 40
 const COLUMN_TYPES = ['text', 'long_text', 'mail', 'url', 'number', 'date', 'datetime', 'checkbox', 'select', 'tags', 'status', 'user', 'row_id', 'formula', 'relation']
 
 type PopoverState = {
@@ -191,6 +194,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [formulaDraft, setFormulaDraft] = useState('')
+  const [formulaFunction, setFormulaFunction] = useState('')
+  const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
   const [ruleOp, setRuleOp] = useState('eq')
@@ -441,6 +446,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await refresh()
     if (type === 'formula') {
       setFormulaDraft('')
+      setFormulaFunction('')
       setPopover({ kind: 'formula', columnId: created.column.id, ...point })
       return
     }
@@ -929,6 +935,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         onSelect: () => {
           if (type === 'formula') {
             setFormulaDraft('')
+            setFormulaFunction('')
             setPopover({ kind: 'formula', columnId: column.id, ...anchor(event) })
             return
           }
@@ -1104,7 +1111,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             />
           </div>
         ),
-        size: 72,
+        size: GUTTER_WIDTH,
         cell: ({ row }) => (
           <div
             className="flex h-9 items-center gap-1 px-1"
@@ -1155,9 +1162,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const active = editing === `${row.original.id}:${column.id}`
           const invalid = invalidCells[`cell:${row.original.id}:${column.id}`]
           const text = invalid?.text ?? showCell(value)
+          const mono = column.type === 'number' || column.type === 'currency' || column.type === 'formula' || column.type === 'lookup'
           return (
             <div
-              className="flex h-9 min-w-0 items-center overflow-hidden px-2"
+              className={`flex h-9 min-w-0 items-center overflow-hidden px-2 ${mono ? 'font-mono' : ''}`}
               style={{ color: ruleStyle.color, background, fontWeight: ruleStyle.bold ? 700 : 400 }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
             >
@@ -1239,6 +1247,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
     parent.addEventListener('scroll', load, { passive: true })
     return () => parent.removeEventListener('scroll', load)
   }, [titleReady])
+  useEffect(() => {
+    const parent = parentRef.current
+    if (!parent) return
+    const measure = () => setViewportWidth(parent.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [titleReady])
 
   if (tableQuery.isLoading || rowsQuery.isLoading) return <section className="p-6"><LoadingBlock /></section>
   if (tableQuery.isError || rowsQuery.isError || !table) {
@@ -1248,9 +1265,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   const popoverColumn = columns.find((column) => column.id === popover?.columnId)
   const popoverRow = rows.find((row) => row.id === popover?.rowId)
+  const columnsWidth = visible.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0)
+  const filler = Math.max(ADD_COLUMN_WIDTH, viewportWidth - GUTTER_WIDTH - columnsWidth)
+  const formulaHelp = FORMULA_HELP.find((item) => item.name === formulaFunction)
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3 p-6">
+    <section className="flex min-h-0 flex-1 flex-col gap-3 px-6 pb-0 pt-6">
       <QuietInput
         inputRef={nameRef}
         label={t('tableName')}
@@ -1280,25 +1300,25 @@ export function TableScreen({ tableId }: { tableId: string }) {
           })
         }}
       />
-      <div className="relative h-[calc(100vh-8.5rem)] min-h-80">
-      <div ref={parentRef} tabIndex={0} className="h-full overflow-auto rounded-md border border-border bg-card" onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
+      <div className="relative min-h-0 flex-1">
+      <div ref={parentRef} tabIndex={0} className="h-full overflow-auto border border-border bg-card" onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
         if (editing) return
         const text = event.clipboardData.getData('text/plain')
         if (!text.includes('\t') && !text.includes('\n')) return
         event.preventDefault()
         void pasteTsv(text)
       }}>
-        <table className="table-fixed border-collapse text-sm" style={{ width: 72 + visible.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0) + 40 }}>
+        <table className="table-fixed border-collapse text-sm" style={{ width: GUTTER_WIDTH + columnsWidth + filler }}>
           <thead className="sticky top-0 z-10 bg-muted">
             <tr>
-              <th className="h-10 w-[4.5rem] border-b border-border p-0 text-left">{flexRender(grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header, grid.getHeaderGroups()[0]?.headers[0]?.getContext())}</th>
+              <th className="h-10 border-b border-r border-border p-0 text-left" style={{ width: GUTTER_WIDTH }}>{flexRender(grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header, grid.getHeaderGroups()[0]?.headers[0]?.getContext())}</th>
               {visible.map((column) => {
                 const activeSort = sort?.columnId === column.id
                 const filtered = Boolean(filterInput[column.id] && (filterInput[column.id].op === 'empty' || filterInput[column.id].op === 'not_empty' || filterInput[column.id].value))
                 return (
                   <th
                     key={column.id}
-                    className={`group relative h-10 overflow-visible border-b border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''}`}
+                    className={`group relative h-10 overflow-visible border-b border-r border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''}`}
                     style={{ width: widths[column.id] ?? column.width }}
                     onDragOver={(event: DragEvent) => event.preventDefault()}
                     onDrop={(event: DragEvent) => {
@@ -1371,7 +1391,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     <div
                       role="separator"
                       aria-label={t('resize')}
-                      className="absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize"
+                      className="absolute -right-1 top-5 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
                       onMouseDown={(event) => {
                         event.preventDefault()
                         event.stopPropagation()
@@ -1397,7 +1417,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       type="button"
                       data-header-control
                       aria-label={t('insertColumn')}
-                      className="absolute -right-2.5 top-1/2 z-20 hidden h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card group-hover:flex"
+                      className="absolute -right-2.5 top-0 z-40 hidden h-5 w-5 items-center justify-center rounded-full border border-border bg-card group-hover:flex"
                       onClick={(event) => { event.stopPropagation(); openNewColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id, anchor(event)) }}
                     >
                       <Plus className="size-3" />
@@ -1405,7 +1425,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   </th>
                 )
               })}
-              <th className="w-10 border-b border-border">
+              <th className="border-b border-border p-0" style={{ width: filler }}>
                 <button type="button" aria-label={t('insertColumn')} className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent" onClick={(event) => openNewColumn(undefined, anchor(event))}>
                   <Plus className="size-4" />
                 </button>
@@ -1431,7 +1451,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="overflow-hidden border-b border-border p-0">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                    <td key={cell.id} className="overflow-hidden border-b border-r border-border p-0">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
                   ))}
                   <td className="border-b border-border" />
                 </tr>
@@ -1440,12 +1460,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
             {paddingBottom > 0 ? <tr style={{ height: paddingBottom }} /> : null}
             {footerConfig.enabled ? (
               <tr>
-                <td className="h-9 border-t border-border" />
+                <td className="h-9 border-r border-t border-border" />
                 {visible.map((column) => {
                   const calc = footerConfig.columns?.[column.id]
                   const stats = footerQuery.data?.footer?.[column.id]
                   return (
-                    <td key={column.id} className="h-9 border-t border-border px-2 text-xs text-muted-foreground">
+                    <td key={column.id} className="h-9 border-r border-t border-border px-2 text-xs text-muted-foreground">
                       {calc && stats ? `${t(calc)} ${footerValue(calc, stats)}` : ''}
                     </td>
                   )
@@ -1476,11 +1496,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
             ) : null}
             {checked.length > 0 ? <Button type="button" variant="danger" onClick={() => void deleteRows(checked)}>{t('deleteRows')}</Button> : null}
             {selectedColumns.length > 0 ? <Button type="button" variant="danger" onClick={() => void deleteColumns(selectedColumns)}>{t('deleteColumns')}</Button> : null}
+            <button type="button" aria-label={t('close')} className="text-muted-foreground" onClick={() => { setChecked([]); setSelectedColumns([]) }}>
+              <X className="size-4" />
+            </button>
           </div>
         ) : null}
       </div>
       {popover ? (
-        <div data-popover className="fixed z-40 w-64 rounded-md border border-border bg-card p-3 shadow-md" style={{ left: popover.x, top: popover.y }}>
+        <div data-popover className={`fixed z-40 rounded-md border border-border bg-card p-3 shadow-md ${popover.kind === 'formula' ? 'w-80' : 'w-64'}`} style={{ left: popover.x, top: popover.y }}>
           {popover.kind === 'find' ? <Input aria-label={t('find')} value={searchInput} onChange={(event) => { const value = event.target.value; setSearchInput(value); sync.watch(`find:${tableId}`, 300, () => setSearch(value)) }} /> : null}
           {popover.kind === 'new-column' ? (
             <div className="flex flex-col gap-2">
@@ -1515,8 +1538,24 @@ export function TableScreen({ tableId }: { tableId: string }) {
           {popover.kind === 'row-color' ? <Swatches onPick={(color) => { if (checked.length > 1 && popover.rowId && checked.includes(popover.rowId)) void paintRows(color); else if (popoverRow) void paintRow(popoverRow, color) }} /> : null}
           {popover.kind === 'cell-color' && popoverRow && popover.columnId ? <Swatches onPick={(color) => void paintCell(popoverRow, popover.columnId!, color)} /> : null}
           {popover.kind === 'formula' && popoverColumn ? (
-            <form onSubmit={(event) => { event.preventDefault(); void saveFormula(popoverColumn) }}>
+            <form className="flex flex-col gap-2" onSubmit={(event) => { event.preventDefault(); void saveFormula(popoverColumn) }}>
+              <select
+                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
+                aria-label={t('formulaFunction')}
+                value=""
+                onChange={(event) => {
+                  const item = FORMULA_HELP.find((entry) => entry.name === event.target.value)
+                  if (!item) return
+                  setFormulaFunction(item.name)
+                  setFormulaDraft((current) => (current.trim() ? `${current.trim()} ${item.insert}` : item.insert))
+                }}
+              >
+                <option value="">{t('formulaFunction')}</option>
+                {FORMULA_HELP.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select>
               <Input aria-label={t('formulaExpression')} value={formulaDraft} onChange={(event) => setFormulaDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveFormula(popoverColumn) } }} />
+              {formulaHelp ? <p className="font-mono text-xs text-muted-foreground">{formulaHelp.example}</p> : null}
+              <Link className="text-sm underline" to="/doc#formulas">{t('formulaDocs')}</Link>
             </form>
           ) : null}
           {popover.kind === 'relation' && popoverColumn ? (

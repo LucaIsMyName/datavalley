@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 
 export function Page({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
+    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
       <header className="flex min-h-10 items-center justify-between gap-4">
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         <div className="flex min-h-9 items-center gap-2">{actions}</div>

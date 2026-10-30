@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CatalogItem, Column, RowRecord } from '@datavalley/api-client'
-import { CircleAlert } from 'lucide-react'
+import { CircleAlert, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Badge } from '../../components/ui/badge'
 import { api } from '../../lib/api'
 
@@ -140,13 +141,25 @@ function TextEditor({ label, value, onEdit, onFlush, onCancel }: { label: string
 }
 
 function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: string, delay?: number) => void; onFlush: () => void }) {
+  const { t } = useTranslation()
   const raw = typeof value === 'string' ? value : ''
   const [date, setDate] = useState(raw.includes('T') ? raw.slice(0, 10) : raw)
   const [time, setTime] = useState(raw.includes('T') ? raw.slice(11, 16) : '')
+  function clear() {
+    setDate('')
+    setTime('')
+    onEdit('', 0)
+    onFlush()
+  }
   return (
-    <div className="flex h-full items-center gap-1">
-      <input aria-label={`Edit ${column.name}`} type="date" className="h-9 bg-transparent outline-none" value={date} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); const next = column.type === 'datetime' && time ? `${nextDate}T${time}` : nextDate; onEdit(next, 0); onFlush() }} />
+    <div className="flex h-full min-w-0 items-center gap-1">
+      <input aria-label={`Edit ${column.name}`} type="date" className="h-9 min-w-0 bg-transparent outline-none" value={date} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); const next = column.type === 'datetime' && time ? `${nextDate}T${time}` : nextDate; onEdit(next, 0); onFlush() }} />
       {column.type === 'datetime' ? <input aria-label={`${column.name} time`} type="time" className="h-9 bg-transparent outline-none" value={time} onChange={(event) => { const nextTime = event.target.value; setTime(nextTime); onEdit(nextTime ? `${date}T${nextTime}` : date, 0); onFlush() }} /> : null}
+      {date || time ? (
+        <button type="button" aria-label={t('clearCell')} className="shrink-0 text-muted-foreground" onClick={clear}>
+          <X className="size-3.5" />
+        </button>
+      ) : null}
     </div>
   )
 }

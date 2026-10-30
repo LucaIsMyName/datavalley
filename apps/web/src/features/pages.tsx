@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import * as Dialog from '@radix-ui/react-dialog'
 import type { FormEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -221,32 +222,24 @@ export function ProjectsPage() {
   const queryClient = useQueryClient()
   const [rename, setRename] = useState<Project | null>(null)
   const [remove, setRemove] = useState<Project | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const [customers, setCustomers] = useState(false)
+  const nameInput = useRef<HTMLInputElement>(null)
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.request<{ projects: Project[] }>('/projects') })
   const create = useMutation({
     mutationFn: (input: { name: string; template?: 'customers' }) => api.request('/projects', { method: 'POST', body: JSON.stringify(input) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
   })
+  useEffect(() => {
+    if (!creating) return
+    const frame = window.requestAnimationFrame(() => nameInput.current?.select())
+    return () => window.cancelAnimationFrame(frame)
+  }, [creating])
   return (
     <Page
       title={t('projects')}
-      actions={
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            const data = new FormData(event.currentTarget)
-            create.mutate({ name: String(data.get('name')), template: data.get('template') ? 'customers' : undefined })
-            event.currentTarget.reset()
-          }}
-        >
-          <Input name="name" required placeholder={t('name')} className="w-48" />
-          <label className="flex items-center gap-2 text-sm">
-            <input name="template" type="checkbox" />
-            {t('customersTemplate')}
-          </label>
-          <Button type="submit">{t('newProject')}</Button>
-        </form>
-      }
+      actions={<Button type="button" onClick={() => { setProjectName(t('name')); setCustomers(false); setCreating(true) }}>{t('newProject')}</Button>}
     >
       {projects.isLoading ? <LoadingBlock /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
@@ -266,6 +259,41 @@ export function ProjectsPage() {
           </Link>
         ))}
       </div>
+      <Dialog.Root open={creating} onOpenChange={(open) => { if (!open) setCreating(false) }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-card p-4 shadow-md">
+            <Dialog.Title className="text-base font-semibold">{t('newProject')}</Dialog.Title>
+            <form
+              className="mt-3 flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const name = projectName.trim()
+                if (!name) return
+                create.mutate({ name, template: customers ? 'customers' : undefined })
+                setCreating(false)
+              }}
+            >
+              <input
+                ref={nameInput}
+                autoFocus
+                aria-label={t('name')}
+                className="h-9 w-full rounded-md border border-border bg-card px-2 text-sm outline-none"
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+              />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={customers} onChange={(event) => setCustomers(event.target.checked)} />
+                {t('customersTemplate')}
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setCreating(false)}>{t('cancel')}</Button>
+                <Button type="submit">{t('confirm')}</Button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <PromptDialog
         open={Boolean(rename)}
         title={t('rename')}
@@ -299,6 +327,7 @@ function ProjectDescription({ projectId, value }: { projectId: string; value: st
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [text, setText] = useState(value)
+  const area = useRef<HTMLTextAreaElement>(null)
   const focused = useRef(false)
   const baseline = useRef(value)
   useEffect(() => {
@@ -306,10 +335,21 @@ function ProjectDescription({ projectId, value }: { projectId: string; value: st
     setText(value)
     baseline.current = value
   }, [value])
+  useEffect(() => {
+    const node = area.current
+    if (!node) return
+    node.style.minHeight = '0px'
+    node.style.height = '0px'
+    const next = node.scrollHeight
+    node.style.minHeight = ''
+    node.style.height = next > 0 ? `${next}px` : ''
+  }, [text])
   return (
     <textarea
+      ref={area}
+      rows={1}
       aria-label={t('description')}
-      className="min-h-16 w-full resize-y bg-transparent text-sm text-muted-foreground outline-none"
+      className="min-h-5 w-full shrink-0 resize-none overflow-hidden bg-transparent text-sm leading-5 text-muted-foreground outline-none"
       value={text}
       placeholder={t('description')}
       onFocus={() => { focused.current = true }}

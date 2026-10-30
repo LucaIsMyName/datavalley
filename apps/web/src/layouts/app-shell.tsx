@@ -1,4 +1,4 @@
-import { Bell, FolderKanban, LayoutDashboard, LogOut, Plug, Settings, Star, Clock3 } from 'lucide-react'
+import { Bell, BookOpen, FolderKanban, LayoutDashboard, LogOut, Plug, Settings, Star, Clock3 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -13,6 +13,7 @@ const links = [
   { to: '/projects', key: 'projects', icon: FolderKanban, end: false },
   { to: '/recent', key: 'recent', icon: Clock3, end: false },
   { to: '/favorites', key: 'favorites', icon: Star, end: false },
+  { to: '/doc', key: 'docs', icon: BookOpen, end: false },
   { to: '/integrations', key: 'integrations', icon: Plug, end: false },
   { to: '/settings/profile', key: 'settings', icon: Settings, end: false },
 ]
@@ -35,7 +36,7 @@ export function AppShell() {
 
   return (
     <ContextMenuProvider>
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card p-3">
         <div className="px-2 py-3 text-sm font-semibold tracking-tight">{t('appName')}</div>
         <nav className="flex flex-1 flex-col gap-1">

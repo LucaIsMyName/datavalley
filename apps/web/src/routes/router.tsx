@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router'
 import { api } from '../lib/api'
+import { DocsPage } from '../features/docs'
 import { AppShell } from '../layouts/app-shell'
 import { useSession } from '../stores/session'
 import {
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
           { path: '/projects/:projectId/tables/:tableId', element: <TablePage /> },
           { path: '/recent', element: <RecentPage /> },
           { path: '/favorites', element: <FavoritesPage /> },
+          { path: '/doc', element: <DocsPage /> },
           { path: '/integrations', element: <IntegrationsPage /> },
           { path: '/settings/profile', element: <ProfilePage /> },
           { path: '/settings/users', element: <UsersPage /> },
