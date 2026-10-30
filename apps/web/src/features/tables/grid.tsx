@@ -214,7 +214,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     getNextPageParam: (last) => last.nextCursor,
     placeholderData: (previous) => previous,
   })
-  const rows = rowsQuery.data?.pages.flatMap((page) => page.rows) ?? []
+  const rowPages = rowsQuery.data?.pages
+  const rows = useMemo(() => rowPages?.flatMap((page) => page.rows) ?? [], [rowPages])
   const rowsRef = useRef(rows)
   rowsRef.current = rows
   const widthKey = `dv-col-widths:${tableId}`
@@ -352,7 +353,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     sync.edit(`table:${tableId}:name`, {
       draft: next,
       delay: 300,
-      apply: (draft) => patchCachedTable(queryClient, tableId, (current) => ({ ...current, name: draft })),
+      apply: () => undefined,
       commit: async (draft) => {
         const trimmed = draft.trim()
         if (!trimmed || trimmed === before) return { name: before }
@@ -411,10 +412,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
     if (!cellBaseline.current.has(key)) cellBaseline.current.set(key, row.cells[columnId] ?? null)
     const previous = cellBaseline.current.get(key) ?? null
     const next = nextValue === '' ? null : nextValue
+    const paint = delay === 0
     sync.edit(key, {
       draft: next,
       delay,
-      apply: (draft) => mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: draft } } : item)),
+      apply: (draft) => {
+        if (!paint) return
+        mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: draft } } : item))
+      },
       commit: async (draft) => {
         if (draft === previous) return { row: { ...(readCachedRow(queryClient, tableId, row.id) ?? row), cells: { ...row.cells, [columnId]: draft } } }
         const current = readCachedRow(queryClient, tableId, row.id) ?? row
@@ -449,10 +454,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     sync.edit(`column:${column.id}:name`, {
       draft: next,
       delay: 300,
-      apply: (draft) => patchCachedTable(queryClient, tableId, (current) => ({
-        ...current,
-        columns: current.columns?.map((item) => (item.id === column.id ? { ...item, name: draft } : item)),
-      })),
+      apply: () => undefined,
       commit: async (draft) => {
         const trimmed = draft.trim()
         if (!trimmed || trimmed === before) return { name: before }
@@ -880,11 +882,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   function openRowMenu(event: ReactMouseEvent, row: RowRecord) {
     event.stopPropagation()
-    const index = rows.findIndex((item) => item.id === row.id)
+    const list = rowsRef.current
+    const index = list.findIndex((item) => item.id === row.id)
     openMenu(event, [
       { id: 'notes', label: t('notes'), onSelect: () => setDrawerRowId(row.id) },
       { id: 'above', label: t('insertAbove'), onSelect: () => void insertRow(row.id) },
-      { id: 'below', label: t('insertBelow'), onSelect: () => void insertRow(rows[index + 1]?.id) },
+      { id: 'below', label: t('insertBelow'), onSelect: () => void insertRow(list[index + 1]?.id) },
       { id: 'duplicate', label: t('duplicate'), onSelect: () => void duplicateSelectedRows([row.id]) },
       { id: 'color', label: t('rowColor'), onSelect: () => setPopover({ kind: 'row-color', rowId: row.id, ...anchor(event) }) },
       { id: 'select', label: t('selectAll'), onSelect: () => setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])) },
@@ -968,6 +971,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
   }
 
+  const columnSignature = JSON.stringify(columns.map((column) => [
+    column.id,
+    column.name,
+    column.type,
+    column.hidden,
+    column.width,
+    column.position,
+    column.config.icon ?? null,
+    column.config.variant ?? null,
+    column.config.currency ?? null,
+    column.config.style ?? null,
+    column.config.toTableId ?? null,
+  ]))
+  const catalogSignature = JSON.stringify([
+    (table?.tags ?? []).map((tag) => [tag.id, tag.name, tag.color]),
+    (table?.statuses ?? []).map((status) => [status.id, status.name, status.color]),
+    (membersQuery.data?.members ?? []).map((member) => [member.userId, member.username]),
+  ])
+  const rulesSignature = JSON.stringify(table?.formatRules ?? [])
+  const targetSignature = JSON.stringify((targetRows.data?.rows ?? []).map((row) => row.id))
   const tableColumns = useMemo<ColumnDef<RowRecord>[]>(
     () => [
       {
@@ -1071,8 +1094,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   members={membersQuery.data?.members ?? []}
                   onEdit={(value, delay) => scheduleCell(row.original, column.id, value, delay)}
                   onFlush={() => {
-                    void sync.flush(`cell:${row.original.id}:${column.id}`).catch(() => setNotice(t('error')))
-                    setEditing(null)
+                    void sync.flush(`cell:${row.original.id}:${column.id}`).catch(() => setNotice(t('error'))).finally(() => setEditing(null))
                   }}
                   onCancel={() => {
                     sync.cancel(`cell:${row.original.id}:${column.id}`)
@@ -1094,18 +1116,27 @@ export function TableScreen({ tableId }: { tableId: string }) {
         },
       })),
     ],
-    [allChecked, checked, editing, membersQuery.data?.members, rules, t, table?.statuses, table?.tags, targetRows.data?.rows, visible],
+    [allChecked, catalogSignature, checked, columnSignature, editing, rulesSignature, t, targetSignature],
   )
   const grid = useReactTable({ data: rows, columns: tableColumns, getCoreRowModel: getCoreRowModel() })
   const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 36, overscan: 8 })
   const virtualItems = virtualizer.getVirtualItems()
   const paddingTop = virtualItems[0]?.start ?? 0
   const paddingBottom = virtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0)
-  const lastIndex = virtualItems.at(-1)?.index ?? -1
-
+  const pageState = useRef({ hasNext: false, fetching: false, fetch: rowsQuery.fetchNextPage })
+  pageState.current = { hasNext: rowsQuery.hasNextPage, fetching: rowsQuery.isFetchingNextPage, fetch: rowsQuery.fetchNextPage }
   useEffect(() => {
-    if (lastIndex >= rows.length - 8 && rowsQuery.hasNextPage && !rowsQuery.isFetchingNextPage) void rowsQuery.fetchNextPage()
-  }, [lastIndex, rows.length, rowsQuery.hasNextPage, rowsQuery.isFetchingNextPage, rowsQuery.fetchNextPage])
+    const parent = parentRef.current
+    if (!parent) return
+    const load = () => {
+      const state = pageState.current
+      const nearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 288
+      if (!nearBottom || !state.hasNext || state.fetching) return
+      void state.fetch()
+    }
+    parent.addEventListener('scroll', load, { passive: true })
+    return () => parent.removeEventListener('scroll', load)
+  }, [titleReady])
 
   if (tableQuery.isLoading || rowsQuery.isLoading) return <section className="p-6"><LoadingBlock /></section>
   if (tableQuery.isError || rowsQuery.isError || !table) {
@@ -1201,8 +1232,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           value={column.name}
                           onDraft={(next) => scheduleColumnName(column, next)}
                           onFlush={() => {
-                            void sync.flush(`column:${column.id}:name`).catch(() => setNotice(t('error')))
-                            setRenamingColumn(null)
+                            void sync.flush(`column:${column.id}:name`).catch(() => setNotice(t('error'))).finally(() => setRenamingColumn(null))
                           }}
                           onCancel={() => {
                             sync.cancel(`column:${column.id}:name`)

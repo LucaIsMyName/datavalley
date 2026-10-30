@@ -126,11 +126,11 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
   )
 }
 
-function TagEditor({ tableId, column, row, tags, onEdit, onFlush, onCreated }: { tableId: string; column: Column; row: RowRecord; tags: CatalogItem[]; onEdit: (value: string[]) => void; onFlush: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+function TagEditor({ tableId, column, row, tags, onEdit, onFlush, onCreated }: { tableId: string; column: Column; row: RowRecord; tags: CatalogItem[]; onEdit: (value: string[], delay?: number) => void; onFlush: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
   const selected = Array.isArray(row.cells[column.id]) ? (row.cells[column.id] as string[]) : []
   const [name, setName] = useState('')
   function choose(next: string[]) {
-    onEdit(next)
+    onEdit(next, 0)
     onFlush()
   }
   return (
@@ -222,7 +222,7 @@ function StatusEditor({ tableId, column, row, statuses, onEdit, onFlush, onCreat
   )
 }
 
-function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column; row: RowRecord; members: { userId: string; username: string }[]; onEdit: (value: string[]) => void; onFlush: () => void }) {
+function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column; row: RowRecord; members: { userId: string; username: string }[]; onEdit: (value: string[], delay?: number) => void; onFlush: () => void }) {
   const selected = Array.isArray(row.cells[column.id]) ? (row.cells[column.id] as string[]) : []
   return (
     <select
@@ -232,7 +232,7 @@ function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column;
       value=""
       onChange={(event) => {
         if (!event.target.value) return
-        onEdit(selected.includes(event.target.value) ? selected.filter((id) => id !== event.target.value) : [...selected, event.target.value])
+        onEdit(selected.includes(event.target.value) ? selected.filter((id) => id !== event.target.value) : [...selected, event.target.value], 0)
         onFlush()
       }}
     >

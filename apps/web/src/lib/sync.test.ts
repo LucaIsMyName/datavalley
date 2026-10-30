@@ -87,6 +87,26 @@ describe('sync engine', () => {
     expect(applied).toEqual(['Bad', 'rolled'])
   })
 
+  it('commits a text draft when apply leaves the cache alone', async () => {
+    const engine = createSync()
+    const commits: string[] = []
+    let stored = 'before'
+    engine.edit('cell', {
+      draft: 'after',
+      delay: 0,
+      apply: () => undefined,
+      commit: async (draft) => {
+        commits.push(draft)
+        return { version: 2, value: draft }
+      },
+      accept: (record: { value: string }) => { stored = record.value },
+      rollback: () => { stored = 'before' },
+    })
+    await engine.flush('cell')
+    expect(commits).toEqual(['after'])
+    expect(stored).toBe('after')
+  })
+
   it('runs a watched read once after the pause', async () => {
     vi.useFakeTimers()
     const engine = createSync()

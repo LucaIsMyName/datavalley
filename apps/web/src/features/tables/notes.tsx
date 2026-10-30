@@ -37,7 +37,7 @@ export function NotesDrawer({
     sync.edit(`row:${rowId}:notes`, {
       draft: next,
       delay: 300,
-      apply: (draft) => mapCachedRows(queryClient, tableId, (item) => (item.id === rowId ? { ...item, notes: String(draft) } : item)),
+      apply: () => undefined,
       commit: async (draft) => {
         const current = readCachedRow(queryClient, tableId, rowId)
         const result = await api.request<{ row: RowRecord }>(`/rows/${rowId}`, {
