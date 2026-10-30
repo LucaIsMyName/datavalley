@@ -1934,11 +1934,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
             })
         }}
       />
-      <div className="relative min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col border border-border bg-card">
         <div
           ref={parentRef}
           tabIndex={0}
-          className="h-full overflow-auto border border-border bg-card"
+          className="min-h-0 flex-1 overflow-auto"
           onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
             if (editing) return
             const text = event.clipboardData.getData('text/plain')
@@ -2194,86 +2194,93 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   <td className="border-t border-border" />
                 </tr>
               ) : null}
-              <tr className="sticky bottom-0 bg-background">
-                <td colSpan={visible.length + 2} className="border-b border-border">
-                  <button
-                    type="button"
-                    className="flex h-9 items-center gap-1 px-2 text-muted-foreground hover:text-foreground"
-                    onClick={() => void insertRow()}
-                  >
-                    <Plus className="size-3.5" />
-                    {t('insertRow')}
-                  </button>
-                </td>
-              </tr>
             </tbody>
           </table>
         </div>
-        {checked.length > 0 || selectedColumns.length > 0 ? (
-          <div className="absolute bottom-3 left-1/2 z-20 flex w-max -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-md">
-            <span className="text-sm">
-              {t('selectedCount', { count: checked.length + selectedColumns.length })}
-            </span>
-            {checked.length > 0 ? (
-              <Button
+        <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
+          <button
+            type="button"
+            className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground"
+            onClick={() => void insertRow()}
+          >
+            <Plus className="size-3.5" />
+            {t('insertRow')}
+          </button>
+          {checked.length > 0 || selectedColumns.length > 0 ? (
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <span className="whitespace-nowrap text-sm">
+                {t('selectedCount', { count: checked.length + selectedColumns.length })}
+              </span>
+              {checked.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void duplicateSelectedRows(checked)}
+                >
+                  {t('duplicateRows')}
+                </Button>
+              ) : null}
+              {selectedColumns.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void duplicateSelectedColumns(selectedColumns)}
+                >
+                  {t('duplicateColumns')}
+                </Button>
+              ) : null}
+              {checked.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={(event) =>
+                    setPopover({
+                      kind: 'row-color',
+                      rowId: rows.find((row) => checked.includes(row.id))?.id,
+                      ...anchor(event),
+                    })
+                  }
+                >
+                  {t('rowColor')}
+                </Button>
+              ) : null}
+              {checked.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="danger"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void deleteRows(checked)}
+                >
+                  {t('deleteRows')}
+                </Button>
+              ) : null}
+              {selectedColumns.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="danger"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => void deleteColumns(selectedColumns)}
+                >
+                  {t('deleteColumns')}
+                </Button>
+              ) : null}
+              <button
                 type="button"
-                variant="outline"
-                onClick={() => void duplicateSelectedRows(checked)}
+                aria-label={t('close')}
+                className="text-muted-foreground"
+                onClick={() => {
+                  setChecked([])
+                  setSelectedColumns([])
+                }}
               >
-                {t('duplicateRows')}
-              </Button>
-            ) : null}
-            {selectedColumns.length > 0 ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void duplicateSelectedColumns(selectedColumns)}
-              >
-                {t('duplicateColumns')}
-              </Button>
-            ) : null}
-            {checked.length > 0 ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={(event) =>
-                  setPopover({
-                    kind: 'row-color',
-                    rowId: rows.find((row) => checked.includes(row.id))?.id,
-                    ...anchor(event),
-                  })
-                }
-              >
-                {t('rowColor')}
-              </Button>
-            ) : null}
-            {checked.length > 0 ? (
-              <Button type="button" variant="danger" onClick={() => void deleteRows(checked)}>
-                {t('deleteRows')}
-              </Button>
-            ) : null}
-            {selectedColumns.length > 0 ? (
-              <Button
-                type="button"
-                variant="danger"
-                onClick={() => void deleteColumns(selectedColumns)}
-              >
-                {t('deleteColumns')}
-              </Button>
-            ) : null}
-            <button
-              type="button"
-              aria-label={t('close')}
-              className="text-muted-foreground"
-              onClick={() => {
-                setChecked([])
-                setSelectedColumns([])
-              }}
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        ) : null}
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
       {popover ? (
         <AnchoredLayer
