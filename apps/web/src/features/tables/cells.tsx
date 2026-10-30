@@ -57,7 +57,6 @@ export function CellEditor({
   row,
   active,
   text,
-  expression,
   tableId,
   tags,
   statuses,
@@ -67,14 +66,12 @@ export function CellEditor({
   onCancel,
   onOpen,
   onCreated,
-  onFormula,
   hint,
 }: {
   column: Column
   row: RowRecord
   active: boolean
   text: string
-  expression: string
   tableId: string
   tags: CatalogItem[]
   statuses: CatalogItem[]
@@ -84,7 +81,6 @@ export function CellEditor({
   onCancel: () => void
   onOpen: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
-  onFormula: (expression: string) => Promise<void>
   hint?: string | null
 }) {
   if (column.type === 'row_id') {
@@ -127,9 +123,6 @@ export function CellEditor({
   if (column.type === 'date' || column.type === 'datetime') return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
   if (column.type === 'status') return <StatusEditor tableId={tableId} column={column} row={row} statuses={statuses} onEdit={onEdit} onFlush={onFlush} onCreated={onCreated} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
-  if (column.type === 'formula') {
-    return <FormulaEditor label={`Edit ${column.name}`} value={hint ? text : expression} hint={hint} onSave={onFormula} onCancel={onCancel} />
-  }
   return (
     <div className="flex h-full min-w-0 flex-1 items-center gap-1">
       <TextEditor label={`Edit ${column.name}`} value={text} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
@@ -181,52 +174,6 @@ function TextEditor({ label, value, onEdit, onFlush, onCancel }: { label: string
         if (event.key === 'Escape') { event.preventDefault(); onCancel() }
       }}
     />
-  )
-}
-
-function FormulaEditor({ label, value, hint, onSave, onCancel }: { label: string; value: string; hint?: string | null; onSave: (expression: string) => Promise<void>; onCancel: () => void }) {
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const done = useRef(false)
-  async function commit() {
-    if (done.current) return
-    if (draft.trim() === value.trim()) {
-      done.current = true
-      onCancel()
-      return
-    }
-    done.current = true
-    try {
-      await onSave(draft)
-    } catch {
-      done.current = false
-      inputRef.current?.focus()
-    }
-  }
-  return (
-    <div className="flex h-full min-w-0 flex-1 items-center gap-1">
-      <input
-        ref={inputRef}
-        autoFocus
-        aria-label={label}
-        className="h-9 min-w-0 flex-1 bg-transparent font-mono leading-9 outline-none"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => { void commit() }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            event.currentTarget.blur()
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            done.current = true
-            onCancel()
-          }
-        }}
-      />
-      {hint ? <FormatHint message={hint} /> : null}
-    </div>
   )
 }
 

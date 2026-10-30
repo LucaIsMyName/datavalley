@@ -15,12 +15,9 @@ export function canonicalize(expression: string, names: Record<string, RefNode>)
   const entries = Object.entries(names).sort((a, b) => b[0].length - a[0].length)
   let source = expression.trim().replace(/^=/, '')
   for (const [name, ref] of entries) {
-    const token = ref.tableId
-      ? `{${ref.tableId}}.{${ref.columnId}}`
-      : ref.rowId
-        ? `{${ref.columnId}}@{${ref.rowId}}`
-        : `{${ref.columnId}}`
-    source = source.replace(new RegExp(`\\b${escapeRegExp(name)}\\b`, 'g'), token)
+    const column = ref.tableId ? `{${ref.tableId}}.{${ref.columnId}}` : `{${ref.columnId}}`
+    const token = ref.rowId ? `${column}@{${ref.rowId}}` : column
+    source = source.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(name)}(?![A-Za-z0-9_])`, 'g'), token)
   }
   parseFormula(source)
   return source

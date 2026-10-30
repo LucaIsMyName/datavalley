@@ -40,7 +40,8 @@ import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
-import { FORMULA_HELP } from './formula-help'
+import { FormulaDialog } from './formula-dialog'
+import { FORMULA_HELP, formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
 import {
@@ -104,10 +105,7 @@ type SavedView = {
 }
 
 function showCell(value: unknown) {
-  if (value == null) return ''
-  if (typeof value === 'object' && value && 'error' in value)
-    return String((value as { error: string }).error)
-  return String(value)
+  return formatFormulaValue(value)
 }
 
 function writable(column: Column) {
@@ -273,6 +271,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [formulaDraft, setFormulaDraft] = useState('')
   const [formulaFunction, setFormulaFunction] = useState('')
+  const [formulaCell, setFormulaCell] = useState<{ rowId: string; columnId: string; name: string } | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
@@ -1279,7 +1278,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         disabled: type === column.type,
         onSelect: () => {
           if (type === 'formula') {
-            setFormulaDraft(column.formula ?? '')
+            setFormulaDraft('')
             setFormulaFunction('')
             setPopover({ kind: 'formula', columnId: column.id, ...anchor(event) })
             return
@@ -1395,7 +1394,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
         id: 'edit',
         label: t('rename'),
         disabled: !writable(column) && column.type !== 'formula',
-        onSelect: () => setEditing(`${row.id}:${column.id}`),
+        onSelect: () => {
+          if (column.type === 'formula') {
+            setFormulaCell({ rowId: row.id, columnId: column.id, name: column.name })
+            return
+          }
+          setEditing(`${row.id}:${column.id}`)
+        },
       },
       {
         id: 'copy',
@@ -1552,7 +1557,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
       column.config.currency ?? null,
       column.config.style ?? null,
       column.config.toTableId ?? null,
-      column.formula ?? null,
     ]),
   )
   const catalogSignature = JSON.stringify([
@@ -1683,9 +1687,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 <CellEditor
                   column={column}
                   row={row.original}
-                  active={active && (writable(column) || column.type === 'formula')}
+                  active={active && writable(column)}
                   text={text}
-                  expression={column.formula ?? ''}
                   tableId={tableId}
                   tags={table?.tags ?? []}
                   statuses={table?.statuses ?? []}
@@ -1707,6 +1710,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     setEditing(null)
                   }}
                   onOpen={() => {
+                    if (column.type === 'formula') {
+                      setFormulaCell({ rowId: row.original.id, columnId: column.id, name: column.name })
+                      return
+                    }
                     setSelected({
                       row: row.index,
                       column: visible.findIndex((item) => item.id === column.id),
@@ -1729,21 +1736,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           : current.statuses,
                     }))
                   }
-                  onFormula={async (expression) => {
-                    const key = `cell:${row.original.id}:${column.id}`
-                    try {
-                      await persistFormula(column, expression)
-                      clearInvalid(key)
-                      setEditing(null)
-                    } catch (error) {
-                      const message = error instanceof ApiClientError ? error.message : t('error')
-                      setInvalidCells((current) => ({
-                        ...current,
-                        [key]: { text: expression, message },
-                      }))
-                      throw error
-                    }
-                  }}
                 />
               )}
             </div>
@@ -2481,6 +2473,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
               {formulaHelp ? (
                 <p className="font-mono text-xs text-muted-foreground">{formulaHelp.example}</p>
               ) : null}
+              <p className="text-xs text-muted-foreground">{t('formulaCopies')}</p>
               <Link className="text-sm underline" to="/doc#formulas">
                 {t('formulaDocs')}
               </Link>
@@ -2562,6 +2555,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
         tableId={tableId}
         row={rows.find((row) => row.id === drawerRowId) ?? null}
         onClose={() => setDrawerRowId(null)}
+      />
+      <FormulaDialog
+        open={Boolean(formulaCell)}
+        tableId={tableId}
+        rowId={formulaCell?.rowId ?? ''}
+        columnId={formulaCell?.columnId ?? ''}
+        columnName={formulaCell?.name ?? ''}
+        onClose={() => setFormulaCell(null)}
+        onSaved={() => {
+          setFormulaCell(null)
+          void refresh()
+        }}
       />
       <ConfirmDialog
         open={Boolean(confirm)}

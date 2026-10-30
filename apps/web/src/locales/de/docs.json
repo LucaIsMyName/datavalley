@@ -5,7 +5,7 @@
   "tablesTitle": "Tabellen",
   "tablesBody": "Eine Tabelle ist ein Raster aus Spalten und Zeilen. Eine Spalte kommt über das + am Ende der Überschrift oder zwischen zwei Überschriften; der Typ wird vorher gewählt. Am Griff ziehst du eine Spalte oder eine Zeile. Sortierung und Filter sitzen in der Überschrift und bleiben deinem Konto erhalten. Markierte Zeilen oder Spalten kannst du duplizieren, färben oder löschen. Die Leiste unten am Raster schließt du mit X.",
   "formulasTitle": "Formeln",
-  "formulasIntro": "Eine Formel nennt eine Spalte oder Tabelle.Spalte für eine Spalte einer anderen Tabelle. Rechnung mit + - * / und %. Vergleiche mit = <> > < >= <=. Setze kein = vor die Formel. Text steht in Anführungszeichen.",
+  "formulasIntro": "Jede Formelzelle hat ihren eigenen Ausdruck. Setze kein = davor. Das Ergebnis ist eine Zahl, ein Text, ein Wahrheitswert oder eine Liste davon. Die Zelle zeigt eine Zahl als Zahl, Text als Text, TRUE oder FALSE, und eine Liste mit Komma getrennt. Eine leere Zelle ist leer. Zahlen schreibst du als 1 und 3.5, Text in Anführungszeichen, Wahrheitswerte als TRUE und FALSE. + - * / % gelten für Zahlen. & und CONCAT verbinden Text. = und <> vergleichen zwei Zahlen, zwei Texte oder zwei Wahrheitswerte. > < >= <= vergleichen zwei Zahlen oder zwei Texte. Eine Zahl mit Text gemischt ergibt #VALUE. Ein Spaltenname liest diese Zeile. Tabelle.Spalte liest eine ganze Spalte. Tabelle.Spalte@Zeile liest eine Zelle. Text, Langtext, Mail und URL sind Text. Zahl und Währung sind Zahlen. Ein Kontrollkästchen ist TRUE oder FALSE. Ein Datum ist JJJJ-MM-TT, ein Datum mit Uhrzeit ein ISO-Text. Status, Auswahl und Radio sind die Beschriftung. Tags, Mehrfachauswahl und Personen sind Listen von Beschriftungen. Eine Verknüpfung als Wert ist der Titel der verknüpften Zeile. Die Zeilen-ID ist die ID im Raster. Medien sind leer. Fehler sind #CYCLE, #REF, #VALUE, #DIV/0, #LIM und #N/A.",
   "lookupTitle": "Nachschlagen",
   "lookupBody": "LOOKUP(Customers.Email, Email, Customers.Name) sucht in Customers.Email die E-Mail dieser Zeile und gibt den Namen der passenden Zeile zurück. Das erste und das dritte Argument sind Spalten derselben Tabelle. Das mittlere Argument ist der gesuchte Wert.",
   "functions": {
@@ -17,10 +17,20 @@
     "COUNTA": "Wie viele Zellen nicht leer sind.",
     "ROUND": "Rundet auf die angegebene Stellenzahl.",
     "ABS": "Der Betrag.",
-    "IF": "Ein Wert, wenn die Bedingung stimmt, und ein anderer, wenn sie nicht stimmt.",
-    "AND": "Wahr, wenn jede Bedingung stimmt.",
-    "OR": "Wahr, wenn eine Bedingung stimmt.",
-    "NOT": "Kehrt wahr und falsch um.",
+    "IF": "Gibt das zweite Argument zurück, wenn die Bedingung stimmt, und das dritte, wenn sie nicht stimmt. Jeder Wert darf eine Zahl, ein Text oder ein Wahrheitswert sein. Fehlt das dritte Argument, ist das Ergebnis FALSE. IF(Amount > 100, \"High\", \"Low\").",
+    "IFNOT": "IF mit umgekehrter Bedingung. Jeder Zweig darf eine Zahl, ein Text oder ein Wahrheitswert sein. IFNOT(Paid, \"Open\", \"Done\").",
+    "IFS": "Gibt den Wert der ersten zutreffenden Bedingung zurück. Der Wert darf eine Zahl, ein Text oder ein Wahrheitswert sein. Kein Treffer ist #N/A. IFS(Amount > 100, \"High\", Amount > 0, \"Low\").",
+    "FOR": "Geht jeden Wert einer Liste durch. Im zweiten Argument ist IT die aktuelle Zahl, der aktuelle Text oder der aktuelle Wahrheitswert. Das Ergebnis ist eine Liste derselben Länge. IT außerhalb von FOR ist #VALUE. FOR(Amount, IF(IT > 100, \"High\", \"Low\")). SUM(FOR(Amount, IF(IT > 0, IT, 0))) faltet die Liste zu einer Zahl.",
+    "AND": "Wahr, wenn jede Bedingung stimmt. Das Ergebnis ist ein Wahrheitswert.",
+    "OR": "Wahr, wenn eine Bedingung stimmt. Das Ergebnis ist ein Wahrheitswert.",
+    "NOT": "Kehrt wahr und falsch um. Das Ergebnis ist ein Wahrheitswert.",
+    "ISBLANK": "Wahr für eine leere Zelle, eine leere Liste oder \"\".",
+    "CONTAINS": "Wahr, wenn ein Text den Teil enthält oder eine Liste aus Tags, Personen oder Mehrfachauswahl diese Beschriftung enthält. CONTAINS(Tags, \"Lead\").",
+    "COUNTIF": "Zählt Zeilen, deren Spalte der Bedingung entspricht. Eine Textspalte bleibt Text. COUNTIF(Status, \"Open\").",
+    "SUMIF": "Addiert die Zahlenspalte der Zeilen, deren Spalte der Bedingung entspricht. SUMIF(Status, \"Open\", Amount).",
+    "YEAR": "Das Jahr eines Datums oder einer Uhrzeit, als Zahl. YEAR(Date).",
+    "MONTH": "Der Monat eines Datums oder einer Uhrzeit, als Zahl. MONTH(Date).",
+    "DAY": "Der Tag eines Datums oder einer Uhrzeit, als Zahl. DAY(Date).",
     "CONCAT": "Fügt Text zusammen.",
     "LEFT": "Die ersten Zeichen eines Texts.",
     "RIGHT": "Die letzten Zeichen eines Texts.",
@@ -29,6 +39,7 @@
     "UPPER": "Text in Großbuchstaben.",
     "TODAY": "Das heutige Datum.",
     "NOW": "Das aktuelle Datum mit Uhrzeit.",
-    "LOOKUP": "Sucht einen Wert in einer Spalte und gibt eine andere Spalte dieser Zeile zurück."
+    "LOOKUP": "Findet die erste Zeile, deren Vergleichsspalte dem Wert entspricht, und gibt die Ergebnisspalte zurück. Kein Treffer ist #N/A. Eine Tabelle, die du nicht sehen darfst, ist #REF. LOOKUP(People.Email, Email, People.Name).",
+    "RELATION": "Folgt der Verknüpfungsspalte dieser Zeile und liest ein Feld der verknüpften Zeile. Mehrere Verknüpfungen ergeben eine Liste, SUM bleibt also möglich. Eine leere Verknüpfung ist leer. Ein Ziel, das du nicht sehen darfst, ist #REF. RELATION(Customer, Name)."
   }
 }

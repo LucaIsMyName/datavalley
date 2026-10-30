@@ -93,9 +93,7 @@ describe('table fields', () => {
       payload: { expression: `{${amountId}}` },
     })
     expect(saved.statusCode).toBe(200)
-    const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}` })
-    const formulaColumn = (detail.json().table.columns as { id: string; formula: string | null }[]).find((column) => column.id === totalId)
-    expect(formulaColumn?.formula).toBe(`{${amountId}}`)
+    expect(saved.json().id).toBeNull()
     const first = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Lead' } })
     await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Customer' } })
     const tagId = first.json().tag.id as string
@@ -134,6 +132,146 @@ describe('table fields', () => {
     const footer = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/footer` })
     expect(footer.statusCode).toBe(200)
     expect(footer.json().footer[flagId].filled).toBe(1)
+  })
+
+  it('keeps a different formula on each cell', async () => {
+    const { tableId, projectId } = await blankTable('Cell formulas')
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const total = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Total', type: 'formula' } })
+    const stage = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Stage', type: 'status' } })
+    const tags = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Tags', type: 'tags' } })
+    const amountId = amount.json().column.id as string
+    const totalId = total.json().column.id as string
+    const stageId = stage.json().column.id as string
+    const tagsId = tags.json().column.id as string
+    const open = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/statuses`, payload: { name: 'Open' } })
+    const lead = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Lead' } })
+    const first = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [amountId]: 2, [stageId]: open.json().status.id, [tagsId]: [lead.json().tag.id] } },
+    })
+    const second = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 5, [stageId]: open.json().status.id } } })
+    const firstId = first.json().row.id as string
+    const secondId = second.json().row.id as string
+    const copied = await session.inject({ method: 'POST', url: `/api/v1/columns/${totalId}/formula`, payload: { expression: 'Amount * 2' } })
+    expect(copied.statusCode).toBe(200)
+    const changed = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${secondId}/columns/${totalId}/formula`,
+      payload: { expression: 'Amount + 1' },
+    })
+    expect(changed.statusCode).toBe(200)
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const rows = listed.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(rows.find((row) => row.id === firstId)?.cells[totalId]).toBe(4)
+    expect(rows.find((row) => row.id === secondId)?.cells[totalId]).toBe(6)
+    const source = await session.inject({ method: 'GET', url: `/api/v1/rows/${firstId}/columns/${totalId}/formula` })
+    expect(source.json().source).toBe('Amount * 2')
+    const cleared = await session.inject({ method: 'POST', url: `/api/v1/rows/${firstId}/columns/${totalId}/formula`, payload: { expression: '' } })
+    expect(cleared.statusCode).toBe(200)
+    const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const afterRows = after.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(afterRows.find((row) => row.id === firstId)?.cells[totalId] ?? null).toBeNull()
+    expect(afterRows.find((row) => row.id === secondId)?.cells[totalId]).toBe(6)
+
+    const label = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${firstId}/columns/${totalId}/formula`,
+      payload: { expression: 'IF(Stage = "Open", "Yes", "No")' },
+    })
+    expect(label.statusCode).toBe(200)
+    const counted = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${secondId}/columns/${totalId}/formula`,
+      payload: { expression: 'COUNTIF(Stage, "Open")' },
+    })
+    expect(counted.statusCode).toBe(200)
+    const tagged = await session.inject({ method: 'POST', url: '/api/v1/formulas/validate', payload: { tableId, expression: 'CONTAINS(Tags, "Lead")', rowId: firstId } })
+    expect(tagged.json().value).toBe(true)
+    const again = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const values = again.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(values.find((row) => row.id === firstId)?.cells[totalId]).toBe('Yes')
+    expect(values.find((row) => row.id === secondId)?.cells[totalId]).toBe(2)
+
+    const listedTables = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const peopleId = (listedTables.json().tables as { id: string; name: string }[]).find((table) => table.name === 'People')?.id
+    expect(peopleId).toBeTruthy()
+    const mail = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Email', type: 'mail' } })
+    const mailId = mail.json().column.id as string
+    const versionBefore = (await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })).json().rows as { id: string; version: number }[]
+    await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${firstId}`,
+      payload: { version: versionBefore.find((row) => row.id === firstId)?.version, cells: { [mailId]: 'john@doe.com' } },
+    })
+    const looked = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId, rowId: firstId, expression: 'LOOKUP(People.Mail, Email, People.Name)' },
+    })
+    expect(looked.json().value).toBe('John Doe')
+    const peopleRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const targetId = peopleRows.json().rows[0].id as string
+    const pointed = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId, rowId: firstId, expression: `People.Name@${targetId}` },
+    })
+    expect(pointed.json().value).toBe('John Doe')
+
+    const link = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/relations`,
+      payload: { toTableId: peopleId, cardinality: 'many_to_one', name: 'Customer' },
+    })
+    const linkId = link.json().relation.column.id as string
+    const linkedRow = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const version = (linkedRow.json().rows as { id: string; version: number }[]).find((row) => row.id === firstId)?.version
+    await session.inject({ method: 'PATCH', url: `/api/v1/rows/${firstId}`, payload: { version, cells: { [linkId]: targetId } } })
+    const related = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId, rowId: firstId, expression: 'RELATION(Customer, Name)' },
+    })
+    expect(related.json().value).toBe('John Doe')
+
+    const outsider = await new ApiSession(harness.app).prepare()
+    expect((await login(outsider, 'outsider', password)).statusCode).toBe(200)
+    const foreign = await outsider.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Vault project' } })
+    const foreignTable = await outsider.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${foreign.json().project.id}/tables`,
+      payload: { name: 'Vault' },
+    })
+    const secret = await outsider.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${foreignTable.json().table.id}/columns`,
+      payload: { name: 'Secret', type: 'text' },
+    })
+    const secretId = secret.json().column.id as string
+    await outsider.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${foreignTable.json().table.id}/rows`,
+      payload: { cells: { [secretId]: 'SENTINEL-SECRET' } },
+    })
+    const blocked = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: {
+        tableId,
+        rowId: firstId,
+        expression: `LOOKUP({${foreignTable.json().table.id}}.{${secretId}}, Email, {${foreignTable.json().table.id}}.{${secretId}})`,
+      },
+    })
+    expect(blocked.json().value).toEqual({ error: '#REF' })
+    expect(JSON.stringify(blocked.json())).not.toContain('SENTINEL-SECRET')
+    const hidden = await outsider.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/formula-catalog` })
+    expect(hidden.statusCode).toBe(404)
+    const own = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/formula-catalog` })
+    expect(own.statusCode).toBe(200)
+    expect(JSON.stringify(own.json())).toContain('People')
+    expect(JSON.stringify(own.json())).not.toContain('outsider')
   })
 
   it('assigns a status and refuses a user who is not a project member', async () => {

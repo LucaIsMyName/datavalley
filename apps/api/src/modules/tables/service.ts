@@ -4,7 +4,6 @@ import type { Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
-  formulas,
   relations,
   tableCells,
   tableColumns,
@@ -22,6 +21,7 @@ import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 
 export type LoadedColumn = ColumnShape & {
+  tableId: string
   description: string
   position: string
   hidden: boolean
@@ -35,6 +35,7 @@ export async function loadColumns(db: AppDatabase, tableId: string): Promise<Loa
   const options = await db.select().from(columnOptions).where(inArray(columnOptions.columnId, columns.map((column) => column.id)))
   return columns.map((column) => ({
     id: column.id,
+    tableId: column.tableId,
     name: column.name,
     type: column.type,
     config: (column.config ?? {}) as Record<string, unknown>,
@@ -174,14 +175,9 @@ export async function getTable(db: AppDatabase, subject: Subject, tableId: strin
   }
   const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, table.id)).orderBy(asc(tableTags.name))
   const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id)).orderBy(asc(tableStatuses.position))
-  const storedFormulas = await db.select().from(formulas).where(eq(formulas.tableId, table.id))
-  const formulaByColumn = new Map(storedFormulas.map((item) => [item.columnId, item.source]))
   return {
     ...presentTable(table),
-    columns: (await loadColumns(db, table.id)).map((column) => ({
-      ...presentColumn(column),
-      formula: formulaByColumn.get(column.id) ?? null,
-    })),
+    columns: (await loadColumns(db, table.id)).map((column) => presentColumn(column)),
     tags,
     statuses,
   }

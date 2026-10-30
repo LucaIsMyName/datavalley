@@ -238,6 +238,10 @@ class Parser {
         this.eat()
         return { type: 'bool', value: name === 'TRUE' }
       }
+      if (name === 'IT' && this.tokens[this.index + 1]?.type !== 'lparen') {
+        this.eat()
+        return { type: 'it' }
+      }
       this.eat()
       if (this.peek().type === 'lparen') {
         this.eat()

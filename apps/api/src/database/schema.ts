@@ -275,16 +275,21 @@ export const backgroundJobs = pgTable('background_jobs', {
   ...timestamps,
 })
 
-export const formulas = pgTable('formulas', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-  columnId: uuid('column_id').references(() => tableColumns.id, { onDelete: 'cascade' }),
-  source: text('source').notNull(),
-  canonical: text('canonical').notNull(),
-  ast: jsonb('ast').notNull(),
-  crossesTables: boolean('crosses_tables').notNull().default(false),
-  ...timestamps,
-})
+export const formulas = pgTable(
+  'formulas',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    columnId: uuid('column_id').references(() => tableColumns.id, { onDelete: 'cascade' }),
+    rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+    source: text('source').notNull(),
+    canonical: text('canonical').notNull(),
+    ast: jsonb('ast').notNull(),
+    crossesTables: boolean('crosses_tables').notNull().default(false),
+    ...timestamps,
+  },
+  (table) => [uniqueIndex('formulas_column_row_idx').on(table.columnId, table.rowId)],
+)
 
 export const formulaDependencies = pgTable('formula_dependencies', {
   id: uuid('id').primaryKey().defaultRandom(),

@@ -29,6 +29,7 @@ export type AstNode =
   | { type: 'call'; name: string; args: AstNode[] }
   | { type: 'ref'; ref: RefNode }
   | { type: 'range'; start: RefNode; end: RefNode }
+  | { type: 'it' }
 
 export function isFormulaError(value: unknown): value is FormulaErrorValue {
   return typeof value === 'object' && value !== null && 'error' in value && !Array.isArray(value)
@@ -41,6 +42,7 @@ export function astDepth(node: AstNode): number {
     case 'bool':
     case 'ref':
     case 'range':
+    case 'it':
       return 1
     case 'unary':
       return 1 + astDepth(node.expr)

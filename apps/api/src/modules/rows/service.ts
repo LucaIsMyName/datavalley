@@ -99,9 +99,9 @@ export async function listRows(
   if (formulaColumns.length > 0 && rows.length > 0) {
     const stored = await db.select().from(formulas).where(eq(formulas.tableId, table.id))
     for (const column of formulaColumns) {
-      const formula = stored.find((item) => item.columnId === column.id)
-      if (!formula) continue
       for (const row of rows) {
+        const formula = stored.find((item) => item.columnId === column.id && item.rowId === row.id)
+        if (!formula) continue
         try {
           row.cells[column.id] = await evaluateStored(db, subject, formula.id, row.id)
         } catch {

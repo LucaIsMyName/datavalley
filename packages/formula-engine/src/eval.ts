@@ -19,6 +19,9 @@ export type EvalContext = {
     needle: FormulaScalar,
     resultColumnId: string,
   ) => FormulaValue
+  relation?: (fromColumnId: string, toColumnId: string) => FormulaValue
+  column?: (ref: RefNode) => FormulaValue
+  item?: FormulaValue
 }
 
 function err(code: FormulaErrorValue['error']): FormulaErrorValue {
@@ -95,6 +98,8 @@ export function evaluate(node: AstNode, ctx: EvalContext, depth = 0): FormulaVal
       return ctx.get(node.ref)
     case 'range':
       return ctx.range(node.start, node.end)
+    case 'it':
+      return ctx.item ?? err('#VALUE')
   }
 }
 
@@ -177,6 +182,28 @@ function compare(op: string, left: FormulaValue, right: FormulaValue): FormulaVa
   return err('#VALUE')
 }
 
+function valuesEqual(left: FormulaValue, right: FormulaValue) {
+  if (isFormulaError(left) || isFormulaError(right) || Array.isArray(left) || Array.isArray(right)) return false
+  if (left == null && right == null) return true
+  return left === right
+}
+
+function dateOf(value: FormulaScalar | null) {
+  if (typeof value !== 'string' || value.trim() === '') return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const date = new Date(`${value}T00:00:00Z`)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function columnValue(node: AstNode | undefined, ctx: EvalContext, depth: number): FormulaValue {
+  if (!node) return err('#VALUE')
+  if (node.type === 'ref' && ctx.column) return ctx.column(node.ref)
+  return evaluate(node, ctx, depth)
+}
+
 function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number): FormulaValue {
   try {
     if (name === 'IF') {
@@ -211,6 +238,106 @@ function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number
       if (isFormulaError(value)) return value
       const flag = truthy(value)
       return isFormulaError(flag) ? flag : !flag
+    }
+    if (name === 'IFNOT') {
+      if (args.length < 2 || args.length > 3) return err('#VALUE')
+      const condition = evaluate(args[0], ctx, depth)
+      if (isFormulaError(condition)) return condition
+      const flag = truthy(condition)
+      if (isFormulaError(flag)) return flag
+      if (!flag) return evaluate(args[1], ctx, depth)
+      return args[2] ? evaluate(args[2], ctx, depth) : false
+    }
+    if (name === 'IFS') {
+      if (args.length < 2 || args.length % 2 !== 0) return err('#VALUE')
+      for (let index = 0; index < args.length; index += 2) {
+        const condition = evaluate(args[index], ctx, depth)
+        if (isFormulaError(condition)) return condition
+        const flag = truthy(condition)
+        if (isFormulaError(flag)) return flag
+        if (flag) return evaluate(args[index + 1], ctx, depth)
+      }
+      return err('#N/A')
+    }
+    if (name === 'FOR') {
+      if (args.length !== 2) return err('#VALUE')
+      const list = evaluate(args[0], ctx, depth)
+      if (isFormulaError(list)) return list
+      const items = Array.isArray(list) ? list : [list]
+      const previous = ctx.item
+      const out: FormulaValue[] = []
+      for (const item of items) {
+        ctx.item = item
+        out.push(evaluate(args[1], ctx, depth))
+      }
+      ctx.item = previous
+      return out
+    }
+    if (name === 'ISBLANK') {
+      if (args.length !== 1) return err('#VALUE')
+      const value = evaluate(args[0], ctx, depth)
+      if (isFormulaError(value)) return value
+      if (value == null || value === '') return true
+      return Array.isArray(value) && value.length === 0
+    }
+    if (name === 'CONTAINS') {
+      if (args.length !== 2) return err('#VALUE')
+      const value = evaluate(args[0], ctx, depth)
+      const part = evaluate(args[1], ctx, depth)
+      if (isFormulaError(value)) return value
+      if (isFormulaError(part)) return part
+      if (Array.isArray(part)) return err('#VALUE')
+      if (typeof value === 'string') return value.toLowerCase().includes(asText(part ?? null).toLowerCase())
+      if (Array.isArray(value)) {
+        const needle = asText(part ?? null).toLowerCase()
+        return value.some((item) => !isFormulaError(item) && !Array.isArray(item) && asText(item ?? null).toLowerCase() === needle)
+      }
+      return false
+    }
+    if (name === 'COUNTIF') {
+      if (args.length !== 2) return err('#VALUE')
+      const list = columnValue(args[0], ctx, depth)
+      const condition = evaluate(args[1], ctx, depth)
+      if (isFormulaError(list)) return list
+      if (isFormulaError(condition)) return condition
+      const items = Array.isArray(list) ? list : [list]
+      return items.filter((item) => valuesEqual(item, condition)).length
+    }
+    if (name === 'SUMIF') {
+      if (args.length !== 3) return err('#VALUE')
+      const list = columnValue(args[0], ctx, depth)
+      const condition = evaluate(args[1], ctx, depth)
+      const numbers = columnValue(args[2], ctx, depth)
+      if (isFormulaError(list)) return list
+      if (isFormulaError(condition)) return condition
+      if (isFormulaError(numbers)) return numbers
+      const criteria = Array.isArray(list) ? list : [list]
+      const amounts = Array.isArray(numbers) ? numbers : [numbers]
+      let sum = 0
+      criteria.forEach((item, index) => {
+        if (!valuesEqual(item, condition)) return
+        const numeric = asNumber(amounts[index] ?? null)
+        if (typeof numeric === 'number') sum += numeric
+      })
+      return sum
+    }
+    if (name === 'YEAR' || name === 'MONTH' || name === 'DAY') {
+      if (args.length !== 1) return err('#VALUE')
+      const value = evaluate(args[0], ctx, depth)
+      if (isFormulaError(value) || Array.isArray(value)) return isFormulaError(value) ? value : err('#VALUE')
+      const date = dateOf(value)
+      if (!date) return err('#VALUE')
+      if (name === 'YEAR') return date.getUTCFullYear()
+      if (name === 'MONTH') return date.getUTCMonth() + 1
+      return date.getUTCDate()
+    }
+    if (name === 'RELATION') {
+      if (args.length !== 2) return err('#VALUE')
+      const from = args[0]
+      const to = args[1]
+      if (from.type !== 'ref' || to.type !== 'ref') return err('#VALUE')
+      if (!ctx.relation) return err('#N/A')
+      return ctx.relation(from.ref.columnId, to.ref.columnId)
     }
     if (name === 'LOOKUP') {
       if (args.length !== 3) return err('#VALUE')

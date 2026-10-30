@@ -5,7 +5,7 @@
   "tablesTitle": "Tables",
   "tablesBody": "A table is a grid of columns and rows. Add a column with the + at the end of the header or between two headers, and choose the type before it is created. Drag a grip to reorder a column or a row. Sort and filter from the column header; those choices stay with your account. Select rows or columns to duplicate, color, or delete them. The bar at the bottom of the grid closes with X.",
   "formulasTitle": "Formulas",
-  "formulasIntro": "A formula uses a column name, or Table.Column for a column on another table. Arithmetic uses + - * / and %. Comparisons use = <> > < >= <=. Do not put = in front of the formula. Text belongs in quotes.",
+  "formulasIntro": "Each formula cell keeps its own expression. There is no = in front. A result is a number, text, a boolean, or a list of those. The cell shows a number as a number, text as text, TRUE or FALSE, and a list joined with a comma. An empty cell is empty. Write numbers as 1 and 3.5, text in quotes, and booleans as TRUE and FALSE. + - * / % work on numbers. & and CONCAT join text. = and <> compare two numbers, two texts, or two booleans. > < >= <= compare two numbers or two texts. Mixing a number with text is #VALUE. A column name reads this row. Table.Column reads a whole column. Table.Column@row reads one cell. Text, long text, mail, and url are text. Number and currency are numbers. A checkbox is TRUE or FALSE. A date is YYYY-MM-DD and a datetime is an ISO text. Status, select, and radio are the label you see. Tags, multi-select, and people are lists of labels. A relation used as a value is the linked row's title. The row id is the id shown in the grid. Media is empty. Errors are #CYCLE, #REF, #VALUE, #DIV/0, #LIM, and #N/A.",
   "lookupTitle": "Lookup",
   "lookupBody": "LOOKUP(Customers.Email, Email, Customers.Name) searches Customers.Email for the Email on this row and returns the Name from the matching row. The first and third arguments are columns on the same table. The middle argument is the value to find.",
   "functions": {
@@ -17,10 +17,20 @@
     "COUNTA": "How many cells are not empty.",
     "ROUND": "Rounds to the given number of digits.",
     "ABS": "The absolute value.",
-    "IF": "One value when the condition is true, and another when it is false.",
-    "AND": "True when every condition is true.",
-    "OR": "True when any condition is true.",
-    "NOT": "Reverses true and false.",
+    "IF": "Returns the second argument when the condition is true, and the third when it is false. Either value may be a number, text, or a boolean. Omitting the third argument returns FALSE. IF(Amount > 100, \"High\", \"Low\").",
+    "IFNOT": "IF with the condition reversed. Either branch may be a number, text, or a boolean. IFNOT(Paid, \"Open\", \"Done\").",
+    "IFS": "Returns the value of the first true condition. The value may be a number, text, or a boolean. No match is #N/A. IFS(Amount > 100, \"High\", Amount > 0, \"Low\").",
+    "FOR": "Walks each value in a list. Inside the second argument, IT is the current number, text, or boolean. The result is a list of the same length. IT outside FOR is #VALUE. FOR(Amount, IF(IT > 100, \"High\", \"Low\")). SUM(FOR(Amount, IF(IT > 0, IT, 0))) folds the list back to a number.",
+    "AND": "True when every condition is true. The result is a boolean.",
+    "OR": "True when any condition is true. The result is a boolean.",
+    "NOT": "Reverses true and false. The result is a boolean.",
+    "ISBLANK": "True for an empty cell, an empty list, or \"\".",
+    "CONTAINS": "True when text contains the part, or when a list of tags, people, or multi-select labels contains that label. CONTAINS(Tags, \"Lead\").",
+    "COUNTIF": "Counts rows whose column equals the condition. A text column stays text. COUNTIF(Status, \"Open\").",
+    "SUMIF": "Adds the number column on rows whose column equals the condition. SUMIF(Status, \"Open\", Amount).",
+    "YEAR": "The year of a date or datetime, as a number. YEAR(Date).",
+    "MONTH": "The month of a date or datetime, as a number. MONTH(Date).",
+    "DAY": "The day of a date or datetime, as a number. DAY(Date).",
     "CONCAT": "Joins text.",
     "LEFT": "The first characters of a text.",
     "RIGHT": "The last characters of a text.",
@@ -29,6 +39,7 @@
     "UPPER": "Uppercase text.",
     "TODAY": "Today's date.",
     "NOW": "The current date and time.",
-    "LOOKUP": "Finds a value in one column and returns another column from that row."
+    "LOOKUP": "Finds the first row whose match column equals the value, and returns the result column. No match is #N/A. A table you cannot view is #REF. LOOKUP(People.Email, Email, People.Name).",
+    "RELATION": "Follows this row's relation column and reads a field on the linked row. Several links return a list, so SUM still works. An empty link is empty. A target you cannot view is #REF. RELATION(Customer, Name)."
   }
 }

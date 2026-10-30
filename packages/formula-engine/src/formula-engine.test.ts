@@ -104,6 +104,39 @@ describe('formula engine', () => {
     expect(canonical).toBe(`SUM({${table}}.{${column}})`)
   })
 
+  it('returns a number, text, or boolean from a condition', () => {
+    expect(run('IF(1, 2, 3)')).toBe(2)
+    expect(run('IF(0, "High", "Low")')).toBe('Low')
+    expect(run('IF(1, TRUE, FALSE)')).toBe(true)
+    expect(run('IFNOT(TRUE, "Open", "Done")')).toBe('Done')
+    expect(run('IFNOT(FALSE, "Open", "Done")')).toBe('Open')
+    expect(run('IFS(0, "A", 1, "B")')).toBe('B')
+    expect(run('IFS(0, "A", 0, "B")')).toEqual({ error: '#N/A' })
+  })
+
+  it('walks a list with FOR and IT', () => {
+    expect(run(`FOR({${column}}, IF(IT > 100, "High", "Low"))`, { [column]: [150, 10] })).toEqual(['High', 'Low'])
+    expect(run(`SUM(FOR({${column}}, IF(IT > 0, IT, 0)))`, { [column]: [2, -1, 3] })).toBe(5)
+    expect(run('IT')).toEqual({ error: '#VALUE' })
+    expect(run('CONTAINS("Hello", "ell")')).toBe(true)
+    expect(run(`CONTAINS({${column}}, "Lead")`, { [column]: ['Customer', 'Lead'] })).toBe(true)
+    expect(run('YEAR("2026-01-02")')).toBe(2026)
+    expect(run('MONTH("2026-01-02")')).toBe(1)
+    expect(run('DAY("2026-01-02T03:04:05.000Z")')).toBe(2)
+    expect(run(`COUNTIF({${column}}, "Open")`, { [column]: ['Open', 'Done', 'Open'] })).toBe(2)
+    expect(run(`SUMIF({${column}}, "Open", {${other}})`, { [column]: ['Open', 'Done'], [other]: [4, 9] })).toBe(4)
+    expect(run('ISBLANK("")')).toBe(true)
+  })
+
+  it('resolves a cell name that includes a row id', () => {
+    const row = '44444444-4444-4444-8444-444444444444'
+    const canonical = canonicalize(`People.Name@${row}`, {
+      'People.Name': { tableId: table, columnId: column },
+      [`People.Name@${row}`]: { tableId: table, columnId: column, rowId: row },
+    })
+    expect(canonical).toBe(`{${table}}.{${column}}@{${row}}`)
+  })
+
   it('looks up related values through the caller-supplied resolver', () => {
     const expression = `LOOKUP({${table}}.{${column}}, {${other}}, {${table}}.{${column}})`
     const result = run(expression, { [other]: 'abc' }, {
