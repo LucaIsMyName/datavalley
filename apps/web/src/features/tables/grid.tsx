@@ -14,7 +14,7 @@ import {
   type FilterOperator,
   type FormatRule,
 } from '@datavalley/shared'
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Filter, GripVertical, Plus, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Eye, Filter, GripVertical, Plus, X } from 'lucide-react'
 import {
   useEffect,
   useMemo,
@@ -1629,11 +1629,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
           </div>
         ),
       },
-      ...visible.map((column) => ({
+      ...columns.map((column) => ({
         id: column.id,
         header: column.name,
         size: column.width,
         cell: ({ row }: { row: { original: RowRecord; index: number } }) => {
+          if (column.hidden) return <div className="h-9" />
           const value = row.original.cells[column.id]
           const ruleStyle = stylesForCell(rules, row.original.cells, column.id)
           const background =
@@ -1879,7 +1880,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   const popoverColumn = columns.find((column) => column.id === popover?.columnId)
   const popoverRow = rows.find((row) => row.id === popover?.rowId)
-  const columnsWidth = visible.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0)
+  const columnsWidth = columns.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0)
   const filler = Math.max(ADD_COLUMN_WIDTH, viewportWidth - GUTTER_WIDTH - columnsWidth)
   const formulaHelp = FORMULA_HELP.find((item) => item.name === formulaFunction)
 
@@ -1962,7 +1963,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     grid.getHeaderGroups()[0]?.headers[0]?.getContext(),
                   )}
                 </th>
-                {visible.map((column) => {
+                {columns.map((column) => {
+                  if (column.hidden) {
+                    return (
+                      <th
+                        key={column.id}
+                        data-column-id={column.id}
+                        className="h-10 border-b border-r border-border p-0"
+                        style={{ width: widths[column.id] ?? column.width }}
+                      >
+                        <button
+                          type="button"
+                          aria-label={t('showColumn')}
+                          className="inline-flex h-10 w-full items-center justify-center text-muted-foreground hover:text-foreground"
+                          onClick={() => void hideColumn(column, false)}
+                        >
+                          <Eye className="size-3.5" />
+                        </button>
+                      </th>
+                    )
+                  }
                   const activeSort = sort?.columnId === column.id
                   const filtered = Boolean(
                     filterInput[column.id] &&
@@ -2179,7 +2199,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
               {footerConfig.enabled ? (
                 <tr>
                   <td className="h-9 border-r border-t border-border" />
-                  {visible.map((column) => {
+                  {columns.map((column) => {
+                    if (column.hidden) {
+                      return <td key={column.id} className="h-9 border-r border-t border-border" />
+                    }
                     const calc = footerConfig.columns?.[column.id]
                     const stats = footerQuery.data?.footer?.[column.id]
                     return (
