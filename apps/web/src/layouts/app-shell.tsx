@@ -6,6 +6,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { applyTheme, useSession } from '../stores/session'
 import { ContextMenuProvider } from '../components/context-menu'
+import { HeaderSearch } from '../components/command-palette'
 import { Button } from '../components/ui/button'
 
 const links = [
@@ -67,7 +68,8 @@ export function AppShell() {
         </Button>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-end border-b border-border px-4">
+        <header className="flex h-14 items-center justify-end gap-1 border-b border-border px-4">
+          <HeaderSearch />
           <div className="relative">
             <Button variant="ghost" aria-label={t('notifications')} onClick={() => setOpen((value) => !value)}>
               <Bell className="size-4" />
