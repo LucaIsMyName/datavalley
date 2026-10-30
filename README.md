@@ -4,7 +4,7 @@ Self-hosted CRM for projects, dynamic tables, formulas, and integrations.
 
 The API is the source of truth. The web app talks to it through `/api/v1`. Accounts are created by an administrator. Data is private until a grant allows access.
 
-A table grid can save views, filter rows, color matching cells, import and export CSV, fill a column down the selection, and paste tab-separated values. Formula columns show their calculated value. Relation columns link a row to a record in another table. A forgotten password can be reset from an emailed link.
+A new project starts with a People table: Name, Mail, and one sample row. On a table page the name is an editable title and every other action lives in the grid: hover to insert a row or column, sort and filter from the column header, select rows or columns for bulk changes, and right-click for the action that belongs to that spot. Edits save themselves. The last 10 changes in a table can be undone. A column type change asks first when some cells would be cleared. Formula columns show their calculated value. Relation columns link a row to a record in another table. A forgotten password can be reset from an emailed link.
 
 ## Develop
 

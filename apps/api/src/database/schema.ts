@@ -140,6 +140,7 @@ export const tables = pgTable(
     description: text('description').notNull().default(''),
     headerConfig: jsonb('header_config').notNull().default({}),
     footerConfig: jsonb('footer_config').notNull().default({}),
+    formatRules: jsonb('format_rules').notNull().default([]),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdBy: uuid('created_by'),
     ...timestamps,
@@ -172,9 +173,10 @@ export const columnOptions = pgTable('column_options', {
 export const tableRows = pgTable('table_rows', {
   id: uuid('id').primaryKey().defaultRandom(),
   tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-  position: text('position').notNull(),
-  version: integer('version').notNull().default(1),
-  createdBy: uuid('created_by'),
+    position: text('position').notNull(),
+    version: integer('version').notNull().default(1),
+    color: text('color'),
+    createdBy: uuid('created_by'),
   ...timestamps,
 })
 
@@ -187,9 +189,10 @@ export const tableCells = pgTable('table_cells', {
   valueNumber: numeric('value_number', { precision: 19, scale: 4 }),
   valueBool: boolean('value_bool'),
   valueTimestamptz: timestamp('value_timestamptz', { withTimezone: true }),
-  valueJsonb: jsonb('value_jsonb'),
-  ...timestamps,
-})
+    valueJsonb: jsonb('value_jsonb'),
+    background: text('background'),
+    ...timestamps,
+  })
 
 export const userFavorites = pgTable(
   'user_favorites',

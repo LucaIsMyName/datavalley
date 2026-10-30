@@ -1,6 +1,29 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import type { AppDatabase } from '../../database/client.js'
-import { columnOptions, tableColumns, tables } from '../../database/schema.js'
+import { columnOptions, tableCells, tableColumns, tableRows, tables } from '../../database/schema.js'
+
+export async function seedStarter(db: AppDatabase, projectId: string, userId: string) {
+  const [table] = await db.insert(tables).values({ projectId, name: 'People', description: '', createdBy: userId }).returning()
+  const namePos = generateKeyBetween(null, null)
+  const mailPos = generateKeyBetween(namePos, null)
+  const [nameColumn] = await db
+    .insert(tableColumns)
+    .values({ tableId: table.id, name: 'Name', type: 'text', position: namePos })
+    .returning()
+  const [mailColumn] = await db
+    .insert(tableColumns)
+    .values({ tableId: table.id, name: 'Mail', type: 'mail', position: mailPos })
+    .returning()
+  const [row] = await db
+    .insert(tableRows)
+    .values({ tableId: table.id, position: generateKeyBetween(null, null), createdBy: userId })
+    .returning()
+  await db.insert(tableCells).values([
+    { tableId: table.id, rowId: row.id, columnId: nameColumn.id, valueText: 'John Doe' },
+    { tableId: table.id, rowId: row.id, columnId: mailColumn.id, valueText: 'john@doe.com' },
+  ])
+  return table.id
+}
 
 export async function seedCustomers(db: AppDatabase, projectId: string, userId: string) {
   const [table] = await db

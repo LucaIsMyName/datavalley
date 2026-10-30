@@ -1,4 +1,3 @@
-import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { parseCsv, toCsv, type FilterNode } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
@@ -9,7 +8,7 @@ import { allows, loadGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { evaluateStored } from '../formulas/service.js'
-import { loadColumns, requireTable, type LoadedColumn } from '../tables/service.js'
+import { loadColumns, positionBetween, requireTable, type LoadedColumn } from '../tables/service.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 
 async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
@@ -39,9 +38,14 @@ async function cellsFor(db: AppDatabase, rowIds: string[]) {
   return db.select().from(tableCells).where(inArray(tableCells.rowId, rowIds))
 }
 
-function presentRows(columns: LoadedColumn[], page: { id: string; position: string; version: number }[], cells: (typeof tableCells.$inferSelect)[]) {
+function presentRows(
+  columns: LoadedColumn[],
+  page: { id: string; position: string; version: number; color?: string | null }[],
+  cells: (typeof tableCells.$inferSelect)[],
+) {
   return page.map((row) => {
     const values: Record<string, unknown> = {}
+    const backgrounds: Record<string, string> = {}
     for (const column of columns) {
       const cell = cells.find((item) => item.rowId === row.id && item.columnId === column.id)
       values[column.id] = readCell(column, cell ? {
@@ -51,8 +55,9 @@ function presentRows(columns: LoadedColumn[], page: { id: string; position: stri
         valueTimestamptz: cell.valueTimestamptz,
         valueJsonb: cell.valueJsonb,
       } : undefined)
+      if (cell?.background) backgrounds[column.id] = cell.background
     }
-    return { id: row.id, position: row.position, version: row.version, cells: values }
+    return { id: row.id, position: row.position, version: row.version, color: row.color ?? null, cells: values, backgrounds }
   })
 }
 
@@ -95,21 +100,54 @@ export async function listRows(
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
 }
 
-async function writeCell(db: AppDatabase, tableId: string, rowId: string, column: LoadedColumn, value: unknown) {
+async function writeCell(db: AppDatabase, tableId: string, rowId: string, column: LoadedColumn, value: unknown, background?: string | null) {
+  const [existing] = await db
+    .select()
+    .from(tableCells)
+    .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
+    .limit(1)
   const parsed = parseCell(column, value)
+  const kept = background !== undefined ? background : (existing?.background ?? null)
   await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
-  if (!parsed) return
+  if (!parsed && !kept) return
   await db.insert(tableCells).values({
     tableId,
     rowId,
     columnId: column.id,
-    valueText: parsed.valueText,
-    valueNumber: parsed.valueNumber,
-    valueBool: parsed.valueBool,
-    valueTimestamptz: parsed.valueTimestamptz,
-    valueJsonb: parsed.valueJsonb as never,
+    valueText: parsed?.valueText ?? null,
+    valueNumber: parsed?.valueNumber ?? null,
+    valueBool: parsed?.valueBool ?? null,
+    valueTimestamptz: parsed?.valueTimestamptz ?? null,
+    valueJsonb: (parsed?.valueJsonb ?? null) as never,
+    background: kept,
   })
-  if (column.type === 'relation') await syncRelation(db, column, rowId, parsed)
+  if (parsed && column.type === 'relation') await syncRelation(db, column, rowId, parsed)
+}
+
+async function setBackground(db: AppDatabase, tableId: string, rowId: string, columnId: string, background: string | null) {
+  const [existing] = await db
+    .select()
+    .from(tableCells)
+    .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
+    .limit(1)
+  const hasValue = Boolean(
+    existing &&
+      (existing.valueText != null ||
+        existing.valueNumber != null ||
+        existing.valueBool != null ||
+        existing.valueTimestamptz != null ||
+        existing.valueJsonb != null),
+  )
+  if (!existing) {
+    if (!background) return
+    await db.insert(tableCells).values({ tableId, rowId, columnId, background })
+    return
+  }
+  if (!background && !hasValue) {
+    await db.delete(tableCells).where(eq(tableCells.id, existing.id))
+    return
+  }
+  await db.update(tableCells).set({ background, updatedAt: new Date() }).where(eq(tableCells.id, existing.id))
 }
 
 async function syncRelation(db: AppDatabase, column: LoadedColumn, rowId: string, parsed: CellWrite) {
@@ -134,25 +172,67 @@ async function syncRelation(db: AppDatabase, column: LoadedColumn, rowId: string
   await db.insert(relationRecords).values({ relationId: relation.id, fromRowId: rowId, toRowId: targetId }).onConflictDoNothing()
 }
 
-export async function createRow(db: AppDatabase, subject: Subject, tableId: string, cells: Record<string, unknown> = {}) {
-  const table = await requireTable(db, subject, tableId, 'create')
+export async function createRow(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  cells: Record<string, unknown> = {},
+  placement: { beforeId?: string; afterId?: string } = {},
+) {
+  await requireTable(db, subject, tableId, 'create')
   const columns = await loadColumns(db, tableId)
-  const existing = await db.select({ position: tableRows.position }).from(tableRows).where(eq(tableRows.tableId, tableId)).orderBy(asc(tableRows.position))
-  const position = generateKeyBetween(existing.at(-1)?.position ?? null, null)
-  const [row] = await db.insert(tableRows).values({ tableId, position, createdBy: subject.id }).returning()
-  for (const [columnId, value] of Object.entries(cells)) {
-    const column = columns.find((item) => item.id === columnId)
-    if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
-    await writeCell(db, tableId, row.id, column, value)
-  }
+  const existing = await db
+    .select({ id: tableRows.id, position: tableRows.position })
+    .from(tableRows)
+    .where(eq(tableRows.tableId, tableId))
+    .orderBy(asc(tableRows.position))
+  const position = positionBetween(existing, placement.beforeId, placement.afterId)
+  const row = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(tableRows).values({ tableId, position, createdBy: subject.id }).returning()
+    for (const [columnId, value] of Object.entries(cells)) {
+      const column = columns.find((item) => item.id === columnId)
+      if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
+      await writeCell(tx as unknown as AppDatabase, tableId, created.id, column, value)
+    }
+    return created
+  })
   return { id: row.id, position: row.position, version: row.version }
 }
 
-export async function patchRow(db: AppDatabase, subject: Subject, rowId: string, input: { version: number; cells: Record<string, unknown> }) {
+export async function moveRow(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  rowId: string,
+  placement: { beforeId?: string; afterId?: string },
+) {
+  await requireTable(db, subject, tableId, 'edit')
+  const existing = await db
+    .select({ id: tableRows.id, position: tableRows.position })
+    .from(tableRows)
+    .where(eq(tableRows.tableId, tableId))
+    .orderBy(asc(tableRows.position))
+  if (!existing.some((row) => row.id === rowId)) throw notFound()
+  const position = positionBetween(
+    existing.filter((row) => row.id !== rowId),
+    placement.beforeId,
+    placement.afterId,
+  )
+  await db.update(tableRows).set({ position, updatedAt: new Date() }).where(eq(tableRows.id, rowId))
+  return { id: rowId, position }
+}
+
+export async function patchRow(
+  db: AppDatabase,
+  subject: Subject,
+  rowId: string,
+  input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null> },
+) {
   const { row, table, grants } = await assertRow(db, subject, rowId, 'edit')
   if (row.version !== input.version) throw conflict('This row was changed by someone else')
+  const cells = input.cells ?? {}
   const columns = await loadColumns(db, table.id)
-  const columnIds = Object.keys(input.cells)
+  const columnIds = Object.keys(cells)
   for (const columnId of columnIds) {
     const column = columns.find((item) => item.id === columnId)
     if (!column) throw badRequest('Unknown column')
@@ -163,13 +243,22 @@ export async function patchRow(db: AppDatabase, subject: Subject, rowId: string,
   await db.transaction(async (tx) => {
     const updated = await tx
       .update(tableRows)
-      .set({ version: row.version + 1, updatedAt: new Date() })
+      .set({
+        version: row.version + 1,
+        updatedAt: new Date(),
+        ...('color' in input ? { color: input.color ?? null } : {}),
+      })
       .where(and(eq(tableRows.id, row.id), eq(tableRows.version, input.version)))
       .returning()
     if (updated.length === 0) throw conflict('This row was changed by someone else')
-    for (const [columnId, value] of Object.entries(input.cells)) {
+    for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
       await writeCell(tx as unknown as AppDatabase, table.id, row.id, column, value)
+    }
+    for (const [columnId, background] of Object.entries(input.backgrounds ?? {})) {
+      const column = columns.find((item) => item.id === columnId)
+      if (!column) throw badRequest('Unknown column')
+      await setBackground(tx as unknown as AppDatabase, table.id, row.id, column.id, background)
     }
   })
   await writeAudit(db, subject, {
@@ -178,9 +267,9 @@ export async function patchRow(db: AppDatabase, subject: Subject, rowId: string,
     resourceId: row.id,
     metadata: { columnIds },
   })
-  const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, row.id))
-  const cells = await cellsFor(db, [row.id])
-  return presentRows(await visibleColumns(db, subject, table.id, table.projectId, columns), [fresh], cells)[0]
+    const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, row.id))
+    const stored = await cellsFor(db, [row.id])
+    return presentRows(await visibleColumns(db, subject, table.id, table.projectId, columns), [fresh], stored)[0]
 }
 
 export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string) {
@@ -223,11 +312,12 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
     const { row } = await assertRow(db, subject, rowId, 'view')
     const cells = await cellsFor(db, [row.id])
     const copy = await createRow(db, subject, tableId)
+    if (row.color) await db.update(tableRows).set({ color: row.color }).where(eq(tableRows.id, copy.id))
     const columns = await loadColumns(db, tableId)
     for (const cell of cells) {
       const column = columns.find((item) => item.id === cell.columnId)
       if (!column || !isWritable(column.type)) continue
-      await writeCell(db, tableId, copy.id, column, readCell(column, cell))
+      await writeCell(db, tableId, copy.id, column, readCell(column, cell), cell.background)
     }
     created.push(copy.id)
   }

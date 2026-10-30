@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { applyTheme, useSession } from '../stores/session'
+import { ContextMenuProvider } from '../components/context-menu'
 import { Button } from '../components/ui/button'
 
 const links = [
@@ -33,6 +34,7 @@ export function AppShell() {
   }, [i18n, user?.locale, user?.theme])
 
   return (
+    <ContextMenuProvider>
     <div className="flex min-h-screen">
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card p-3">
         <div className="px-2 py-3 text-sm font-semibold tracking-tight">{t('appName')}</div>
@@ -96,5 +98,6 @@ export function AppShell() {
         </main>
       </div>
     </div>
+    </ContextMenuProvider>
   )
 }

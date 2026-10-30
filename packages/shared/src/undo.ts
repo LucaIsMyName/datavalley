@@ -27,5 +27,12 @@ export function createUndoStack<T>(limit = 50) {
     get size() {
       return undo.length
     },
+    load(entries: UndoCommand<T>[], redos: UndoCommand<T>[] = []) {
+      undo.splice(0, undo.length, ...entries.slice(-limit))
+      redo.splice(0, redo.length, ...redos)
+    },
+    snapshot() {
+      return { undo: undo.slice(), redo: redo.slice() }
+    },
   }
 }

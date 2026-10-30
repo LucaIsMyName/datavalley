@@ -1,4 +1,4 @@
-import type { ApiErrorBody } from '@datavalley/shared'
+import type { ApiErrorBody, FormatRule } from '@datavalley/shared'
 
 export class ApiClientError extends Error {
   constructor(
@@ -78,6 +78,7 @@ export type TableRecord = {
   description: string
   headerConfig: Record<string, unknown>
   footerConfig: Record<string, unknown>
+  formatRules: FormatRule[]
   archivedAt: string | null
   columns?: Column[]
 }
@@ -86,5 +87,7 @@ export type RowRecord = {
   id: string
   position: string
   version: number
+  color: string | null
   cells: Record<string, unknown>
+  backgrounds: Record<string, string>
 }

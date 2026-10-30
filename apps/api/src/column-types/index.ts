@@ -4,6 +4,7 @@ export const columnTypeIds = [
   'text',
   'long_text',
   'url',
+  'mail',
   'number',
   'currency',
   'date',
@@ -93,6 +94,11 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
       }
       return one({ valueText: value })
     }
+    case 'mail': {
+      const value = String(input).trim()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw badRequest(`${column.name} must be an email address`)
+      return one({ valueText: value })
+    }
     case 'number':
     case 'currency': {
       const numeric = typeof input === 'number' ? input : Number(String(input).trim())
@@ -166,7 +172,7 @@ export function coerceImport(column: ColumnShape, raw: string): CellWrite | null
 
 export function compatible(from: string, to: string) {
   if (from === to) return true
-  const textLike = new Set(['text', 'long_text', 'url'])
+  const textLike = new Set(['text', 'long_text', 'url', 'mail'])
   if (textLike.has(from) && textLike.has(to)) return true
   if ((from === 'select' && to === 'radio') || (from === 'radio' && to === 'select')) return true
   if ((from === 'number' && to === 'currency') || (from === 'currency' && to === 'number')) return true

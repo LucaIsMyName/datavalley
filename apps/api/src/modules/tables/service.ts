@@ -11,7 +11,7 @@ import {
   tables,
   userRecentItems,
 } from '../../database/schema.js'
-import { columnTypeIds, compatible, type ColumnShape } from '../../column-types/index.js'
+import { columnTypeIds, parseCell, readCell, type CellWrite, type ColumnShape } from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
@@ -69,6 +69,7 @@ export function presentTable(table: typeof tables.$inferSelect) {
     description: table.description,
     headerConfig: table.headerConfig,
     footerConfig: table.footerConfig,
+    formatRules: table.formatRules ?? [],
     archivedAt: table.archivedAt?.toISOString() ?? null,
     createdAt: table.createdAt.toISOString(),
     updatedAt: table.updatedAt.toISOString(),
@@ -80,6 +81,38 @@ export async function requireTable(db: AppDatabase, subject: Subject, tableId: s
   if (!table) throw notFound()
   await assertCan(db, subject, action, { type: 'table', id: table.id, parents: { project: table.projectId } })
   return table
+}
+
+export function positionBetween(items: { id: string; position: string }[], beforeId?: string | null, afterId?: string | null) {
+  if (beforeId && afterId) throw badRequest('Choose one neighbor')
+  if (beforeId) {
+    const index = items.findIndex((item) => item.id === beforeId)
+    if (index < 0) throw badRequest('Unknown neighbor')
+    return generateKeyBetween(index === 0 ? null : items[index - 1].position, items[index].position)
+  }
+  if (afterId) {
+    const index = items.findIndex((item) => item.id === afterId)
+    if (index < 0) throw badRequest('Unknown neighbor')
+    return generateKeyBetween(items[index].position, index === items.length - 1 ? null : items[index + 1].position)
+  }
+  return generateKeyBetween(items.at(-1)?.position ?? null, null)
+}
+
+async function nextTableName(db: AppDatabase, projectId: string) {
+  const existing = await db.select({ name: tables.name }).from(tables).where(eq(tables.projectId, projectId))
+  const taken = new Set(existing.map((row) => row.name))
+  if (!taken.has('Untitled')) return 'Untitled'
+  let index = 2
+  while (taken.has(`Untitled ${index}`)) index += 1
+  return `Untitled ${index}`
+}
+
+function copyName(taken: Set<string>, source: string) {
+  const base = `${source} copy`
+  if (!taken.has(base)) return base
+  let index = 2
+  while (taken.has(`${base} ${index}`)) index += 1
+  return `${base} ${index}`
 }
 
 async function uniqueOrConflict(error: unknown): Promise<never> {
@@ -105,18 +138,23 @@ export async function listTables(db: AppDatabase, subject: Subject, projectId: s
   return visible
 }
 
-export async function createTable(db: AppDatabase, subject: Subject, projectId: string, input: { name: string; description?: string }) {
+export async function createTable(db: AppDatabase, subject: Subject, projectId: string, input: { name?: string; description?: string }) {
   await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
-  try {
-    const [table] = await db
-      .insert(tables)
-      .values({ projectId, name: input.name.trim(), description: input.description ?? '', createdBy: subject.id })
-      .returning()
-    await writeAudit(db, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
-    return presentTable(table)
-  } catch (error) {
-    return uniqueOrConflict(error)
+  const requested = input.name?.trim() ?? ''
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const name = requested || (await nextTableName(db, projectId))
+    try {
+      const [table] = await db
+        .insert(tables)
+        .values({ projectId, name, description: input.description ?? '', createdBy: subject.id })
+        .returning()
+      await writeAudit(db, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
+      return presentTable(table)
+    } catch (error) {
+      if (requested || attempt === 4) return uniqueOrConflict(error)
+    }
   }
+  throw conflict('A record with that name already exists')
 }
 
 export async function getTable(db: AppDatabase, subject: Subject, tableId: string) {
@@ -137,7 +175,7 @@ export async function updateTable(
   db: AppDatabase,
   subject: Subject,
   tableId: string,
-  input: { name?: string; description?: string; headerConfig?: unknown; footerConfig?: unknown },
+  input: { name?: string; description?: string; headerConfig?: unknown; footerConfig?: unknown; formatRules?: unknown },
 ) {
   await requireTable(db, subject, tableId, 'manage_structure')
   try {
@@ -148,6 +186,7 @@ export async function updateTable(
         description: input.description,
         headerConfig: input.headerConfig as never,
         footerConfig: input.footerConfig as never,
+        formatRules: input.formatRules as never,
         updatedAt: new Date(),
       })
       .where(eq(tables.id, tableId))
@@ -178,12 +217,20 @@ export async function addColumn(
   db: AppDatabase,
   subject: Subject,
   tableId: string,
-  input: { name: string; type: string; description?: string; config?: Record<string, unknown>; options?: { label: string; color?: string }[] },
+  input: {
+    name: string
+    type: string
+    description?: string
+    config?: Record<string, unknown>
+    options?: { label: string; color?: string }[]
+    beforeId?: string
+    afterId?: string
+  },
 ) {
   await requireTable(db, subject, tableId, 'manage_structure')
   if (!columnTypeIds.includes(input.type as never)) throw badRequest('Unknown column type')
   const existing = await loadColumns(db, tableId)
-  const position = generateKeyBetween(existing.at(-1)?.position ?? null, null)
+  const position = positionBetween(existing, input.beforeId, input.afterId)
   try {
     const [column] = await db
       .insert(tableColumns)
@@ -234,6 +281,43 @@ export async function deleteColumn(db: AppDatabase, subject: Subject, columnId: 
   await writeAudit(db, subject, { action: 'column.delete', resourceType: 'column', resourceId: columnId })
 }
 
+export async function duplicateColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
+  await requireTable(db, subject, tableId, 'manage_structure')
+  const columns = await loadColumns(db, tableId)
+  const selected = columns.filter((column) => columnIds.includes(column.id))
+  const created = []
+  for (const source of [...selected].reverse()) {
+    const taken = new Set((await loadColumns(db, tableId)).map((column) => column.name))
+    const copy = await addColumn(db, subject, tableId, {
+      name: copyName(taken, source.name),
+      type: source.type,
+      description: source.description,
+      config: source.config,
+      options: (source.options ?? []).map((option) => ({ label: option.label, color: option.color ?? undefined })),
+      afterId: source.id,
+    })
+    await updateColumn(db, subject, copy.id, { hidden: source.hidden, width: source.width, frozen: source.frozen })
+    const cells = await db.select().from(tableCells).where(eq(tableCells.columnId, source.id))
+    if (cells.length) {
+      await db.insert(tableCells).values(
+        cells.map((cell) => ({
+          tableId,
+          rowId: cell.rowId,
+          columnId: copy.id,
+          valueText: cell.valueText,
+          valueNumber: cell.valueNumber,
+          valueBool: cell.valueBool,
+          valueTimestamptz: cell.valueTimestamptz,
+          valueJsonb: cell.valueJsonb,
+          background: cell.background,
+        })),
+      )
+    }
+    created.unshift(copy)
+  }
+  return created
+}
+
 export async function reorderColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
   await requireTable(db, subject, tableId, 'manage_structure')
   let previous: string | null = null
@@ -243,20 +327,82 @@ export async function reorderColumns(db: AppDatabase, subject: Subject, tableId:
   }
 }
 
-export async function convertColumn(db: AppDatabase, subject: Subject, columnId: string, type: string) {
+const structuralTypes = new Set(['formula', 'lookup', 'media', 'relation'])
+
+function storedValue(parsed: CellWrite) {
+  return {
+    valueText: parsed.valueText,
+    valueNumber: parsed.valueNumber,
+    valueBool: parsed.valueBool,
+    valueTimestamptz: parsed.valueTimestamptz,
+    valueJsonb: parsed.valueJsonb as never,
+  }
+}
+
+export async function convertColumn(db: AppDatabase, subject: Subject, columnId: string, type: string, dryRun = false) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw notFound()
   await requireTable(db, subject, column.tableId, 'manage_structure')
   if (!columnTypeIds.includes(type as never)) throw badRequest('Unknown column type')
-  const cells = await db.select({ id: tableCells.id }).from(tableCells).where(eq(tableCells.columnId, columnId))
-  let cleared = 0
-  if (!compatible(column.type, type) && cells.length) {
-    cleared = cells.length
-    await db.delete(tableCells).where(eq(tableCells.columnId, columnId))
+  const loaded = (await loadColumns(db, column.tableId)).find((item) => item.id === columnId)
+  if (!loaded) throw notFound()
+  const cells = await db.select().from(tableCells).where(eq(tableCells.columnId, columnId))
+  const target: ColumnShape = { ...loaded, type }
+  const clearIds: string[] = []
+  const rewrites: { id: string; parsed: CellWrite }[] = []
+  const wipe = structuralTypes.has(type) && column.type !== type
+  for (const cell of cells) {
+    const current = readCell(loaded, cell)
+    if (current == null || current === '') continue
+    if (wipe) {
+      clearIds.push(cell.id)
+      continue
+    }
+    try {
+      const parsed = parseCell(target, current)
+      if (!parsed) {
+        clearIds.push(cell.id)
+        continue
+      }
+      rewrites.push({ id: cell.id, parsed })
+    } catch {
+      clearIds.push(cell.id)
+    }
+  }
+  const cleared = clearIds.length
+  const kept = cells.length - cleared
+  if (dryRun || column.type === type) return { cleared: column.type === type ? 0 : cleared, kept: column.type === type ? cells.length : kept }
+  if (clearIds.length) await db.delete(tableCells).where(inArray(tableCells.id, clearIds))
+  for (const rewrite of rewrites) {
+    await db.update(tableCells).set({ ...storedValue(rewrite.parsed), updatedAt: new Date() }).where(eq(tableCells.id, rewrite.id))
   }
   await db.update(tableColumns).set({ type, updatedAt: new Date() }).where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, { action: 'column.convert', resourceType: 'column', resourceId: columnId, metadata: { from: column.type, to: type, cleared } })
-  return { cleared }
+  return { cleared, kept }
+}
+
+export async function attachRelation(
+  db: AppDatabase,
+  subject: Subject,
+  columnId: string,
+  input: { toTableId: string; cardinality: string },
+) {
+  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  if (!column) throw notFound()
+  const table = await requireTable(db, subject, column.tableId, 'manage_structure')
+  await assertCan(db, subject, 'view', { type: 'table', id: input.toTableId, parents: { project: table.projectId } })
+  await convertColumn(db, subject, columnId, 'relation')
+  const [relation] = await db
+    .insert(relations)
+    .values({
+      fromTableId: column.tableId,
+      toTableId: input.toTableId,
+      fromColumnId: column.id,
+      cardinality: input.cardinality,
+      onDelete: 'restrict',
+    })
+    .returning()
+  return updateColumn(db, subject, column.id, { config: { relationId: relation.id, toTableId: input.toTableId } })
 }
 
 export async function duplicateTable(db: AppDatabase, subject: Subject, tableId: string, includeData: boolean) {
@@ -271,6 +417,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       description: table.description,
       headerConfig: table.headerConfig,
       footerConfig: table.footerConfig,
+      formatRules: table.formatRules,
       createdBy: subject.id,
     })
     .returning()
@@ -298,7 +445,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
   if (includeData) {
     const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, tableId))
     for (const row of rows) {
-      const [created] = await db.insert(tableRows).values({ tableId: copy.id, position: row.position, createdBy: subject.id }).returning()
+      const [created] = await db.insert(tableRows).values({ tableId: copy.id, position: row.position, color: row.color, createdBy: subject.id }).returning()
       const cells = await db.select().from(tableCells).where(eq(tableCells.rowId, row.id))
       if (cells.length) {
         await db.insert(tableCells).values(
@@ -311,6 +458,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
             valueBool: cell.valueBool,
             valueTimestamptz: cell.valueTimestamptz,
             valueJsonb: cell.valueJsonb,
+            background: cell.background,
           })),
         )
       }

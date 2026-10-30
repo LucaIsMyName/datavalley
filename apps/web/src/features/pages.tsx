@@ -8,8 +8,10 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { ConfirmDialog, PromptDialog } from '../components/confirm-dialog'
+import { useContextMenu } from '../components/context-menu'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states'
-import { TableGrid } from './tables/grid'
+import { TableScreen } from './tables/grid'
 import { api } from '../lib/api'
 import { applyTheme, useSession } from '../stores/session'
 
@@ -213,7 +215,11 @@ export function DashboardPage() {
 
 export function ProjectsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const openMenu = useContextMenu()
   const queryClient = useQueryClient()
+  const [rename, setRename] = useState<Project | null>(null)
+  const [remove, setRemove] = useState<Project | null>(null)
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.request<{ projects: Project[] }>('/projects') })
   const create = useMutation({
     mutationFn: (input: { name: string; template?: 'customers' }) => api.request('/projects', { method: 'POST', body: JSON.stringify(input) }),
@@ -246,11 +252,44 @@ export function ProjectsPage() {
       {projects.data && projects.data.projects.length === 0 ? <EmptyState title={t('emptyProjects')} body={t('emptyProjectsBody')} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {projects.data?.projects.map((project) => (
-          <Link key={project.id} to={`/projects/${project.id}`}>
+          <Link
+            key={project.id}
+            to={`/projects/${project.id}`}
+            onContextMenu={(event) => openMenu(event, [
+              { id: 'open', label: t('open'), onSelect: () => navigate(`/projects/${project.id}`) },
+              { id: 'rename', label: t('rename'), onSelect: () => setRename(project) },
+              { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(project) },
+            ])}
+          >
             <Card className="min-h-24 p-4 hover:bg-accent">{project.name}</Card>
           </Link>
         ))}
       </div>
+      <PromptDialog
+        open={Boolean(rename)}
+        title={t('rename')}
+        label={t('name')}
+        value={rename?.name ?? ''}
+        onClose={() => setRename(null)}
+        onSubmit={(next) => {
+          if (!rename) return
+          void api.request(`/projects/${rename.id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) }).then(() => queryClient.invalidateQueries({ queryKey: ['projects'] }))
+          setRename(null)
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(remove)}
+        title={t('deleteProjectTitle')}
+        body={t('deleteProjectWarning', { name: remove?.name ?? '' })}
+        confirmLabel={t('confirm')}
+        cancelLabel={t('cancel')}
+        onClose={() => setRemove(null)}
+        onConfirm={() => {
+          if (!remove) return
+          void api.request(`/projects/${remove.id}`, { method: 'DELETE' }).then(() => queryClient.invalidateQueries({ queryKey: ['projects'] }))
+          setRemove(null)
+        }}
+      />
     </Page>
   )
 }
@@ -258,7 +297,11 @@ export function ProjectsPage() {
 export function ProjectPage() {
   const { projectId = '' } = useParams()
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const openMenu = useContextMenu()
   const queryClient = useQueryClient()
+  const [rename, setRename] = useState<TableRecord | null>(null)
+  const [remove, setRemove] = useState<TableRecord | null>(null)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
   const tables = useQuery({ queryKey: ['tables', projectId], queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`) })
   const members = useQuery({ queryKey: ['members', projectId], queryFn: () => api.request<{ members: { userId: string; username: string }[] }>(`/projects/${projectId}/members`) })
@@ -268,30 +311,59 @@ export function ProjectPage() {
     <Page
       title={project.data?.project.name ?? t('projects')}
       actions={
-        <form
-          className="flex gap-2"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            const form = event.currentTarget
-            const data = new FormData(form)
-            await api.request(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({ name: data.get('name') }) })
+        <Button
+          type="button"
+          onClick={async () => {
+            const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
             await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
-            form.reset()
+            navigate(`/projects/${projectId}/tables/${created.table.id}`, { state: { focusName: true } })
           }}
         >
-          <Input name="name" required placeholder={t('name')} className="w-48" />
-          <Button type="submit">{t('addTable')}</Button>
-        </form>
+          {t('newTable')}
+        </Button>
       }
     >
       {tables.data?.tables.length === 0 ? <EmptyState title={t('emptyTables')} body={t('emptyTablesBody')} /> : null}
       <div className="grid gap-3 md:grid-cols-2">
         {tables.data?.tables.map((table) => (
-          <Link key={table.id} to={`/projects/${projectId}/tables/${table.id}`}>
+          <Link
+            key={table.id}
+            to={`/projects/${projectId}/tables/${table.id}`}
+            onContextMenu={(event) => openMenu(event, [
+              { id: 'open', label: t('open'), onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
+              { id: 'rename', label: t('rename'), onSelect: () => setRename(table) },
+              { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(table) },
+            ])}
+          >
             <Card className="min-h-20 p-4 hover:bg-accent">{table.name}</Card>
           </Link>
         ))}
       </div>
+      <PromptDialog
+        open={Boolean(rename)}
+        title={t('rename')}
+        label={t('name')}
+        value={rename?.name ?? ''}
+        onClose={() => setRename(null)}
+        onSubmit={(next) => {
+          if (!rename) return
+          void api.request(`/tables/${rename.id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) }).then(() => queryClient.invalidateQueries({ queryKey: ['tables', projectId] }))
+          setRename(null)
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(remove)}
+        title={t('deleteTableTitle')}
+        body={t('deleteTableWarning', { name: remove?.name ?? '' })}
+        confirmLabel={t('confirm')}
+        cancelLabel={t('cancel')}
+        onClose={() => setRemove(null)}
+        onConfirm={() => {
+          if (!remove) return
+          void api.request(`/tables/${remove.id}`, { method: 'DELETE' }).then(() => queryClient.invalidateQueries({ queryKey: ['tables', projectId] }))
+          setRemove(null)
+        }}
+      />
       <Card className="p-4">
         <h2 className="font-medium">{t('members')}</h2>
         <ul className="mt-2 min-h-8 text-sm">
@@ -318,124 +390,7 @@ export function ProjectPage() {
 
 export function TablePage() {
   const { tableId = '' } = useParams()
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [columnType, setColumnType] = useState('text')
-  const [formulaError, setFormulaError] = useState('')
-  const [relationError, setRelationError] = useState('')
-  const table = useQuery({ queryKey: ['table', tableId], queryFn: () => api.request<{ table: TableRecord }>(`/tables/${tableId}`) })
-  const projectId = table.data?.table.projectId ?? ''
-  const projectTables = useQuery({
-    queryKey: ['tables', projectId],
-    enabled: Boolean(projectId),
-    queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
-  })
-  if (table.isLoading) return <Page title={t('projects')}><LoadingBlock /></Page>
-  if (table.isError || !table.data) return <Page title={t('projects')}><ErrorState message={(table.error as Error)?.message ?? t('error')} /></Page>
-  const current = table.data.table
-  return (
-    <Page
-      title={current.name}
-      actions={
-        <div className="flex flex-wrap items-start justify-end gap-2">
-          <form
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={async (event) => {
-              event.preventDefault()
-              const form = event.currentTarget
-              const data = new FormData(form)
-              const expression = String(data.get('expression') ?? '')
-              setFormulaError('')
-              try {
-                if (columnType === 'formula') {
-                  await api.request('/formulas/validate', { method: 'POST', body: JSON.stringify({ tableId, expression }) })
-                }
-                const created = await api.request<{ column: { id: string } }>(`/tables/${tableId}/columns`, {
-                  method: 'POST',
-                  body: JSON.stringify({ name: data.get('name'), type: columnType }),
-                })
-                if (columnType === 'formula') {
-                  await api.request(`/columns/${created.column.id}/formula`, { method: 'POST', body: JSON.stringify({ expression }) })
-                }
-                await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
-                await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-                form.reset()
-                setColumnType('text')
-              } catch (caught) {
-                setFormulaError(caught instanceof Error ? caught.message : t('error'))
-              }
-            }}
-          >
-            <Input name="name" required placeholder={t('name')} className="w-40" />
-            <select
-              name="type"
-              className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-              value={columnType}
-              aria-label={t('addColumn')}
-              onChange={(event) => setColumnType(event.target.value)}
-            >
-              {['text', 'long_text', 'number', 'date', 'checkbox', 'select', 'url', 'currency', 'formula'].map((type) => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-            {columnType === 'formula' ? (
-              <Input name="expression" required placeholder={t('formulaExpression')} className="w-48" aria-label={t('formula')} />
-            ) : null}
-            <Button type="submit">{t('addColumn')}</Button>
-          </form>
-          <form
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={async (event) => {
-              event.preventDefault()
-              const form = event.currentTarget
-              const data = new FormData(form)
-              setRelationError('')
-              try {
-                await api.request(`/tables/${tableId}/relations`, {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    name: data.get('name'),
-                    toTableId: data.get('toTableId'),
-                    cardinality: data.get('cardinality'),
-                  }),
-                })
-                await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
-                await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-                form.reset()
-              } catch (caught) {
-                setRelationError(caught instanceof Error ? caught.message : t('error'))
-              }
-            }}
-          >
-            <Input name="name" required placeholder={t('relation')} className="w-36" aria-label={t('relation')} />
-            <select name="toTableId" required className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('targetTable')} defaultValue="">
-              <option value="" disabled>{t('targetTable')}</option>
-              {(projectTables.data?.tables ?? []).filter((item) => item.id !== tableId).map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-            <select name="cardinality" className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('cardinality')} defaultValue="many_to_one">
-              <option value="many_to_one">many_to_one</option>
-              <option value="one_to_one">one_to_one</option>
-              <option value="one_to_many">one_to_many</option>
-            </select>
-            <Button type="submit" variant="outline">{t('addRelation')}</Button>
-          </form>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => api.request(`/favorites`, { method: 'POST', body: JSON.stringify({ resourceType: 'table', resourceId: tableId }) })}
-          >
-            {t('favorites')}
-          </Button>
-        </div>
-      }
-    >
-      {formulaError ? <p className="min-h-5 text-sm text-danger">{formulaError}</p> : <p className="min-h-5" />}
-      {relationError ? <p className="min-h-5 text-sm text-danger">{relationError}</p> : null}
-      <TableGrid tableId={tableId} columns={current.columns ?? []} />
-    </Page>
-  )
+  return <TableScreen tableId={tableId} />
 }
 
 export function RecentPage() {

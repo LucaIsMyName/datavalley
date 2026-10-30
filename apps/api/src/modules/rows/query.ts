@@ -17,6 +17,7 @@ export type RowPage = {
   id: string
   position: string
   version: number
+  color: string | null
 }
 
 function encodeCursor(cursor: Cursor) {
@@ -185,9 +186,9 @@ export async function queryRows(
   const join = sortColumn
     ? sql`LEFT JOIN table_cells sc ON sc.row_id = r.id AND sc.column_id = ${sortColumn.id}::uuid`
     : sql``
-  const rows = await many<{ id: string; position: string; version: number; sort_value: string | null }>(
+  const rows = await many<{ id: string; position: string; version: number; color: string | null; sort_value: string | null }>(
     db,
-    sql`SELECT r.id, r.position, r.version::int AS version, ${sortColumn ? sortSql(sortColumn.type) : sql`NULL`} AS sort_value
+    sql`SELECT r.id, r.position, r.version::int AS version, r.color, ${sortColumn ? sortSql(sortColumn.type) : sql`NULL`} AS sort_value
         FROM table_rows r
         ${join}
         WHERE r.table_id = ${input.tableId}::uuid
@@ -211,7 +212,12 @@ export async function queryRows(
         })
       : null
   return {
-    rows: page.map((row) => ({ id: String(row.id), position: String(row.position), version: Number(row.version) })),
+    rows: page.map((row) => ({
+      id: String(row.id),
+      position: String(row.position),
+      version: Number(row.version),
+      color: row.color == null ? null : String(row.color),
+    })),
     nextCursor,
   }
 }

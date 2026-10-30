@@ -2,9 +2,9 @@
 
 Application metadata and dynamic CRM data live in one PostgreSQL database. Creating a CRM table does not create a physical database table.
 
-- `tables` and `table_columns` describe the schema.
-- `table_rows` stores identity, fractional `position`, and an integer `version`.
-- `table_cells` stores one sparse typed value per non-empty cell: text, numeric, boolean, timestamptz, or jsonb.
+- `tables` and `table_columns` describe the schema. `tables.format_rules` stores conditional colors for the table.
+- `table_rows` stores identity, fractional `position`, an integer `version`, and an optional row `color`.
+- `table_cells` stores one sparse typed value per non-empty cell: text, numeric, boolean, timestamptz, or jsonb. A cell can also store a `background` color, including when it has no value. `mail` is stored as text and must be an email address.
 - Empty cells are absent.
 - `column_options` stores select and radio choices.
 - `table_views.definition` stores filters, sort, widths, hidden columns, grouping, and conditional formatting together.

@@ -6,7 +6,7 @@ import { badRequest, notFound } from '../../errors.js'
 import { assertCan, replaceGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
-import { seedCustomers } from '../tables/template.js'
+import { seedCustomers, seedStarter } from '../tables/template.js'
 
 function present(project: typeof projects.$inferSelect) {
   return {
@@ -58,6 +58,7 @@ export async function createProject(
         effect: 'allow' as const,
       })),
     )
+    await seedStarter(tx as unknown as AppDatabase, project.id, subject.id)
     if (input.template === 'customers') await seedCustomers(tx as unknown as AppDatabase, project.id, subject.id)
     await writeAudit(tx as unknown as AppDatabase, subject, { action: 'project.create', resourceType: 'project', resourceId: project.id })
     return present(project)

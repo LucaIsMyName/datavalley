@@ -24,4 +24,10 @@ describe('column types', () => {
     expect(() => parseCell(url, 'notaurl')).toThrow(/URL/)
     expect(() => coerceImport(status, 'missing')).toThrow(/Unknown option/)
   })
+
+  it('stores an email address and rejects a value that is not one', () => {
+    const mail: ColumnShape = { id: 'm', name: 'Mail', type: 'mail', config: {} }
+    expect(readCell(mail, parseCell(mail, 'john@doe.com')!)).toBe('john@doe.com')
+    expect(() => parseCell(mail, 'john')).toThrow(/email/)
+  })
 })

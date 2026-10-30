@@ -1,24 +1,45 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { stylesForCell, createUndoStack, moveSelection, type FormatRule } from '@datavalley/shared'
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { ApiClientError, type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
+import { moveSelection, stylesForCell, type FilterNode, type FilterOperator, type FormatRule } from '@datavalley/shared'
+import { ArrowDown, ArrowUp, ArrowUpDown, Filter, GripVertical, Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { Column, RowRecord } from '@datavalley/api-client'
-import { api } from '../../lib/api'
+import { useLocation, useNavigate } from 'react-router'
+import { useContextMenu } from '../../components/context-menu'
+import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { EmptyState, ErrorState, LoadingBlock } from '../../components/states'
+import { ErrorState, LoadingBlock } from '../../components/states'
+import { api } from '../../lib/api'
+import {
+  historyFlags,
+  pushCommand,
+  redoTable,
+  undoTable,
+  type ColumnSnap,
+  type RowSnap,
+} from './history'
 
-const undo = createUndoStack<{ rowId: string; columnId: string; version: number; value: unknown; next: unknown }>()
+const SWATCHES = ['#fde68a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa', '#e5e7eb']
+const COLUMN_TYPES = ['text', 'long_text', 'mail', 'url', 'number', 'currency', 'date', 'datetime', 'checkbox', 'select', 'formula', 'relation']
 
-type ViewDefinition = {
-  filter?: { op: string; columnId: string; value?: string } | null
-  sort?: string | null
-  formatting?: FormatRule[]
+type PopoverState = {
+  kind: 'filter' | 'conditional' | 'row-color' | 'cell-color' | 'formula' | 'relation' | 'find' | 'view'
+  columnId?: string
+  rowId?: string
+  x: number
+  y: number
 }
 
-type SavedView = { id: string; name: string; shared: boolean; definition: ViewDefinition }
+type ConfirmState = { title: string; body: string; run: () => Promise<void> }
+
+type SavedView = {
+  id: string
+  name: string
+  definition: { filter?: FilterNode | null; sort?: string | { columnId: string; direction?: string } | null; direction?: string; formatting?: FormatRule[] }
+}
 
 function showCell(value: unknown) {
   if (value == null) return ''
@@ -30,48 +51,116 @@ function writable(column: Column) {
   return column.type !== 'formula' && column.type !== 'lookup'
 }
 
-export function TableGrid({ tableId, columns }: { tableId: string; columns: Column[] }) {
+function operatorsFor(type: string) {
+  if (['number', 'currency', 'date', 'datetime'].includes(type)) return ['eq', 'gt', 'lt', 'empty', 'not_empty']
+  if (type === 'checkbox') return ['eq', 'empty', 'not_empty']
+  if (['select', 'radio', 'multi_select', 'relation'].includes(type)) return ['eq', 'neq', 'empty', 'not_empty']
+  return ['eq', 'contains', 'starts_with', 'empty', 'not_empty']
+}
+
+function nextLabel(names: string[], base: string) {
+  if (!names.includes(base)) return base
+  let index = 2
+  while (names.includes(`${base} ${index}`)) index += 1
+  return `${base} ${index}`
+}
+
+function moveIdBefore(ids: string[], fromId: string, toId: string) {
+  if (fromId === toId) return ids
+  const next = ids.filter((id) => id !== fromId)
+  const index = next.indexOf(toId)
+  if (index < 0) return ids
+  next.splice(index, 0, fromId)
+  return next
+}
+
+function activeFilter(filters: Record<string, { op: string; value: string }>): FilterNode | null {
+  const conditions: FilterNode[] = Object.entries(filters)
+    .filter(([, filter]) => filter.op === 'empty' || filter.op === 'not_empty' || filter.value !== '')
+    .map(([columnId, filter]) => ({ op: filter.op as FilterOperator, columnId, value: filter.value }))
+  if (conditions.length === 0) return null
+  if (conditions.length === 1) return conditions[0]
+  return { op: 'and', conditions }
+}
+
+function anchor(event: ReactMouseEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  return { x: rect.left, y: rect.bottom + 4 }
+}
+
+export function TableScreen({ tableId }: { tableId: string }) {
   const { t } = useTranslation()
+  const openMenu = useContextMenu()
   const queryClient = useQueryClient()
+  const location = useLocation()
+  const navigate = useNavigate()
   const parentRef = useRef<HTMLDivElement>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const importRef = useRef<HTMLInputElement>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
+  const [name, setName] = useState('')
+  const [nameDirty, setNameDirty] = useState(false)
+  const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
-  const [sort, setSort] = useState('')
-  const [filterColumn, setFilterColumn] = useState('')
-  const [filterOp, setFilterOp] = useState('eq')
-  const [filterValue, setFilterValue] = useState('')
-  const [formatColumn, setFormatColumn] = useState('')
-  const [formatOp, setFormatOp] = useState('eq')
-  const [formatValue, setFormatValue] = useState('')
-  const [formatColor, setFormatColor] = useState('#0f766e')
-  const [viewName, setViewName] = useState('')
-  const [sharedView, setSharedView] = useState(false)
-  const [activeView, setActiveView] = useState('')
-  const [importNote, setImportNote] = useState('')
-  const [fillColumn, setFillColumn] = useState('')
+  const [sort, setSort] = useState<{ columnId: string; direction: 'asc' | 'desc' } | null>(null)
+  const [filters, setFilters] = useState<Record<string, { op: string; value: string }>>({})
+  const [checked, setChecked] = useState<string[]>([])
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([])
+  const [columnAnchor, setColumnAnchor] = useState<string | null>(null)
   const [selected, setSelected] = useState({ row: 0, column: 0 })
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [checked, setChecked] = useState<string[]>([])
-  const visible = columns.filter((column) => !column.hidden)
-  const editable = visible.filter(writable)
-  const filter = filterColumn ? { op: filterOp, columnId: filterColumn, value: filterValue } : null
-  const formatting: FormatRule[] = formatColumn
-    ? [{ id: 'active', scope: 'cell', columnId: formatColumn, operator: formatOp, value: formatValue, style: { color: formatColor } }]
-    : []
+  const [renamingColumn, setRenamingColumn] = useState<string | null>(null)
+  const [columnDraft, setColumnDraft] = useState('')
+  const [popover, setPopover] = useState<PopoverState | null>(null)
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const [formulaDraft, setFormulaDraft] = useState('')
+  const [relationTarget, setRelationTarget] = useState('')
+  const [relationCardinality, setRelationCardinality] = useState('many_to_one')
+  const [ruleOp, setRuleOp] = useState('eq')
+  const [ruleValue, setRuleValue] = useState('')
+  const [ruleScope, setRuleScope] = useState<'cell' | 'row'>('cell')
+  const [viewName, setViewName] = useState('')
+  const [sharedView, setSharedView] = useState(false)
+  const [historyTick, setHistoryTick] = useState(0)
+  const filter = useMemo(() => activeFilter(filters), [filters])
+  const filterKey = JSON.stringify(filter)
 
+  const tableQuery = useQuery({
+    queryKey: ['table', tableId],
+    queryFn: () => api.request<{ table: TableRecord }>(`/tables/${tableId}`),
+  })
+  const table = tableQuery.data?.table
+  const columns = table?.columns ?? []
+  const visible = columns.filter((column) => !column.hidden)
+  const rules = (table?.formatRules ?? []) as FormatRule[]
+  const projectId = table?.projectId ?? ''
+
+  const rowsQuery = useInfiniteQuery({
+    queryKey: ['rows', tableId, search, sort, filterKey],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: '50' })
+      if (pageParam) params.set('cursor', pageParam)
+      if (search) params.set('q', search)
+      if (sort) {
+        params.set('sort', sort.columnId)
+        params.set('direction', sort.direction)
+      }
+      if (filter) params.set('filter', JSON.stringify(filter))
+      return api.request<{ rows: RowRecord[]; nextCursor: string | null }>(`/tables/${tableId}/rows?${params}`)
+    },
+    getNextPageParam: (last) => last.nextCursor,
+  })
+  const rows = rowsQuery.data?.pages.flatMap((page) => page.rows) ?? []
   const views = useQuery({
     queryKey: ['views', tableId],
     queryFn: () => api.request<{ views: SavedView[] }>(`/tables/${tableId}/views`),
   })
-  const rowsQuery = useQuery({
-    queryKey: ['rows', tableId, search, sort, filter],
-    queryFn: () => {
-      const params = new URLSearchParams({ limit: '50' })
-      if (search) params.set('q', search)
-      if (sort) params.set('sort', sort)
-      if (filter) params.set('filter', JSON.stringify(filter))
-      return api.request<{ rows: RowRecord[]; nextCursor: string | null }>(`/tables/${tableId}/rows?${params}`)
-    },
+  const projectTables = useQuery({
+    queryKey: ['tables', projectId],
+    enabled: popover?.kind === 'relation' && Boolean(projectId),
+    queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
   })
   const editingColumn = visible.find((column) => editing?.endsWith(`:${column.id}`))
   const targetTableId = editingColumn?.type === 'relation' ? String(editingColumn.config.toTableId ?? '') : ''
@@ -81,24 +170,680 @@ export function TableGrid({ tableId, columns }: { tableId: string; columns: Colu
     queryFn: () => api.request<{ rows: RowRecord[] }>(`/tables/${targetTableId}/rows?limit=50`),
   })
 
-  const rows = rowsQuery.data?.rows ?? []
+  useEffect(() => {
+    if (!nameDirty) setName(table?.name ?? '')
+  }, [nameDirty, table?.name])
+
+  const titleReady = !tableQuery.isLoading && !rowsQuery.isLoading && Boolean(table)
+  useEffect(() => {
+    const state = location.state as { focusName?: boolean } | null
+    if (!state?.focusName || !titleReady) return
+    nameRef.current?.select()
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate, titleReady])
+
+  useEffect(() => {
+    if (!popover) return
+    const close = (event: PointerEvent) => {
+      if ((event.target as HTMLElement | null)?.closest('[data-popover]')) return
+      setPopover(null)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [popover])
+
+  const allChecked = rows.length > 0 && rows.every((row) => checked.includes(row.id))
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = checked.length > 0 && !allChecked
+  }, [allChecked, checked.length])
+
+  async function refresh() {
+    await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+    await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+    setHistoryTick((value) => value + 1)
+  }
+
+  async function fetchRows() {
+    const collected: RowRecord[] = []
+    let cursor: string | null = null
+    do {
+      const params = new URLSearchParams({ limit: '100' })
+      if (cursor) params.set('cursor', cursor)
+      if (search) params.set('q', search)
+      if (sort) {
+        params.set('sort', sort.columnId)
+        params.set('direction', sort.direction)
+      }
+      if (filter) params.set('filter', JSON.stringify(filter))
+      const page = await api.request<{ rows: RowRecord[]; nextCursor: string | null }>(`/tables/${tableId}/rows?${params}`)
+      collected.push(...page.rows)
+      cursor = page.nextCursor
+    } while (cursor && collected.length < 5000)
+    return collected
+  }
+
+  async function loadEveryRow() {
+    let latest = rowsQuery.data
+    let hasMore = Boolean(rowsQuery.hasNextPage)
+    let guard = 0
+    while (hasMore && guard < 100) {
+      const result = await rowsQuery.fetchNextPage()
+      latest = result.data
+      hasMore = Boolean(result.hasNextPage)
+      guard += 1
+    }
+    return latest?.pages.flatMap((page) => page.rows) ?? rows
+  }
+
+  async function undo(direction: 'undo' | 'redo') {
+    setNotice('')
+    try {
+      const ran = await (direction === 'undo' ? undoTable(tableId) : redoTable(tableId))
+      if (ran) await refresh()
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : t('error'))
+    }
+  }
+
+  const undoRef = useRef(undo)
+  const boundsRef = useRef({ rows: rows.length, columns: visible.length })
+  undoRef.current = undo
+  boundsRef.current = { rows: rows.length, columns: visible.length }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const typing = Boolean(target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !typing) {
+        event.preventDefault()
+        void undoRef.current(event.shiftKey ? 'redo' : 'undo')
+        return
+      }
+      if (!typing && parentRef.current?.contains(document.activeElement) && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        const bounds = boundsRef.current
+        setSelected((current) => moveSelection(current, event.key, { rows: Math.max(bounds.rows, 1), columns: Math.max(bounds.columns, 1) }))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  async function commitName() {
+    if (!table) return
+    const next = name.trim()
+    if (!next || next === table.name) {
+      setName(table.name)
+      setNameDirty(false)
+      return
+    }
+    try {
+      await api.request(`/tables/${tableId}`, { method: 'PATCH', body: JSON.stringify({ name: next }) })
+      pushCommand(tableId, { kind: 'table-renamed', before: table.name, after: next })
+      setNameDirty(false)
+      setNotice('')
+      await refresh()
+    } catch (caught) {
+      setName(table.name)
+      setNameDirty(false)
+      setNotice(caught instanceof ApiClientError ? caught.message : t('error'))
+    }
+  }
+
+  async function insertColumn(beforeId?: string) {
+    const created = await api.request<{ column: Column }>(`/tables/${tableId}/columns`, {
+      method: 'POST',
+      body: JSON.stringify({ name: nextLabel(columns.map((column) => column.name), 'Column'), type: 'text', ...(beforeId ? { beforeId } : {}) }),
+    })
+    const snap: ColumnSnap = {
+      id: created.column.id,
+      name: created.column.name,
+      type: created.column.type,
+      nextId: beforeId ?? null,
+      description: '',
+      config: {},
+      hidden: false,
+      width: created.column.width,
+      frozen: false,
+      options: [],
+      cells: [],
+    }
+    pushCommand(tableId, { kind: 'columns-created', columns: [snap] })
+    setRenamingColumn(created.column.id)
+    setColumnDraft(created.column.name)
+    await refresh()
+  }
+
+  async function insertRow(beforeId?: string) {
+    const created = await api.request<{ row: { id: string; version: number } }>(`/tables/${tableId}/rows`, {
+      method: 'POST',
+      body: JSON.stringify({ cells: {}, ...(beforeId ? { beforeId } : {}) }),
+    })
+    const snap: RowSnap = { id: created.row.id, nextId: beforeId ?? null, cells: {}, color: null, backgrounds: {} }
+    pushCommand(tableId, { kind: 'rows-created', rows: [snap] })
+    const first = visible.find(writable)
+    if (first) {
+      setEditing(`${created.row.id}:${first.id}`)
+      setDraft('')
+    }
+    await refresh()
+  }
+
+  async function commitCell(row: RowRecord, columnId: string, nextValue: string) {
+    const previous = row.cells[columnId] ?? null
+    const next = nextValue === '' ? null : nextValue
+    setEditing(null)
+    if (previous === next) return
+    try {
+      const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ version: row.version, cells: { [columnId]: next } }),
+      })
+      const version = result.row.version
+      pushCommand(tableId, {
+        kind: 'patch',
+        undo: [{ rowId: row.id, version, cells: { [columnId]: previous } }],
+        redo: [{ rowId: row.id, version, cells: { [columnId]: next } }],
+      })
+      setNotice('')
+      await refresh()
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : t('error'))
+      await refresh()
+    }
+  }
+
+  async function renameColumn(column: Column) {
+    const next = columnDraft.trim()
+    setRenamingColumn(null)
+    if (!next || next === column.name) return
+    await api.request(`/columns/${column.id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) })
+    pushCommand(tableId, { kind: 'column-renamed', columnId: column.id, before: column.name, after: next })
+    await refresh()
+  }
+
+  function cycleSort(columnId: string) {
+    setSort((current) => {
+      if (current?.columnId !== columnId) return { columnId, direction: 'asc' }
+      if (current.direction === 'asc') return { columnId, direction: 'desc' }
+      return null
+    })
+  }
+
+  function chooseColumns(event: ReactMouseEvent, columnId: string) {
+    if (event.shiftKey && columnAnchor) {
+      const ids = visible.map((column) => column.id)
+      const start = ids.indexOf(columnAnchor)
+      const end = ids.indexOf(columnId)
+      const [from, to] = start < end ? [start, end] : [end, start]
+      setSelectedColumns(ids.slice(from, to + 1))
+      return
+    }
+    if (event.metaKey || event.ctrlKey) {
+      setSelectedColumns((current) => (current.includes(columnId) ? current.filter((id) => id !== columnId) : [...current, columnId]))
+      setColumnAnchor(columnId)
+      return
+    }
+    setSelectedColumns([columnId])
+    setColumnAnchor(columnId)
+  }
+
+  async function paintRow(row: RowRecord, color: string | null) {
+    const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ version: row.version, cells: {}, color }),
+    })
+    pushCommand(tableId, {
+      kind: 'patch',
+      undo: [{ rowId: row.id, version: result.row.version, cells: {}, color: row.color }],
+      redo: [{ rowId: row.id, version: result.row.version, cells: {}, color }],
+    })
+    setPopover(null)
+    await refresh()
+  }
+
+  async function paintCell(row: RowRecord, columnId: string, color: string | null) {
+    const previous = row.backgrounds?.[columnId] ?? null
+    const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ version: row.version, cells: {}, backgrounds: { [columnId]: color } }),
+    })
+    pushCommand(tableId, {
+      kind: 'patch',
+      undo: [{ rowId: row.id, version: result.row.version, cells: {}, backgrounds: { [columnId]: previous } }],
+      redo: [{ rowId: row.id, version: result.row.version, cells: {}, backgrounds: { [columnId]: color } }],
+    })
+    setPopover(null)
+    await refresh()
+  }
+
+  async function paintRows(color: string | null) {
+    const targets = rows.filter((row) => checked.includes(row.id))
+    const undo = []
+    const redo = []
+    for (const row of targets) {
+      const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ version: row.version, cells: {}, color }),
+      })
+      undo.push({ rowId: row.id, version: result.row.version, cells: {}, color: row.color })
+      redo.push({ rowId: row.id, version: result.row.version, cells: {}, color })
+    }
+    if (undo.length > 0) pushCommand(tableId, { kind: 'patch', undo, redo })
+    setPopover(null)
+    await refresh()
+  }
+
+  async function saveRules(columnId: string, color: string | null) {
+    const before = rules
+    const after = color
+      ? [...rules.filter((rule) => rule.columnId !== columnId), { id: columnId, scope: ruleScope, columnId, operator: ruleOp, value: ruleValue, style: { background: color } }]
+      : rules.filter((rule) => rule.columnId !== columnId)
+    await api.request(`/tables/${tableId}`, { method: 'PATCH', body: JSON.stringify({ formatRules: after }) })
+    pushCommand(tableId, { kind: 'rules', before, after })
+    setPopover(null)
+    await refresh()
+  }
+
+  async function applyType(column: Column, type: string, after?: () => Promise<void>) {
+    const preview = await api.request<{ cleared: number }>(`/columns/${column.id}/convert`, {
+      method: 'POST',
+      body: JSON.stringify({ type, dryRun: true }),
+    })
+    const run = async () => {
+      const current = await fetchRows()
+      const cells = current.map((row) => ({ rowId: row.id, value: row.cells[column.id] ?? null }))
+      await api.request(`/columns/${column.id}/convert`, { method: 'POST', body: JSON.stringify({ type }) })
+      if (after) await after()
+      pushCommand(tableId, { kind: 'column-type', columnId: column.id, beforeType: column.type, afterType: type, cells })
+      await refresh()
+    }
+    if (preview.cleared > 0) {
+      setConfirm({ title: t('typeChangeTitle'), body: t('typeChangeWarning', { count: preview.cleared }), run })
+      return
+    }
+    await run()
+  }
+
+  async function saveFormula(column: Column) {
+    await api.request('/formulas/validate', { method: 'POST', body: JSON.stringify({ tableId, expression: formulaDraft }) })
+    setPopover(null)
+    await applyType(column, 'formula', async () => {
+      await api.request(`/columns/${column.id}/formula`, { method: 'POST', body: JSON.stringify({ expression: formulaDraft }) })
+    })
+  }
+
+  async function saveRelation(column: Column, toTableId = relationTarget) {
+    if (!toTableId) return
+    const current = await fetchRows()
+    const cells = current.map((row) => ({ rowId: row.id, value: row.cells[column.id] ?? null }))
+    const preview = await api.request<{ cleared: number }>(`/columns/${column.id}/convert`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'relation', dryRun: true }),
+    })
+    const run = async () => {
+      await api.request(`/columns/${column.id}/relation`, {
+        method: 'POST',
+        body: JSON.stringify({ toTableId, cardinality: relationCardinality }),
+      })
+      pushCommand(tableId, { kind: 'column-type', columnId: column.id, beforeType: column.type, afterType: 'relation', cells })
+      setPopover(null)
+      await refresh()
+    }
+    if (preview.cleared > 0) {
+      setPopover(null)
+      setConfirm({ title: t('typeChangeTitle'), body: t('typeChangeWarning', { count: preview.cleared }), run })
+      return
+    }
+    await run()
+  }
+
+  function rowSnap(row: RowRecord, nextId: string | null): RowSnap {
+    return { id: row.id, nextId, cells: row.cells, color: row.color, backgrounds: row.backgrounds ?? {} }
+  }
+
+  function nextKept(id: string, removed: Set<string>) {
+    const index = rows.findIndex((row) => row.id === id)
+    for (let cursor = index + 1; cursor < rows.length; cursor += 1) {
+      if (!removed.has(rows[cursor].id)) return rows[cursor].id
+    }
+    return null
+  }
+
+  async function deleteRows(ids: string[]) {
+    if (ids.length === 0) return
+    const removed = new Set(ids)
+    const snaps = rows.filter((row) => removed.has(row.id)).map((row) => rowSnap(row, nextKept(row.id, removed)))
+    await api.request(`/tables/${tableId}/rows/bulk-delete`, { method: 'POST', body: JSON.stringify({ rowIds: ids }) })
+    pushCommand(tableId, { kind: 'rows-deleted', rows: snaps })
+    setChecked([])
+    await refresh()
+  }
+
+  async function duplicateSelectedRows(ids = checked) {
+    const ordered = rows.filter((row) => ids.includes(row.id))
+    if (ordered.length === 0) return
+    const result = await api.request<{ rowIds: string[] }>(`/tables/${tableId}/rows/duplicate`, {
+      method: 'POST',
+      body: JSON.stringify({ rowIds: ordered.map((row) => row.id) }),
+    })
+    pushCommand(tableId, {
+      kind: 'rows-created',
+      rows: result.rowIds.map((id, index) => rowSnap({ ...ordered[index], id }, null)),
+    })
+    setChecked([])
+    await refresh()
+  }
+
+  async function deleteColumns(ids: string[]) {
+    if (ids.length === 0) return
+    const loaded = await loadEveryRow()
+    const removed = new Set(ids)
+    const snaps: ColumnSnap[] = columns
+      .filter((column) => removed.has(column.id))
+      .map((column) => {
+        const index = columns.findIndex((item) => item.id === column.id)
+        let nextId: string | null = null
+        for (let cursor = index + 1; cursor < columns.length; cursor += 1) {
+          if (!removed.has(columns[cursor].id)) {
+            nextId = columns[cursor].id
+            break
+          }
+        }
+        return {
+          id: column.id,
+          name: column.name,
+          type: column.type,
+          nextId,
+          description: column.description,
+          config: column.config,
+          hidden: column.hidden,
+          width: column.width,
+          frozen: column.frozen,
+          options: column.options.map((option) => ({ label: option.label, color: option.color })),
+          cells: loaded.map((row) => ({ rowId: row.id, value: row.cells[column.id] ?? null, background: row.backgrounds?.[column.id] ?? null })),
+        }
+      })
+    for (const columnId of ids) await api.request(`/columns/${columnId}`, { method: 'DELETE' })
+    pushCommand(tableId, { kind: 'columns-deleted', columns: snaps })
+    setSelectedColumns([])
+    await refresh()
+  }
+
+  async function duplicateSelectedColumns(ids = selectedColumns) {
+    const selected = columns.filter((column) => ids.includes(column.id))
+    if (selected.length === 0) return
+    const result = await api.request<{ columns: Column[] }>(`/tables/${tableId}/columns/duplicate`, {
+      method: 'POST',
+      body: JSON.stringify({ columnIds: selected.map((column) => column.id) }),
+    })
+    const snaps: ColumnSnap[] = result.columns.map((column, index) => {
+      const source = selected[index]
+      const sourceIndex = columns.findIndex((item) => item.id === source.id)
+      return {
+        id: column.id,
+        name: column.name,
+        type: column.type,
+        nextId: columns[sourceIndex + 1]?.id ?? null,
+        description: column.description,
+        config: column.config,
+        hidden: column.hidden,
+        width: column.width,
+        frozen: column.frozen,
+        options: column.options.map((option) => ({ label: option.label, color: option.color })),
+        cells: rows.map((row) => ({ rowId: row.id, value: row.cells[source.id] ?? null, background: row.backgrounds?.[source.id] ?? null })),
+      }
+    })
+    pushCommand(tableId, { kind: 'columns-created', columns: snaps })
+    setSelectedColumns([])
+    await refresh()
+  }
+
+  async function reorderColumns(nextIds: string[]) {
+    const before = columns.map((column) => column.id)
+    if (before.join() === nextIds.join()) return
+    await api.request(`/tables/${tableId}/columns/order`, { method: 'PUT', body: JSON.stringify({ columnIds: nextIds }) })
+    pushCommand(tableId, { kind: 'column-order', before, after: nextIds })
+    await refresh()
+  }
+
+  async function reorderRow(rowId: string, beforeId: string) {
+    const index = rows.findIndex((row) => row.id === rowId)
+    const beforeNextId = rows[index + 1]?.id ?? null
+    await api.request(`/tables/${tableId}/rows/move`, { method: 'POST', body: JSON.stringify({ rowId, beforeId }) })
+    pushCommand(tableId, { kind: 'row-moved', rowId, beforeNextId, afterNextId: beforeId })
+    await refresh()
+  }
+
+  async function hideColumn(column: Column, hidden: boolean) {
+    await api.request(`/columns/${column.id}`, { method: 'PATCH', body: JSON.stringify({ hidden }) })
+    pushCommand(tableId, { kind: 'column-hidden', columnId: column.id, before: column.hidden, after: hidden })
+    await refresh()
+  }
+
+  async function fillDown(columnId: string) {
+    const ordered = rows.filter((row) => checked.includes(row.id))
+    if (ordered.length < 2) return
+    const source = ordered[0].cells[columnId] ?? null
+    const previous = ordered.slice(1).map((row) => ({ rowId: row.id, value: row.cells[columnId] ?? null }))
+    await api.request(`/tables/${tableId}/fill`, {
+      method: 'POST',
+      body: JSON.stringify({ columnId, rowIds: ordered.map((row) => row.id) }),
+    })
+    const fresh = await fetchRows()
+    pushCommand(tableId, {
+      kind: 'patch',
+      undo: previous.map((item) => ({ rowId: item.rowId, version: fresh.find((row) => row.id === item.rowId)?.version ?? 1, cells: { [columnId]: item.value } })),
+      redo: previous.map((item) => ({ rowId: item.rowId, version: fresh.find((row) => row.id === item.rowId)?.version ?? 1, cells: { [columnId]: source } })),
+    })
+    setChecked([])
+    await refresh()
+  }
+
+  async function pasteTsv(text: string) {
+    const grid = text.replace(/\r/g, '').split('\n').filter((line) => line.length > 0).map((line) => line.split('\t'))
+    const targets = visible.slice(selected.column).filter(writable)
+    const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
+    const previous: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
+    for (let rowIndex = 0; rowIndex < grid.length; rowIndex += 1) {
+      const row = rows[selected.row + rowIndex]
+      if (!row) break
+      const cells: Record<string, unknown> = {}
+      const before: Record<string, unknown> = {}
+      grid[rowIndex].forEach((value, columnIndex) => {
+        const column = targets[columnIndex]
+        if (!column) return
+        cells[column.id] = value
+        before[column.id] = row.cells[column.id] ?? null
+      })
+      if (Object.keys(cells).length > 0) {
+        updates.push({ rowId: row.id, version: row.version, cells })
+        previous.push({ rowId: row.id, version: row.version, cells: before })
+      }
+    }
+    if (updates.length === 0) return
+    await api.request(`/tables/${tableId}/cells/bulk`, { method: 'PATCH', body: JSON.stringify({ updates }) })
+    const fresh = await fetchRows()
+    const stamp = (items: { rowId: string; version: number; cells: Record<string, unknown> }[]) =>
+      items.map((item) => ({ ...item, version: fresh.find((row) => row.id === item.rowId)?.version ?? item.version }))
+    pushCommand(tableId, { kind: 'patch', undo: stamp(previous), redo: stamp(updates) })
+    await refresh()
+  }
+
+  function openColumnMenu(event: ReactMouseEvent, column: Column) {
+    event.stopPropagation()
+    openMenu(event, [
+      { id: 'rename', label: t('rename'), onSelect: () => { setRenamingColumn(column.id); setColumnDraft(column.name) } },
+      ...COLUMN_TYPES.map((type) => ({
+        id: `type-${type}`,
+        label: type,
+        disabled: type === column.type,
+        onSelect: () => {
+          if (type === 'formula') {
+            setFormulaDraft('')
+            setPopover({ kind: 'formula', columnId: column.id, ...anchor(event) })
+            return
+          }
+          if (type === 'relation') {
+            setRelationTarget('')
+            setPopover({ kind: 'relation', columnId: column.id, ...anchor(event) })
+            return
+          }
+          void applyType(column, type)
+        },
+      })),
+      { id: 'sort', label: t('sort'), onSelect: () => cycleSort(column.id) },
+      { id: 'filter', label: t('filter'), onSelect: () => setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) }) },
+      { id: 'left', label: t('insertLeft'), onSelect: () => void insertColumn(column.id) },
+      { id: 'right', label: t('insertRight'), onSelect: () => void insertColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id) },
+      { id: 'duplicate', label: t('duplicate'), onSelect: () => void duplicateSelectedColumns([column.id]) },
+      { id: 'fill', label: t('fillDown'), disabled: checked.length < 2, onSelect: () => void fillDown(column.id) },
+      { id: 'conditional', label: t('conditionalColor'), onSelect: () => setPopover({ kind: 'conditional', columnId: column.id, ...anchor(event) }) },
+      { id: 'hide', label: t('hideColumn'), onSelect: () => void hideColumn(column, true) },
+      { id: 'delete', label: t('delete'), danger: true, onSelect: () => void deleteColumns([column.id]) },
+    ])
+  }
+
+  function openRowMenu(event: ReactMouseEvent, row: RowRecord) {
+    event.stopPropagation()
+    const index = rows.findIndex((item) => item.id === row.id)
+    openMenu(event, [
+      { id: 'above', label: t('insertAbove'), onSelect: () => void insertRow(row.id) },
+      { id: 'below', label: t('insertBelow'), onSelect: () => void insertRow(rows[index + 1]?.id) },
+      { id: 'duplicate', label: t('duplicate'), onSelect: () => void duplicateSelectedRows([row.id]) },
+      { id: 'color', label: t('rowColor'), onSelect: () => setPopover({ kind: 'row-color', rowId: row.id, ...anchor(event) }) },
+      { id: 'select', label: t('selectAll'), onSelect: () => setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])) },
+      { id: 'delete', label: t('delete'), danger: true, onSelect: () => void deleteRows([row.id]) },
+    ])
+  }
+
+  function openCellMenu(event: ReactMouseEvent, row: RowRecord, column: Column) {
+    event.stopPropagation()
+    openMenu(event, [
+      { id: 'edit', label: t('rename'), disabled: !writable(column), onSelect: () => { setEditing(`${row.id}:${column.id}`); setDraft(showCell(row.cells[column.id])) } },
+      { id: 'copy', label: t('copy'), onSelect: () => void navigator.clipboard.writeText(showCell(row.cells[column.id])) },
+      { id: 'paste', label: t('paste'), onSelect: () => void navigator.clipboard.readText().then((text) => pasteTsv(text)) },
+      { id: 'clear', label: t('clearCell'), disabled: !writable(column), onSelect: () => void commitCell(row, column.id, '') },
+      { id: 'color', label: t('cellColor'), onSelect: () => setPopover({ kind: 'cell-color', rowId: row.id, columnId: column.id, ...anchor(event) }) },
+    ])
+  }
+
+  const flags = historyFlags(tableId)
+  void historyTick
+
+  function openTitleMenu(event: ReactMouseEvent) {
+    const hidden = columns.filter((column) => column.hidden)
+    openMenu(event, [
+      { id: 'undo', label: t('undo'), disabled: !flags.canUndo, onSelect: () => void undo('undo') },
+      { id: 'redo', label: t('redo'), disabled: !flags.canRedo, onSelect: () => void undo('redo') },
+      { id: 'find', label: t('find'), onSelect: () => setPopover({ kind: 'find', ...anchor(event) }) },
+      { id: 'favorite', label: t('favorites'), onSelect: () => void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'table', resourceId: tableId }) }) },
+      { id: 'export', label: t('export'), onSelect: () => void exportCsv() },
+      { id: 'import', label: t('import'), onSelect: () => importRef.current?.click() },
+      ...(views.data?.views ?? []).map((view) => ({ id: view.id, label: view.name, onSelect: () => applyView(view) })),
+      { id: 'save-view', label: t('saveView'), onSelect: () => setPopover({ kind: 'view', ...anchor(event) }) },
+      ...hidden.map((column) => ({ id: `show-${column.id}`, label: `${t('showColumn')}: ${column.name}`, onSelect: () => void hideColumn(column, false) })),
+      { id: 'duplicate', label: t('duplicateTable'), onSelect: () => void api.request(`/tables/${tableId}/duplicate`, { method: 'POST', body: JSON.stringify({ includeData: true }) }) },
+      { id: 'delete', label: t('delete'), danger: true, onSelect: () => setConfirm({ title: t('deleteTableTitle'), body: t('deleteTableWarning', { name: table?.name ?? '' }), run: deleteThisTable }) },
+    ])
+  }
+
+  function applyView(view: SavedView) {
+    const definition = view.definition ?? {}
+    const sortValue = definition.sort
+    if (!sortValue) setSort(null)
+    else if (typeof sortValue === 'string') setSort({ columnId: sortValue, direction: definition.direction === 'desc' ? 'desc' : 'asc' })
+    else setSort({ columnId: sortValue.columnId, direction: sortValue.direction === 'desc' ? 'desc' : 'asc' })
+    const next: Record<string, { op: string; value: string }> = {}
+    const node = definition.filter
+    const list = node && 'conditions' in node ? node.conditions : node ? [node] : []
+    for (const condition of list) {
+      if (!condition || !('columnId' in condition)) continue
+      next[condition.columnId] = { op: condition.op, value: condition.value == null ? '' : String(condition.value) }
+    }
+    setFilters(next)
+  }
+
+  async function exportCsv() {
+    const result = await api.request<{ csv: string }>(`/tables/${tableId}/export`, { method: 'POST', body: JSON.stringify({ filter }) })
+    const url = URL.createObjectURL(new Blob([result.csv], { type: 'text/csv' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${table?.name ?? 'export'}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function deleteThisTable() {
+    await api.request(`/tables/${tableId}`, { method: 'DELETE' })
+    window.location.assign(`/projects/${projectId}`)
+  }
+
+  async function saveView() {
+    if (!viewName.trim()) return
+    await api.request(`/tables/${tableId}/views`, {
+      method: 'POST',
+      body: JSON.stringify({ name: viewName.trim(), shared: sharedView, definition: { filter, sort, formatting: rules } }),
+    })
+    setViewName('')
+    setPopover(null)
+    await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
+  }
+
   const tableColumns = useMemo<ColumnDef<RowRecord>[]>(
     () => [
       {
         id: 'select',
-        header: '',
-        size: 40,
-        cell: ({ row }) => (
+        header: () => (
           <input
+            ref={selectAllRef}
             type="checkbox"
-            aria-label={row.original.id}
-            checked={checked.includes(row.original.id)}
-            onChange={(event) =>
-              setChecked((current) =>
-                event.target.checked ? [...current, row.original.id] : current.filter((id) => id !== row.original.id),
-              )
-            }
+            aria-label={t('selectAll')}
+            checked={allChecked}
+            onChange={() => {
+              if (allChecked) {
+                setChecked([])
+                return
+              }
+              void loadEveryRow().then((loaded) => setChecked(loaded.map((row) => row.id)))
+            }}
           />
+        ),
+        size: 72,
+        cell: ({ row }) => (
+          <div
+            className="flex h-9 items-center gap-1 px-1"
+            onContextMenu={(event) => openRowMenu(event, row.original)}
+          >
+            <button
+              type="button"
+              draggable
+              aria-label={t('reorder')}
+              className="text-muted-foreground"
+              onDragStart={(event) => {
+                event.dataTransfer.setData('text/plain', `row:${row.original.id}`)
+                event.dataTransfer.effectAllowed = 'move'
+              }}
+            >
+              <GripVertical className="size-3.5" />
+            </button>
+            <input
+              type="checkbox"
+              aria-label={row.original.id}
+              checked={checked.includes(row.original.id)}
+              onChange={(event) => {
+                setChecked((current) => (event.target.checked ? [...current, row.original.id] : current.filter((id) => id !== row.original.id)))
+              }}
+            />
+            <button
+              type="button"
+              aria-label={t('insertRow')}
+              className="text-muted-foreground opacity-0 group-hover:opacity-100"
+              onClick={() => void insertRow(rows[row.index + 1]?.id)}
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
         ),
       },
       ...visible.map((column) => ({
@@ -107,11 +852,16 @@ export function TableGrid({ tableId, columns }: { tableId: string; columns: Colu
         size: column.width,
         cell: ({ row }: { row: { original: RowRecord; index: number } }) => {
           const value = row.original.cells[column.id]
-          const style = stylesForCell(formatting, row.original.cells, column.id)
+          const ruleStyle = stylesForCell(rules, row.original.cells, column.id)
+          const background = row.original.backgrounds?.[column.id] || row.original.color || ruleStyle.background
           const active = editing === `${row.original.id}:${column.id}`
           const text = showCell(value)
           return (
-            <div className="h-9 px-2" style={{ color: style.color, background: style.background, fontWeight: style.bold ? 700 : 400 }}>
+            <div
+              className="h-9 px-2"
+              style={{ color: ruleStyle.color, background, fontWeight: ruleStyle.bold ? 700 : 400 }}
+              onContextMenu={(event) => openCellMenu(event, row.original, column)}
+            >
               {active && column.type === 'relation' ? (
                 <select
                   autoFocus
@@ -120,7 +870,7 @@ export function TableGrid({ tableId, columns }: { tableId: string; columns: Colu
                   aria-label={`Edit ${column.name}`}
                   onChange={(event) => {
                     setDraft(event.target.value)
-                    void commit(row.original, column.id, event.target.value)
+                    void commitCell(row.original, column.id, event.target.value)
                   }}
                 >
                   <option value="">{t('none')}</option>
@@ -133,17 +883,19 @@ export function TableGrid({ tableId, columns }: { tableId: string; columns: Colu
               ) : active ? (
                 <input
                   autoFocus
+                  aria-label={`Edit ${column.name}`}
                   className="h-7 w-full bg-transparent outline-none"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  onBlur={() => void commit(row.original, column.id, draft)}
+                  onBlur={() => void commitCell(row.original, column.id, draft)}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') void commit(row.original, column.id, draft)
+                    if (event.key === 'Enter') void commitCell(row.original, column.id, draft)
                     if (event.key === 'Escape') setEditing(null)
                   }}
                 />
               ) : writable(column) ? (
                 <button
+                  type="button"
                   className="h-full w-full truncate text-left"
                   aria-label={`Edit ${column.name}`}
                   onClick={() => {
@@ -162,283 +914,283 @@ export function TableGrid({ tableId, columns }: { tableId: string; columns: Colu
         },
       })),
     ],
-    [checked, draft, editing, formatting, t, targetRows.data?.rows, visible],
+    [allChecked, checked, draft, editing, rows, rules, t, targetRows.data?.rows, visible],
   )
-  const table = useReactTable({ data: rows, columns: tableColumns, getCoreRowModel: getCoreRowModel() })
-  const virtualizer = useVirtualizer({
-    count: table.getRowModel().rows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 36,
-    overscan: 8,
-  })
-
-  async function commit(row: RowRecord, columnId: string, nextValue: string) {
-    const previous = row.cells[columnId] ?? null
-    const next = nextValue === '' ? null : nextValue
-    setEditing(null)
-    undo.push({ undo: { rowId: row.id, columnId, version: row.version, value: next, next: previous }, redo: { rowId: row.id, columnId, version: row.version, value: previous, next } })
-    try {
-      await api.request(`/rows/${row.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ version: row.version, cells: { [columnId]: next } }),
-      })
-    } catch {
-      await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-    }
-    await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-  }
-
-  async function pasteTsv(text: string) {
-    const grid = text.replace(/\r/g, '').split('\n').filter((line) => line.length > 0).map((line) => line.split('\t'))
-    const targets = visible.slice(selected.column).filter(writable)
-    const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
-    for (let rowIndex = 0; rowIndex < grid.length; rowIndex += 1) {
-      const row = rows[selected.row + rowIndex]
-      if (!row) break
-      const cells: Record<string, unknown> = {}
-      grid[rowIndex].forEach((value, columnIndex) => {
-        const column = targets[columnIndex]
-        if (!column) return
-        cells[column.id] = value
-      })
-      if (Object.keys(cells).length > 0) updates.push({ rowId: row.id, version: row.version, cells })
-    }
-    if (updates.length === 0) return
-    await api.request(`/tables/${tableId}/cells/bulk`, { method: 'PATCH', body: JSON.stringify({ updates }) })
-    await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-  }
-
-  function applyView(viewId: string) {
-    setActiveView(viewId)
-    const view = views.data?.views.find((item) => item.id === viewId)
-    if (!view) return
-    const definition = view.definition ?? {}
-    setSort(definition.sort ?? '')
-    setFilterColumn(definition.filter?.columnId ?? '')
-    setFilterOp(definition.filter?.op ?? 'eq')
-    setFilterValue(definition.filter?.value == null ? '' : String(definition.filter.value))
-    const rule = definition.formatting?.[0]
-    setFormatColumn(rule?.columnId ?? '')
-    setFormatOp(rule?.operator ?? 'eq')
-    setFormatValue(rule?.value == null ? '' : String(rule.value))
-    setFormatColor(rule?.style.color ?? '#0f766e')
-  }
+  const grid = useReactTable({ data: rows, columns: tableColumns, getCoreRowModel: getCoreRowModel() })
+  const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 36, overscan: 8 })
+  const virtualItems = virtualizer.getVirtualItems()
+  const paddingTop = virtualItems[0]?.start ?? 0
+  const paddingBottom = virtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0)
+  const lastIndex = virtualItems.at(-1)?.index ?? -1
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-        event.preventDefault()
-        const command = event.shiftKey ? undo.popRedo() : undo.popUndo()
-        if (!command) return
-        const change = event.shiftKey ? command.redo : command.undo
-        void api.request(`/rows/${change.rowId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ version: change.version, cells: { [change.columnId]: change.next } }),
-        })
-      }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key) && parentRef.current?.contains(document.activeElement)) {
-        setSelected((current) => moveSelection(current, event.key, { rows: Math.max(rows.length, 1), columns: Math.max(visible.length, 1) }))
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [rows.length, visible.length])
+    if (lastIndex >= rows.length - 8 && rowsQuery.hasNextPage && !rowsQuery.isFetchingNextPage) void rowsQuery.fetchNextPage()
+  }, [lastIndex, rows.length, rowsQuery])
 
-  if (rowsQuery.isLoading) return <LoadingBlock />
-  if (rowsQuery.isError) return <ErrorState message={(rowsQuery.error as Error).message} />
+  if (tableQuery.isLoading || rowsQuery.isLoading) return <section className="p-6"><LoadingBlock /></section>
+  if (tableQuery.isError || rowsQuery.isError || !table) {
+    const message = (tableQuery.error as Error | null)?.message ?? (rowsQuery.error as Error | null)?.message ?? t('error')
+    return <section className="p-6"><ErrorState message={message} /></section>
+  }
 
-  const orderedChecked = rows.map((row) => row.id).filter((id) => checked.includes(id))
-  const fillTarget = fillColumn || editable[0]?.id || ''
+  const popoverColumn = columns.find((column) => column.id === popover?.columnId)
+  const popoverRow = rows.find((row) => row.id === popover?.rowId)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex min-h-9 flex-wrap items-center gap-2">
-        <Input className="max-w-xs" placeholder={t('search')} value={search} onChange={(event) => setSearch(event.target.value)} />
-        <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" value={sort} onChange={(event) => setSort(event.target.value)} aria-label={t('sort')}>
-          <option value="">{t('sort')}</option>
-          {visible.map((column) => (
-            <option key={column.id} value={column.id}>{column.name}</option>
-          ))}
-        </select>
-        <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" value={activeView} onChange={(event) => applyView(event.target.value)} aria-label={t('views')}>
-          <option value="">{t('views')}</option>
-          {(views.data?.views ?? []).map((view) => (
-            <option key={view.id} value={view.id}>{view.name}</option>
-          ))}
-        </select>
-        <Button
-          variant="outline"
-          onClick={async () => {
-            await api.request(`/tables/${tableId}/rows`, { method: 'POST', body: JSON.stringify({ cells: {} }) })
-            await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-          }}
-        >
-          {t('addRow')}
-        </Button>
-        <Button
-          variant="outline"
-          disabled={checked.length === 0}
-          onClick={async () => {
-            await api.request(`/tables/${tableId}/rows/bulk-delete`, { method: 'POST', body: JSON.stringify({ rowIds: checked }) })
-            setChecked([])
-            await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-          }}
-        >
-          {t('bulkDelete')}
-        </Button>
-        <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" value={fillTarget} onChange={(event) => setFillColumn(event.target.value)} aria-label={t('fillDown')}>
-          {editable.map((column) => (
-            <option key={column.id} value={column.id}>{column.name}</option>
-          ))}
-        </select>
-        <Button
-          variant="outline"
-          disabled={orderedChecked.length < 2 || !fillTarget}
-          onClick={async () => {
-            await api.request(`/tables/${tableId}/fill`, {
-              method: 'POST',
-              body: JSON.stringify({ columnId: fillTarget, rowIds: orderedChecked }),
-            })
-            setChecked([])
-            await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-          }}
-        >
-          {t('fillDown')}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={async () => {
-            const result = await api.request<{ csv: string }>(`/tables/${tableId}/export`, {
-              method: 'POST',
-              body: JSON.stringify({ filter }),
-            })
-            const url = URL.createObjectURL(new Blob([result.csv], { type: 'text/csv' }))
-            const link = document.createElement('a')
-            link.href = url
-            link.download = 'export.csv'
-            document.body.appendChild(link)
-            link.click()
-            link.remove()
-            URL.revokeObjectURL(url)
-          }}
-        >
-          {t('export')}
-        </Button>
-        <label className="inline-flex h-9 cursor-pointer items-center rounded-md border border-border bg-card px-3 text-sm">
-          {t('import')}
-          <input
-            aria-label={t('import')}
-            type="file"
-            accept=".csv,text/csv"
-            className="sr-only"
-            onChange={async (event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ''
-              if (!file) return
-              const body = new FormData()
-              body.append('file', file)
-              const result = await api.request<{ created: number; errors: { error?: string }[] }>(`/tables/${tableId}/import`, { method: 'POST', body })
-              setImportNote(result.errors.length > 0 ? `${t('imported', { count: result.created })} ${result.errors[0]?.error ?? ''}` : t('imported', { count: result.created }))
-              await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-            }}
-          />
-        </label>
-      </div>
-      <div className="flex min-h-9 flex-wrap items-center gap-2">
-        <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)} aria-label={t('filter')}>
-          <option value="">{t('filter')}</option>
-          {visible.map((column) => (
-            <option key={column.id} value={column.id}>{column.name}</option>
-          ))}
-        </select>
-        <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" value={filterOp} onChange={(event) => setFilterOp(event.target.value)} aria-label={t('operator')}>
-          <option value="eq">eq</option>
-          <option value="contains">contains</option>
-          <option value="gt">gt</option>
-        </select>
-        <Input className="w-32" placeholder={t('value')} value={filterValue} onChange={(event) => setFilterValue(event.target.value)} />
-        <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" value={formatColumn} onChange={(event) => setFormatColumn(event.target.value)} aria-label={t('formatting')}>
-          <option value="">{t('formatting')}</option>
-          {visible.map((column) => (
-            <option key={column.id} value={column.id}>{column.name}</option>
-          ))}
-        </select>
-        <Input className="w-28" placeholder={t('value')} aria-label={t('formatValue')} value={formatValue} onChange={(event) => setFormatValue(event.target.value)} />
-        <input className="h-9 w-9 rounded-md border border-border bg-card" type="color" aria-label={t('color')} value={formatColor} onChange={(event) => setFormatColor(event.target.value)} />
-        <Input className="w-36" placeholder={t('viewName')} value={viewName} onChange={(event) => setViewName(event.target.value)} />
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={sharedView} onChange={(event) => setSharedView(event.target.checked)} />
-          {t('shared')}
-        </label>
-        <Button
-          variant="outline"
-          disabled={viewName.trim() === ''}
-          onClick={async () => {
-            try {
-              await api.request(`/tables/${tableId}/views`, {
-                method: 'POST',
-                body: JSON.stringify({
-                  name: viewName.trim(),
-                  shared: sharedView,
-                  definition: { filter, sort: sort || null, formatting },
-                }),
-              })
-              setViewName('')
-              setImportNote('')
-              await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
-            } catch (caught) {
-              setImportNote(caught instanceof Error ? caught.message : t('error'))
-            }
-          }}
-        >
-          {t('saveView')}
-        </Button>
-      </div>
-      <p className="min-h-5 text-sm text-muted-foreground">{importNote}</p>
-      {rows.length === 0 ? (
-        <EmptyState title={t('emptyRows')} body={t('emptyRowsBody')} />
-      ) : (
-        <div
-          ref={parentRef}
-          tabIndex={0}
-          className="h-[calc(100vh-16rem)] min-h-80 overflow-auto rounded-md border border-border bg-card"
-          onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
-            if (editing) return
-            const text = event.clipboardData.getData('text/plain')
-            if (!text.includes('\t') && !text.includes('\n')) return
-            event.preventDefault()
-            void pasteTsv(text)
-          }}
-        >
-          <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 bg-muted">
-              {table.getHeaderGroups().map((group) => (
-                <tr key={group.id}>
-                  {group.headers.map((header) => (
-                    <th key={header.id} className="h-10 border-b border-border px-2 text-left font-medium" style={{ width: header.getSize() }}>
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const row = table.getRowModel().rows[virtualRow.index]
+    <section className="flex min-h-0 flex-1 flex-col gap-3 p-6">
+      <input
+        ref={nameRef}
+        aria-label={t('tableName')}
+        className="h-10 max-w-lg bg-transparent text-xl font-semibold outline-none"
+        value={name}
+        onChange={(event) => { setName(event.target.value); setNameDirty(true) }}
+        onBlur={() => void commitName()}
+        onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+        onContextMenu={openTitleMenu}
+      />
+      <p className={notice ? 'text-sm text-danger' : 'sr-only'}>{notice}</p>
+      <input
+        ref={importRef}
+        aria-label={t('import')}
+        type="file"
+        accept=".csv,text/csv"
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (!file) return
+          const body = new FormData()
+          body.append('file', file)
+          void api.request<{ created: number; errors: { error?: string }[] }>(`/tables/${tableId}/import`, { method: 'POST', body }).then(async (result) => {
+            setNotice(result.errors[0]?.error ? `${t('imported', { count: result.created })} ${result.errors[0].error}` : t('imported', { count: result.created }))
+            await refresh()
+          })
+        }}
+      />
+      <div ref={parentRef} tabIndex={0} className="relative h-[calc(100vh-8.5rem)] min-h-80 overflow-auto rounded-md border border-border bg-card" onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
+        if (editing) return
+        const text = event.clipboardData.getData('text/plain')
+        if (!text.includes('\t') && !text.includes('\n')) return
+        event.preventDefault()
+        void pasteTsv(text)
+      }}>
+        <table className="w-full border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-muted">
+            <tr>
+              <th className="h-10 w-16 border-b border-border px-2 text-left">{flexRender(grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header, grid.getHeaderGroups()[0]?.headers[0]?.getContext())}</th>
+              {visible.map((column) => {
+                const activeSort = sort?.columnId === column.id
+                const filtered = Boolean(filters[column.id] && (filters[column.id].op === 'empty' || filters[column.id].op === 'not_empty' || filters[column.id].value))
                 return (
-                  <tr key={row.id} className={selected.row === virtualRow.index ? 'bg-accent/60' : undefined} style={{ height: 36 }}>
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="border-b border-border p-0">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
+                  <th
+                    key={column.id}
+                    className={`group relative h-10 border-b border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''}`}
+                    style={{ width: column.width }}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData('text/plain', `column:${column.id}`)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragOver={(event: DragEvent) => event.preventDefault()}
+                    onDrop={(event: DragEvent) => {
+                      event.preventDefault()
+                      const payload = event.dataTransfer.getData('text/plain')
+                      if (!payload.startsWith('column:')) return
+                      void reorderColumns(moveIdBefore(columns.map((item) => item.id), payload.slice(7), column.id))
+                    }}
+                    onClick={(event) => chooseColumns(event, column.id)}
+                    onContextMenu={(event) => openColumnMenu(event, column)}
+                  >
+                    <div className="flex items-center gap-1">
+                      {renamingColumn === column.id ? (
+                        <input
+                          autoFocus
+                          data-header-control
+                          aria-label={t('rename')}
+                          className="h-7 min-w-0 flex-1 bg-transparent outline-none"
+                          value={columnDraft}
+                          onChange={(event) => setColumnDraft(event.target.value)}
+                          onBlur={() => void renameColumn(column)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur()
+                            if (event.key === 'Escape') setRenamingColumn(null)
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                              chooseColumns(event, column.id)
+                              return
+                            }
+                            setRenamingColumn(column.id)
+                            setColumnDraft(column.name)
+                          }}
+                        >
+                          {column.name}
+                        </button>
+                      )}
+                      <button type="button" data-header-control aria-label={t('sort')} className={`rounded p-0.5 ${activeSort ? 'text-foreground' : 'text-muted-foreground'}`} onClick={(event) => { event.stopPropagation(); cycleSort(column.id) }}>
+                        {activeSort && sort?.direction === 'desc' ? <ArrowDown className="size-3.5" /> : activeSort ? <ArrowUp className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
+                      </button>
+                      <button type="button" data-header-control aria-label={t('filter')} className={`rounded p-0.5 ${filtered ? 'text-foreground' : 'text-muted-foreground'}`} onClick={(event) => { event.stopPropagation(); setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) }) }}>
+                        <Filter className="size-3.5" />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      data-header-control
+                      aria-label={t('insertColumn')}
+                      className="absolute -right-2.5 top-1/2 z-20 hidden h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card group-hover:flex"
+                      onClick={(event) => { event.stopPropagation(); void insertColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id) }}
+                    >
+                      <Plus className="size-3" />
+                    </button>
+                  </th>
                 )
               })}
-            </tbody>
-          </table>
+              <th className="w-10 border-b border-border">
+                <button type="button" aria-label={t('insertColumn')} className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent" onClick={() => void insertColumn()}>
+                  <Plus className="size-4" />
+                </button>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {paddingTop > 0 ? <tr style={{ height: paddingTop }} /> : null}
+            {virtualItems.map((virtualRow) => {
+              const row = grid.getRowModel().rows[virtualRow.index]
+              if (!row) return null
+              return (
+                <tr
+                  key={row.id}
+                  className={`group ${selected.row === virtualRow.index ? 'bg-accent/40' : ''}`}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    const payload = event.dataTransfer.getData('text/plain')
+                    if (!payload.startsWith('row:')) return
+                    void reorderRow(payload.slice(4), row.original.id)
+                  }}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="border-b border-border p-0">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                  ))}
+                  <td className="border-b border-border" />
+                </tr>
+              )
+            })}
+            {paddingBottom > 0 ? <tr style={{ height: paddingBottom }} /> : null}
+            <tr>
+              <td colSpan={visible.length + 2} className="border-b border-border">
+                <button type="button" className="flex h-9 items-center gap-1 px-2 text-muted-foreground hover:text-foreground" onClick={() => void insertRow()}>
+                  <Plus className="size-3.5" />
+                  {t('insertRow')}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        {checked.length > 0 || selectedColumns.length > 0 ? (
+          <div className="sticky bottom-3 z-20 mx-auto flex w-fit items-center gap-2 rounded-md border border-border bg-card px-3 py-2 shadow-md">
+            <span className="text-sm">{t('selectedCount', { count: checked.length + selectedColumns.length })}</span>
+            {checked.length > 0 ? <Button type="button" variant="outline" onClick={() => void duplicateSelectedRows(checked)}>{t('duplicateRows')}</Button> : null}
+            {selectedColumns.length > 0 ? <Button type="button" variant="outline" onClick={() => void duplicateSelectedColumns(selectedColumns)}>{t('duplicateColumns')}</Button> : null}
+            {checked.length > 0 ? (
+              <Button type="button" variant="outline" onClick={(event) => setPopover({ kind: 'row-color', rowId: rows.find((row) => checked.includes(row.id))?.id, ...anchor(event) })}>
+                {t('rowColor')}
+              </Button>
+            ) : null}
+            {checked.length > 0 ? <Button type="button" variant="danger" onClick={() => void deleteRows(checked)}>{t('deleteRows')}</Button> : null}
+            {selectedColumns.length > 0 ? <Button type="button" variant="danger" onClick={() => void deleteColumns(selectedColumns)}>{t('deleteColumns')}</Button> : null}
+          </div>
+        ) : null}
+      </div>
+      {popover ? (
+        <div data-popover className="fixed z-40 w-64 rounded-md border border-border bg-card p-3 shadow-md" style={{ left: popover.x, top: popover.y }}>
+          {popover.kind === 'find' ? <Input aria-label={t('find')} value={search} onChange={(event) => setSearch(event.target.value)} /> : null}
+          {popover.kind === 'filter' && popoverColumn ? (
+            <div className="flex flex-col gap-2">
+              <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('operator')} value={filters[popoverColumn.id]?.op ?? operatorsFor(popoverColumn.type)[0]} onChange={(event) => setFilters((current) => ({ ...current, [popoverColumn.id]: { op: event.target.value, value: current[popoverColumn.id]?.value ?? '' } }))}>
+                {operatorsFor(popoverColumn.type).map((op) => <option key={op} value={op}>{op}</option>)}
+              </select>
+              <Input aria-label={t('value')} value={filters[popoverColumn.id]?.value ?? ''} onChange={(event) => setFilters((current) => ({ ...current, [popoverColumn.id]: { op: current[popoverColumn.id]?.op ?? 'eq', value: event.target.value } }))} />
+              <Button type="button" variant="ghost" onClick={() => setFilters((current) => { const next = { ...current }; delete next[popoverColumn.id]; return next })}>{t('clearFilter')}</Button>
+            </div>
+          ) : null}
+          {popover.kind === 'conditional' && popoverColumn ? (
+            <div className="flex flex-col gap-2">
+              <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('operator')} value={ruleOp} onChange={(event) => setRuleOp(event.target.value)}>
+                {operatorsFor(popoverColumn.type).map((op) => <option key={op} value={op}>{op}</option>)}
+              </select>
+              <Input aria-label={t('value')} value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} />
+              <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('conditionalColor')} value={ruleScope} onChange={(event) => setRuleScope(event.target.value as 'cell' | 'row')}>
+                <option value="cell">{t('scopeCell')}</option>
+                <option value="row">{t('scopeRow')}</option>
+              </select>
+              <Swatches onPick={(color) => void saveRules(popoverColumn.id, color)} />
+            </div>
+          ) : null}
+          {popover.kind === 'row-color' ? <Swatches onPick={(color) => { if (checked.length > 1 && popover.rowId && checked.includes(popover.rowId)) void paintRows(color); else if (popoverRow) void paintRow(popoverRow, color) }} /> : null}
+          {popover.kind === 'cell-color' && popoverRow && popover.columnId ? <Swatches onPick={(color) => void paintCell(popoverRow, popover.columnId!, color)} /> : null}
+          {popover.kind === 'formula' && popoverColumn ? (
+            <form onSubmit={(event) => { event.preventDefault(); void saveFormula(popoverColumn) }}>
+              <Input aria-label={t('formulaExpression')} value={formulaDraft} onChange={(event) => setFormulaDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveFormula(popoverColumn) } }} />
+            </form>
+          ) : null}
+          {popover.kind === 'relation' && popoverColumn ? (
+            <div className="flex flex-col gap-2">
+              <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('cardinality')} value={relationCardinality} onChange={(event) => setRelationCardinality(event.target.value)}>
+                <option value="many_to_one">many_to_one</option>
+                <option value="one_to_one">one_to_one</option>
+                <option value="one_to_many">one_to_many</option>
+              </select>
+              <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('targetTable')} value={relationTarget} onChange={(event) => { setRelationTarget(event.target.value); if (event.target.value) void saveRelation(popoverColumn, event.target.value) }}>
+                <option value="">{t('targetTable')}</option>
+                {(projectTables.data?.tables ?? []).filter((item) => item.id !== tableId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </div>
+          ) : null}
+          {popover.kind === 'view' ? (
+            <div className="flex flex-col gap-2">
+              <Input aria-label={t('viewName')} value={viewName} onChange={(event) => setViewName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveView() }} />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={sharedView} onChange={(event) => setSharedView(event.target.checked)} />
+                {t('shared')}
+              </label>
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        title={confirm?.title ?? ''}
+        body={confirm?.body ?? ''}
+        confirmLabel={t('confirm')}
+        cancelLabel={t('cancel')}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => {
+          const pending = confirm
+          setConfirm(null)
+          if (pending) void pending.run()
+        }}
+      />
+    </section>
+  )
+}
+
+function Swatches({ onPick }: { onPick: (color: string | null) => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {SWATCHES.map((color) => (
+        <button key={color} type="button" aria-label={color} className="h-6 w-6 rounded-full border border-border" style={{ background: color }} onClick={() => onPick(color)} />
+      ))}
+      <button type="button" className="px-1 text-sm text-muted-foreground" onClick={() => onPick(null)}>{t('clearColor')}</button>
     </div>
   )
 }
