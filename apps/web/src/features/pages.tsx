@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, useNavigate, useParams } from 'react-router'
+import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiClientError, type Project, type TableRecord, type User } from '@datavalley/api-client'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -62,6 +62,7 @@ export function LoginPage() {
           ) : null}
           {error ? <p className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
           <Button type="submit">{t('login')}</Button>
+          <Link to="/forgot-password" className="text-sm underline">{t('forgotPassword')}</Link>
         </form>
       </Card>
     </main>
@@ -100,6 +101,81 @@ export function ChangePasswordPage() {
           <Input id="next" name="next" type="password" minLength={12} required />
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <Button type="submit">{t('save')}</Button>
+        </form>
+      </Card>
+    </main>
+  )
+}
+
+export function ForgotPasswordPage() {
+  const { t } = useTranslation()
+  const [error, setError] = useState('')
+  const [sent, setSent] = useState(false)
+  return (
+    <main className="grid min-h-screen place-items-center p-6">
+      <Card className="w-full max-w-sm p-6">
+        <h1 className="text-xl font-semibold">{t('forgotPassword')}</h1>
+        <form
+          className="mt-4 flex flex-col gap-3"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            const data = new FormData(event.currentTarget)
+            setError('')
+            try {
+              await api.ensureCsrf()
+              await api.request('/auth/forgot-password', {
+                method: 'POST',
+                body: JSON.stringify({ email: data.get('email') }),
+              })
+              setSent(true)
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : t('error'))
+            }
+          }}
+        >
+          <Label htmlFor="reset-email">{t('email')}</Label>
+          <Input id="reset-email" name="email" type="email" autoComplete="email" required />
+          {sent ? <p className="min-h-5 text-sm">{t('forgotPasswordSent')}</p> : error ? <p className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
+          <Button type="submit">{t('sendResetLink')}</Button>
+          <Link to="/login" className="text-sm underline">{t('login')}</Link>
+        </form>
+      </Card>
+    </main>
+  )
+}
+
+export function ResetPasswordPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const token = params.get('token') ?? ''
+  const [error, setError] = useState(token ? '' : t('invalidResetLink'))
+  return (
+    <main className="grid min-h-screen place-items-center p-6">
+      <Card className="w-full max-w-sm p-6">
+        <h1 className="text-xl font-semibold">{t('resetPassword')}</h1>
+        <form
+          className="mt-4 flex flex-col gap-3"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            const data = new FormData(event.currentTarget)
+            setError('')
+            try {
+              await api.ensureCsrf()
+              await api.request('/auth/reset-password', {
+                method: 'POST',
+                body: JSON.stringify({ token, newPassword: data.get('next') }),
+              })
+              navigate('/login')
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : t('error'))
+            }
+          }}
+        >
+          <Label htmlFor="reset-next">{t('newPassword')}</Label>
+          <Input id="reset-next" name="next" type="password" autoComplete="new-password" minLength={12} required />
+          {error ? <p className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
+          <Button type="submit" disabled={!token}>{t('save')}</Button>
         </form>
       </Card>
     </main>
@@ -196,10 +272,11 @@ export function ProjectPage() {
           className="flex gap-2"
           onSubmit={async (event) => {
             event.preventDefault()
-            const data = new FormData(event.currentTarget)
+            const form = event.currentTarget
+            const data = new FormData(form)
             await api.request(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({ name: data.get('name') }) })
             await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
-            event.currentTarget.reset()
+            form.reset()
           }}
         >
           <Input name="name" required placeholder={t('name')} className="w-48" />
@@ -224,10 +301,11 @@ export function ProjectPage() {
           className="mt-3 flex gap-2"
           onSubmit={async (event) => {
             event.preventDefault()
-            const data = new FormData(event.currentTarget)
+            const form = event.currentTarget
+            const data = new FormData(form)
             await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username: data.get('username') }) })
             await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
-            event.currentTarget.reset()
+            form.reset()
           }}
         >
           <Input name="username" placeholder={t('username')} className="max-w-xs" required />
@@ -242,7 +320,16 @@ export function TablePage() {
   const { tableId = '' } = useParams()
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [columnType, setColumnType] = useState('text')
+  const [formulaError, setFormulaError] = useState('')
+  const [relationError, setRelationError] = useState('')
   const table = useQuery({ queryKey: ['table', tableId], queryFn: () => api.request<{ table: TableRecord }>(`/tables/${tableId}`) })
+  const projectId = table.data?.table.projectId ?? ''
+  const projectTables = useQuery({
+    queryKey: ['tables', projectId],
+    enabled: Boolean(projectId),
+    queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
+  })
   if (table.isLoading) return <Page title={t('projects')}><LoadingBlock /></Page>
   if (table.isError || !table.data) return <Page title={t('projects')}><ErrorState message={(table.error as Error)?.message ?? t('error')} /></Page>
   const current = table.data.table
@@ -250,23 +337,90 @@ export function TablePage() {
     <Page
       title={current.name}
       actions={
-        <form
-          className="flex gap-2"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            const data = new FormData(event.currentTarget)
-            await api.request(`/tables/${tableId}/columns`, { method: 'POST', body: JSON.stringify({ name: data.get('name'), type: data.get('type') }) })
-            await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
-            event.currentTarget.reset()
-          }}
-        >
-          <Input name="name" required placeholder={t('name')} className="w-40" />
-          <select name="type" className="h-9 rounded-md border border-border bg-card px-2 text-sm" defaultValue="text" aria-label={t('addColumn')}>
-            {['text', 'long_text', 'number', 'date', 'checkbox', 'select', 'url', 'currency'].map((type) => (
-              <option key={type}>{type}</option>
-            ))}
-          </select>
-          <Button type="submit">{t('addColumn')}</Button>
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              const form = event.currentTarget
+              const data = new FormData(form)
+              const expression = String(data.get('expression') ?? '')
+              setFormulaError('')
+              try {
+                if (columnType === 'formula') {
+                  await api.request('/formulas/validate', { method: 'POST', body: JSON.stringify({ tableId, expression }) })
+                }
+                const created = await api.request<{ column: { id: string } }>(`/tables/${tableId}/columns`, {
+                  method: 'POST',
+                  body: JSON.stringify({ name: data.get('name'), type: columnType }),
+                })
+                if (columnType === 'formula') {
+                  await api.request(`/columns/${created.column.id}/formula`, { method: 'POST', body: JSON.stringify({ expression }) })
+                }
+                await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+                await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+                form.reset()
+                setColumnType('text')
+              } catch (caught) {
+                setFormulaError(caught instanceof Error ? caught.message : t('error'))
+              }
+            }}
+          >
+            <Input name="name" required placeholder={t('name')} className="w-40" />
+            <select
+              name="type"
+              className="h-9 rounded-md border border-border bg-card px-2 text-sm"
+              value={columnType}
+              aria-label={t('addColumn')}
+              onChange={(event) => setColumnType(event.target.value)}
+            >
+              {['text', 'long_text', 'number', 'date', 'checkbox', 'select', 'url', 'currency', 'formula'].map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+            {columnType === 'formula' ? (
+              <Input name="expression" required placeholder={t('formulaExpression')} className="w-48" aria-label={t('formula')} />
+            ) : null}
+            <Button type="submit">{t('addColumn')}</Button>
+          </form>
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              const form = event.currentTarget
+              const data = new FormData(form)
+              setRelationError('')
+              try {
+                await api.request(`/tables/${tableId}/relations`, {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    name: data.get('name'),
+                    toTableId: data.get('toTableId'),
+                    cardinality: data.get('cardinality'),
+                  }),
+                })
+                await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+                await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+                form.reset()
+              } catch (caught) {
+                setRelationError(caught instanceof Error ? caught.message : t('error'))
+              }
+            }}
+          >
+            <Input name="name" required placeholder={t('relation')} className="w-36" aria-label={t('relation')} />
+            <select name="toTableId" required className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('targetTable')} defaultValue="">
+              <option value="" disabled>{t('targetTable')}</option>
+              {(projectTables.data?.tables ?? []).filter((item) => item.id !== tableId).map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+            <select name="cardinality" className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('cardinality')} defaultValue="many_to_one">
+              <option value="many_to_one">many_to_one</option>
+              <option value="one_to_one">one_to_one</option>
+              <option value="one_to_many">one_to_many</option>
+            </select>
+            <Button type="submit" variant="outline">{t('addRelation')}</Button>
+          </form>
           <Button
             type="button"
             variant="outline"
@@ -274,9 +428,11 @@ export function TablePage() {
           >
             {t('favorites')}
           </Button>
-        </form>
+        </div>
       }
     >
+      {formulaError ? <p className="min-h-5 text-sm text-danger">{formulaError}</p> : <p className="min-h-5" />}
+      {relationError ? <p className="min-h-5 text-sm text-danger">{relationError}</p> : null}
       <TableGrid tableId={tableId} columns={current.columns ?? []} />
     </Page>
   )
@@ -353,7 +509,8 @@ export function UsersPage() {
           className="flex flex-wrap gap-2"
           onSubmit={async (event) => {
             event.preventDefault()
-            const data = new FormData(event.currentTarget)
+            const form = event.currentTarget
+            const data = new FormData(form)
             await api.request('/users', {
               method: 'POST',
               body: JSON.stringify({
@@ -364,7 +521,7 @@ export function UsersPage() {
               }),
             })
             await queryClient.invalidateQueries({ queryKey: ['users'] })
-            event.currentTarget.reset()
+            form.reset()
           }}
         >
           <Input name="username" required placeholder={t('username')} className="w-32" />

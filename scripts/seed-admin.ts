@@ -5,18 +5,21 @@ import { createDatabase } from '../apps/api/src/database/client.ts'
 import { organizations, users } from '../apps/api/src/database/schema.ts'
 import { assertPassword, hashPassword } from '../apps/api/src/security/passwords.ts'
 
-for (const path of ['.env', '../.env']) {
-  if (existsSync(path)) process.loadEnvFile(path)
+if (!process.env.DATABASE_URL) {
+  for (const path of ['.env.development', '../.env.development', '.env', '../.env']) {
+    if (existsSync(path)) process.loadEnvFile(path)
+  }
 }
 
+const skipInitialPasswordChange = process.env.NODE_ENV === 'development'
 const env = loadEnv()
 assertPassword(env.INITIAL_ADMIN_PASSWORD, env.INITIAL_ADMIN_USERNAME)
 const database = await createDatabase(env)
 const existing = await database.db.select({ id: users.id }).from(users).where(eq(users.role, 'admin')).limit(1)
 if (existing.length > 0) {
-  console.error('An administrator already exists. Refusing to create another.')
+  console.log('An administrator already exists.')
   await database.close()
-  process.exit(1)
+  process.exit(0)
 }
 const [organization] = await database.db.select().from(organizations).limit(1)
 const org = organization ?? (await database.db.insert(organizations).values({ name: 'Default' }).returning())[0]
@@ -26,7 +29,7 @@ await database.db.insert(users).values({
   email: env.INITIAL_ADMIN_EMAIL.toLowerCase(),
   passwordHash: await hashPassword(env.INITIAL_ADMIN_PASSWORD, env),
   role: 'admin',
-  mustChangePassword: true,
+  mustChangePassword: !skipInitialPasswordChange,
 })
 console.log(`Created administrator ${env.INITIAL_ADMIN_USERNAME}`)
 await database.close()

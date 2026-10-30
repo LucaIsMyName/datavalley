@@ -1,6 +1,6 @@
 [Unit]
 Description=Datavalley worker
-After=network.target postgresql.service redis.service
+After=network.target postgresql.service
 
 [Service]
 Type=simple

@@ -2,12 +2,13 @@ import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { parseCsv, toCsv, type FilterNode } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
-import { relations, relationRecords, tableCells, tableRows } from '../../database/schema.js'
+import { formulas, relations, relationRecords, tableCells, tableRows } from '../../database/schema.js'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
 import { allows, loadGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
+import { evaluateStored } from '../formulas/service.js'
 import { loadColumns, requireTable, type LoadedColumn } from '../tables/service.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 
@@ -75,7 +76,23 @@ export async function listRows(
     q: input.q,
   })
   const cells = await cellsFor(db, page.rows.map((row) => row.id))
-  return { rows: presentRows(columns, page.rows, cells), nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
+  const rows = presentRows(columns, page.rows, cells)
+  const formulaColumns = columns.filter((column) => column.type === 'formula')
+  if (formulaColumns.length > 0 && rows.length > 0) {
+    const stored = await db.select().from(formulas).where(eq(formulas.tableId, table.id))
+    for (const column of formulaColumns) {
+      const formula = stored.find((item) => item.columnId === column.id)
+      if (!formula) continue
+      for (const row of rows) {
+        try {
+          row.cells[column.id] = await evaluateStored(db, subject, formula.id, row.id)
+        } catch {
+          row.cells[column.id] = { error: '#N/A' }
+        }
+      }
+    }
+  }
+  return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
 }
 
 async function writeCell(db: AppDatabase, tableId: string, rowId: string, column: LoadedColumn, value: unknown) {

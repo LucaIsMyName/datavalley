@@ -24,5 +24,7 @@ describe('loadEnv', () => {
     expect(env.API_PORT).toBe(3000)
     expect(env.STATEMENT_TIMEOUT_MS).toBe(5000)
     expect(env.WEB_ORIGIN).toBe('http://localhost:5173')
+    expect(env.SMTP_PORT).toBe(587)
+    expect(env.SMTP_HOST).toBe('')
   })
 })

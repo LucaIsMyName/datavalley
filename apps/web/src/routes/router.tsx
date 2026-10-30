@@ -8,6 +8,7 @@ import {
   AuditPage,
   ChangePasswordPage,
   DashboardPage,
+  ForgotPasswordPage,
   FavoritesPage,
   IntegrationsPage,
   LoginPage,
@@ -15,6 +16,7 @@ import {
   ProjectPage,
   ProjectsPage,
   RecentPage,
+  ResetPasswordPage,
   TablePage,
   UsersPage,
 } from '../features/pages'
@@ -35,6 +37,8 @@ function RequireAuth() {
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/change-password', element: <ChangePasswordPage /> },
   {
     element: <RequireAuth />,

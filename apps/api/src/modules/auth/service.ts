@@ -2,8 +2,9 @@ import { and, eq, gt, or } from 'drizzle-orm'
 import * as OTPAuth from 'otpauth'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { loginAttempts, sessions, userTotp, users } from '../../database/schema.js'
+import { loginAttempts, passwordResetTokens, sessions, userTotp, users } from '../../database/schema.js'
 import { AppError, unauthorized } from '../../errors.js'
+import { sendMail } from '../../mail/smtp.js'
 import { writeAudit } from '../../security/audit.js'
 import { decryptString } from '../../security/crypto.js'
 import { sha256, randomToken } from '../../security/crypto.js'
@@ -164,6 +165,51 @@ export async function listSessions(db: AppDatabase, userId: string) {
       createdAt: session.createdAt.toISOString(),
       lastSeenAt: session.lastSeenAt.toISOString(),
     }))
+}
+
+const RESET_MS = 30 * 60 * 1000
+
+export async function requestPasswordReset(db: AppDatabase, env: Env, email: string) {
+  const user = await findUserByLogin(db, email)
+  let resetUrl: string | undefined
+  if (user && !user.disabledAt) {
+    const token = randomToken(32)
+    await db.insert(passwordResetTokens).values({
+      userId: user.id,
+      tokenHash: sha256(token),
+      expiresAt: new Date(Date.now() + RESET_MS),
+    })
+    resetUrl = `${env.WEB_ORIGIN.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`
+    try {
+      await sendMail(env, {
+        to: user.email,
+        subject: 'Reset your Datavalley password',
+        text: `Reset your password:\n${resetUrl}\n\nThis link expires in 30 minutes.`,
+      })
+    } catch (error) {
+      console.error('Password reset mail failed', error)
+    }
+  }
+  return env.NODE_ENV === 'test' ? { ok: true as const, resetUrl } : { ok: true as const }
+}
+
+export async function resetPasswordWithToken(db: AppDatabase, env: Env, token: string, newPassword: string) {
+  const [row] = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, sha256(token))).limit(1)
+  const expired = !row || row.usedAt || row.expiresAt.getTime() <= Date.now()
+  if (expired || !row) throw new AppError(400, 'invalid_token', 'This reset link is invalid or expired')
+  const [user] = await db.select().from(users).where(eq(users.id, row.userId)).limit(1)
+  if (!user || user.disabledAt) throw new AppError(400, 'invalid_token', 'This reset link is invalid or expired')
+  assertPassword(newPassword, user.username)
+  await db
+    .update(users)
+    .set({ passwordHash: await hashPassword(newPassword, env), mustChangePassword: false, updatedAt: new Date() })
+    .where(eq(users.id, user.id))
+  await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, row.id))
+  await writeAudit(db, { id: user.id, kind: 'user', source: 'web' }, {
+    action: 'auth.password.reset',
+    resourceType: 'user',
+    resourceId: user.id,
+  })
 }
 
 export async function revokeSession(db: AppDatabase, userId: string, sessionId: string) {

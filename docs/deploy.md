@@ -1,35 +1,39 @@
 # Deployment
 
-This app deploys to any VPS that can run Node.js 22, PostgreSQL 16, and optionally Redis 7. Hetzner is a typical target. The same steps work on other providers.
+`npm run deploy` installs one instance on an Ubuntu VPS. Each instance has its own env file on your machine, such as `.env.lucaProd` or `.env.customer1`. The command lists those files and asks which one to use. `.env.development` is for local work and is not offered.
 
-## Prerequisites
-
-- Node.js 22 and npm
-- PostgreSQL 16 with a database and a role limited to that database
-- A reverse proxy that terminates TLS and forwards `/` to the web build and `/api` plus `/docs` to the API
-- Redis if imports over the sync limit, formula recalculation jobs, or Google Sheets sync should run in the worker
-- Writable `MEDIA_ROOT` for uploads
-
-Do not run embedded `pglite` in production.
+Hetzner is a typical target. The same steps work on any Ubuntu VPS with a public IPv4 address, a DNS name pointing at that address, and an SSH user that is root or can run `sudo` without a password.
 
 ## Configure
 
 ```bash
-cp .env.example .env
+cp .env.production.example .env.customer1
 ```
 
-Set long random values for `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY`. Set `TRUST_PROXY=true` behind a proxy. Set `WEB_ORIGIN` to the public site origin.
+Fill in the SSH host, user, port, and the absolute path to the private key. Set `DOMAIN` and `WEB_ORIGIN=https://DOMAIN`. Set long random values for `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY`. Set `DATABASE_URL` to a local Postgres URL, the initial admin, and the SMTP settings used for password reset. `TRUST_PROXY` is set to true on the server.
+
+The real env files stay on your machine. Git keeps `.env.development.example` and `.env.production.example`.
+
+Do not use embedded `pglite` in production.
 
 ## Install
 
 ```bash
-bash scripts/deploy.sh
-npm run seed:admin
+npm run deploy
 ```
 
-`INSTALL_SYSTEMD=1 bash scripts/deploy.sh` copies the units in `deploy/` and starts them. Edit the `WorkingDirectory` and `User` in those units before installing them on the server.
+The script checks the SSH key, copies the app to `DEPLOY_PATH` (default `/opt/datavalley`), and on the server:
 
-Upgrade by pulling the new release, running `npm ci`, `npm run migrate`, rebuilding the web app, and restarting the API and worker. Run migrations before the restart.
+- Confirms Ubuntu and that `DOMAIN` resolves to the server's public IPv4
+- Installs PostgreSQL 16, Node.js 22, and Caddy
+- Installs Redis when `REDIS_URL` is set
+- Creates the database role from `DATABASE_URL` and the `APP_USER` (default `datavalley`)
+- Builds the web app, runs migrations, and seeds the admin on the first deploy
+- Installs the systemd units and a Caddy site that proxies `/api` and `/docs` to the API and serves the web build
+- Requests an HTTPS certificate for `DOMAIN`
+- Checks that the API and Caddy are active and that `https://DOMAIN/api/v1/health` succeeds
+
+Run the same command again to upgrade that instance. If `ufw` is already enabled, the script allows ports 22, 80, and 443. It does not enable the firewall.
 
 ## Backup
 

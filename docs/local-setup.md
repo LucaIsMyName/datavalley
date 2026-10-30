@@ -15,14 +15,16 @@ For a single-machine trial, `DATABASE_URL=pglite:./data/pglite` uses embedded Po
 
 ```bash
 nvm use
-cp .env.example .env
+cp .env.development.example .env.development
 npm install
-npm run migrate
-npm run seed:admin
 npm run dev
 ```
 
+`npm run dev` loads `.env.development`, creates the admin from that file when one does not exist, and starts the API and the web app. The example file signs in as `admin` / `dev-admin-password`. That password stays valid in development.
+
 The API listens on `http://127.0.0.1:3000` and the web app on `http://localhost:5173`. API docs are at `http://127.0.0.1:3000/docs`.
+
+A password reset with `SMTP_HOST` empty prints the reset link in the API log. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` to send the link by email.
 
 Create the PostgreSQL role and database yourself, then point `DATABASE_URL` at it. To use ICU sorting for text, create the database with:
 

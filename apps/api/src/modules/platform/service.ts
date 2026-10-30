@@ -199,9 +199,7 @@ export async function requirePlugin(db: AppDatabase, id: string, scope: string) 
   if (!plugin || !plugin.enabled) throw new AppError(403, 'plugin_disabled', 'Plugin is disabled')
   const scopes = await db.select().from(pluginPermissions).where(eq(pluginPermissions.pluginId, id))
   if (!scopes.some((item) => item.scope === scope)) {
-    const error = new Error(`Plugin is missing the ${scope} scope`)
-    error.name = 'PluginScopeError'
-    throw error
+    throw new AppError(403, 'plugin_disabled', `Plugin is missing the ${scope} scope`)
   }
   return plugin
 }

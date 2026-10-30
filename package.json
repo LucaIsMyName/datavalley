@@ -1,6 +1,6 @@
 {
   "name": "datavalley",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "description": "Self-hosted modular CRM",
@@ -9,7 +9,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @datavalley/api\" \"npm run dev -w @datavalley/web\"",
+    "dev": "tsx scripts/dev.ts",
+    "deploy": "tsx scripts/deploy.ts",
     "dev:api": "npm run dev -w @datavalley/api",
     "dev:web": "npm run dev -w @datavalley/web",
     "dev:worker": "npm run dev -w @datavalley/worker",

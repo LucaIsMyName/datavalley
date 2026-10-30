@@ -8,8 +8,8 @@
     "./app": "./src/app.ts"
   },
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
-    "start": "tsx --env-file-if-exists=../../.env src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "openapi:generate": "tsx src/scripts/generate-openapi.ts"
   },
@@ -34,12 +34,14 @@
     "fastify": "^5.4.0",
     "fractional-indexing": "^3.2.0",
     "ioredis": "^5.6.1",
+    "nodemailer": "^10.3.1",
     "otpauth": "^9.4.0",
     "pg": "^8.16.0",
     "pino": "^9.7.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.4",
     "@types/qrcode": "^1.5.5"
   }

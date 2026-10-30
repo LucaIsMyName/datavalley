@@ -6,6 +6,15 @@ export const loginBody = Type.Object({
   totpCode: Type.Optional(Type.String()),
 })
 
+export const forgotPasswordBody = Type.Object({
+  email: Type.String({ minLength: 3 }),
+})
+
+export const resetPasswordBody = Type.Object({
+  token: Type.String({ minLength: 1 }),
+  newPassword: Type.String({ minLength: 12 }),
+})
+
 export const changePasswordBody = Type.Object({
   currentPassword: Type.String({ minLength: 1 }),
   newPassword: Type.String({ minLength: 12 }),

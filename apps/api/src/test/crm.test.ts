@@ -156,5 +156,31 @@ describe('crm api', () => {
     expect(evaluated.statusCode).toBe(200)
     expect(JSON.stringify(evaluated.json())).not.toContain('SENTINEL-SECRET')
     expect(evaluated.json().value).toEqual({ error: '#REF' })
+    const pageRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows?limit=50` })
+    const listedRow = pageRows.json().rows.find((item: { id: string }) => item.id === rowId)
+    expect(listedRow.cells[formulaColumn.json().column.id]).toEqual({ error: '#REF' })
+    expect(JSON.stringify(pageRows.json())).not.toContain('SENTINEL-SECRET')
+
+    const doubled = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Doubled', type: 'formula' },
+    })
+    const doubledId = doubled.json().column.id as string
+    expect((await session.inject({
+      method: 'POST',
+      url: `/api/v1/columns/${doubledId}/formula`,
+      payload: { expression: `{${columnId}}` },
+    })).statusCode).toBe(200)
+    const valued = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows?limit=50` })
+    expect(valued.json().rows.find((item: { id: string }) => item.id === rowId).cells[doubledId]).toBe(7)
+
+    const relation = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/relations`,
+      payload: { toTableId: hiddenId, cardinality: 'many_to_one', name: 'Customer' },
+    })
+    expect(relation.statusCode).toBe(200)
+    expect(relation.json().relation.column.config.toTableId).toBe(hiddenId)
   })
 })

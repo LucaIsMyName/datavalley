@@ -29,6 +29,11 @@ export type Env = {
   RATE_LIMIT_MAX: number
   RATE_LIMIT_WINDOW: string
   LOGIN_RATE_LIMIT_MAX: number
+  SMTP_HOST: string
+  SMTP_PORT: number
+  SMTP_USER: string
+  SMTP_PASSWORD: string
+  SMTP_FROM: string
 }
 
 function required(source: NodeJS.ProcessEnv, key: string, min = 1): string {
@@ -77,6 +82,11 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     RATE_LIMIT_MAX: numberValue(source, 'RATE_LIMIT_MAX', 300),
     RATE_LIMIT_WINDOW: source.RATE_LIMIT_WINDOW?.trim() || '1 minute',
     LOGIN_RATE_LIMIT_MAX: numberValue(source, 'LOGIN_RATE_LIMIT_MAX', 30),
+    SMTP_HOST: source.SMTP_HOST?.trim() || '',
+    SMTP_PORT: numberValue(source, 'SMTP_PORT', 587),
+    SMTP_USER: source.SMTP_USER?.trim() || '',
+    SMTP_PASSWORD: source.SMTP_PASSWORD?.trim() || '',
+    SMTP_FROM: source.SMTP_FROM?.trim() || '',
   }
 }
 

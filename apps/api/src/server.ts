@@ -4,11 +4,8 @@ import { createDatabase } from './database/client.js'
 import { buildApp } from './app.js'
 
 function loadDotEnv() {
-  for (const path of ['.env', '../../.env']) {
-    if (existsSync(path)) {
-      process.loadEnvFile(path)
-      return
-    }
+  for (const path of ['../../.env.development', '.env.development', '../../.env', '.env']) {
+    if (existsSync(path)) process.loadEnvFile(path)
   }
 }
 

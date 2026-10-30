@@ -3,8 +3,8 @@ import type { FastifyInstance } from 'fastify'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import { AppError, unauthorized } from '../../errors.js'
-import { changePassword, listSessions, login, logout, publicUser, revokeSession } from './service.js'
-import { changePasswordBody, loginBody, userResponse } from './schema.js'
+import { changePassword, listSessions, login, logout, publicUser, requestPasswordReset, resetPasswordWithToken, revokeSession } from './service.js'
+import { changePasswordBody, forgotPasswordBody, loginBody, resetPasswordBody, userResponse } from './schema.js'
 
 const SESSION_COOKIE = 'dv_session'
 const MAX_AGE = 14 * 24 * 60 * 60
@@ -42,6 +42,17 @@ export function registerAuthRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.get('/auth/me', { schema: { response: { 200: Type.Object({ user: userResponse }) } } }, async (request) => {
     if (!request.subject?.user) throw unauthorized()
     return { user: publicUser(request.subject.user) }
+  })
+
+  app.post('/auth/forgot-password', { schema: { body: forgotPasswordBody }, config: { rateLimit: { max: env.LOGIN_RATE_LIMIT_MAX, timeWindow: '15 minutes' } } }, async (request) => {
+    const body = request.body as { email: string }
+    return requestPasswordReset(db, env, body.email)
+  })
+
+  app.post('/auth/reset-password', { schema: { body: resetPasswordBody } }, async (request) => {
+    const body = request.body as { token: string; newPassword: string }
+    await resetPasswordWithToken(db, env, body.token, body.newPassword)
+    return { ok: true }
   })
 
   app.post('/auth/change-password', { schema: { body: changePasswordBody } }, async (request) => {
