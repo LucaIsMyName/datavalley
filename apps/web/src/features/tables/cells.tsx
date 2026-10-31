@@ -5,6 +5,7 @@ import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { Badge } from '../../components/ui/badge'
+import { Checkbox } from '../../components/ui/checkbox'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
@@ -278,13 +279,11 @@ function TextEditor({
 function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: boolean, delay?: number) => void; onFlush: () => void }) {
   const { t } = useTranslation()
   return (
-    <input
-      type="checkbox"
+    <Checkbox
       aria-label={t('editColumn', { name: column.name })}
-      className="size-4"
       checked={checkedValue(value)}
-      onChange={(event) => {
-        onEdit(event.target.checked, 0)
+      onCheckedChange={(next) => {
+        onEdit(next === true, 0)
         onFlush()
       }}
     />

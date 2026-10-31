@@ -11,6 +11,8 @@ import { QuietInput } from '../components/quiet-input'
 import { ResourceIcon } from '../components/resource-icon'
 import { pressMenuProps, useContextMenu } from '../components/context-menu'
 import { Button } from '../components/ui/button'
+import { Checkbox } from '../components/ui/checkbox'
+import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -365,8 +367,12 @@ export function ProjectsPage() {
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
               />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={customers} onChange={(event) => setCustomers(event.target.checked)} />
+              <label htmlFor="project-customers-template" className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  id="project-customers-template"
+                  checked={customers}
+                  onCheckedChange={(next) => setCustomers(next === true)}
+                />
                 {t('customersTemplate')}
               </label>
               {createError ? <p role="alert" className="text-sm text-danger">{createError}</p> : null}
@@ -996,21 +1002,18 @@ export function ProjectPage() {
             >
               <fieldset className="flex flex-col gap-2">
                 <legend className="sr-only">{t('newTable')}</legend>
-                {([
-                  ['blank', 'blankTable'],
-                  ['demo', 'demoTable'],
-                  ['csv', 'importCsv'],
-                ] as const).map(([value, key]) => (
-                  <label key={value} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="table-kind"
-                      checked={tableKind === value}
-                      onChange={() => setTableKind(value)}
-                    />
-                    {t(key)}
-                  </label>
-                ))}
+                <RadioGroup value={tableKind} onValueChange={(value) => setTableKind(value as typeof tableKind)} className="gap-2">
+                  {([
+                    ['blank', 'blankTable'],
+                    ['demo', 'demoTable'],
+                    ['csv', 'importCsv'],
+                  ] as const).map(([value, key]) => (
+                    <label key={value} htmlFor={`table-kind-${value}`} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <RadioGroupItem value={value} id={`table-kind-${value}`} />
+                      {t(key)}
+                    </label>
+                  ))}
+                </RadioGroup>
               </fieldset>
               {tableKind === 'csv' ? (
                 <>
@@ -1030,8 +1033,12 @@ export function ProjectPage() {
                     value={csvName}
                     onChange={(event) => setCsvName(event.target.value)}
                   />
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={csvHeader} onChange={(event) => setCsvHeader(event.target.checked)} />
+                  <label htmlFor="csv-has-header" className="flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox
+                      id="csv-has-header"
+                      checked={csvHeader}
+                      onCheckedChange={(next) => setCsvHeader(next === true)}
+                    />
                     {t('csvHasHeader')}
                   </label>
                 </>

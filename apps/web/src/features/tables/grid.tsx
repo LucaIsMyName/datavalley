@@ -64,6 +64,7 @@ import { QuietInput } from '../../components/quiet-input'
 import { SelectField } from '../../components/ui/select'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
+import { Checkbox } from '../../components/ui/checkbox'
 import { Input } from '../../components/ui/input'
 import { EmptyState, ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
@@ -256,7 +257,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const pressOrigin = useRef({ x: 0, y: 0 })
   const dragItem = useRef<{ kind: 'column' | 'row'; id: string } | null>(null)
   const [dropTarget, setDropTarget] = useState<{ kind: 'column' | 'row'; id: string } | null>(null)
-  const selectAllRef = useRef<HTMLInputElement>(null)
   const [notice, setNotice] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -467,10 +467,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }, [popover])
 
   const allChecked = rows.length > 0 && rows.every((row) => checked.includes(row.id))
-  useEffect(() => {
-    if (selectAllRef.current) selectAllRef.current.indeterminate = checked.length > 0 && !allChecked
-  }, [allChecked, checked.length])
-
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
     await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
@@ -1733,13 +1729,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
         header: () => (
           <div className="flex h-10 items-center gap-1 px-1">
             <span className="inline-flex size-3.5 shrink-0" aria-hidden="true" />
-            <input
-              ref={selectAllRef}
-              type="checkbox"
+            <Checkbox
               aria-label={selectingAll ? t('selectingAll') : t('selectAll')}
               disabled={selectingAll}
-              checked={allChecked}
-              onChange={() => {
+              checked={allChecked ? true : checked.length > 0 ? 'indeterminate' : false}
+              onCheckedChange={() => {
                 if (allChecked) {
                   setChecked([])
                   return
@@ -1795,13 +1789,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
             >
               <GripVertical className="size-3.5" />
             </span>
-            <input
-              type="checkbox"
+            <Checkbox
               aria-label={t('selectRowNumber', { number: row.original.rowNumber })}
               checked={checked.includes(row.original.id)}
-              onChange={(event) => {
+              onCheckedChange={(next) => {
                 setChecked((current) =>
-                  event.target.checked
+                  next === true
                     ? [...current, row.original.id]
                     : current.filter((id) => id !== row.original.id),
                 )
@@ -2765,12 +2758,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   if (event.key === 'Enter') void saveView()
                 }}
               />
-              <label htmlFor="shared-view" className="flex items-center gap-2 text-sm">
-                <input
+              <label htmlFor="shared-view" className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
                   id="shared-view"
-                  type="checkbox"
                   checked={sharedView}
-                  onChange={(event) => setSharedView(event.target.checked)}
+                  onCheckedChange={(next) => setSharedView(next === true)}
                 />
                 {t('shared')}
               </label>
