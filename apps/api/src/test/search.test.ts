@@ -110,6 +110,7 @@ describe('search', () => {
       'projects',
       'recent',
       'favorites',
+      'media',
       'docs',
       'integrations',
       'profile',

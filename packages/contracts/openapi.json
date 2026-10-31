@@ -2575,6 +2575,60 @@
       }
     },
     "/media": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "q",
+            "required": false
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "image"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "pdf"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "mime",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
       "post": {
         "parameters": [
           {
@@ -2585,7 +2639,7 @@
             },
             "in": "query",
             "name": "tableId",
-            "required": true
+            "required": false
           }
         ],
         "responses": {

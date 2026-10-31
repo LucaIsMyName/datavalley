@@ -2,7 +2,9 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { csvTable, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
+import { normalizeMediaCellValue } from '@datavalley/shared'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
+import { assertMediaReadable, loadMediaFile } from '../platform/media-access.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
@@ -126,7 +128,7 @@ export async function listRows(
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
 }
 
-async function assertReferences(db: AppDatabase, tableId: string, projectId: string, column: LoadedColumn, input: unknown) {
+async function assertReferences(db: AppDatabase, subject: Subject, tableId: string, projectId: string, column: LoadedColumn, input: unknown) {
   if (input == null || input === '') return
   if (column.type === 'tags' || column.type === 'user') {
     const ids = Array.isArray(input) ? input.map(String) : []
@@ -143,6 +145,15 @@ async function assertReferences(db: AppDatabase, tableId: string, projectId: str
   if (column.type === 'status') {
     const [found] = await db.select({ id: tableStatuses.id }).from(tableStatuses).where(and(eq(tableStatuses.tableId, tableId), eq(tableStatuses.id, String(input)))).limit(1)
     if (!found) throw badRequest('Unknown status')
+  }
+  if (column.type === 'media') {
+    const value = normalizeMediaCellValue(input)
+    if (!value) return
+    for (const fileId of value.fileIds) {
+      const file = await loadMediaFile(db, fileId)
+      if (!file) throw badRequest('Unknown file')
+      await assertMediaReadable(db, subject, file)
+    }
   }
 }
 
@@ -276,7 +287,7 @@ export async function createRow(
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)
       if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
-      await assertReferences(tx as unknown as AppDatabase, dataTableId, table.projectId, column, value)
+      await assertReferences(tx as unknown as AppDatabase, subject, dataTableId, table.projectId, column, value)
       await writeCell(tx as unknown as AppDatabase, dataTableId, created.id, column, value)
     }
     return created
@@ -340,7 +351,7 @@ export async function patchRow(
     if (updated.length === 0) throw conflict('This row was changed by someone else')
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
-      await assertReferences(tx as unknown as AppDatabase, table.id, table.projectId, column, value)
+      await assertReferences(tx as unknown as AppDatabase, subject, table.id, table.projectId, column, value)
       await writeCell(tx as unknown as AppDatabase, table.id, row.id, column, value)
     }
     for (const [columnId, background] of Object.entries(input.backgrounds ?? {})) {

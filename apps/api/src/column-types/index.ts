@@ -1,3 +1,4 @@
+import { MAX_MEDIA_FILES_PER_CELL, normalizeMediaCellValue, parseMediaCellInput } from '@datavalley/shared'
 import { badRequest } from '../errors.js'
 
 export const columnTypeIds = [
@@ -172,11 +173,20 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
     }
     case 'relation':
       return one({ valueJsonb: { rowId: String(input) } })
-    case 'media':
-      if (typeof input !== 'object' || input == null || !('fileId' in input)) {
-        throw badRequest(`${column.name} needs an uploaded file`)
+    case 'media': {
+      if (input == null || input === '') return null
+      try {
+        const normalized = parseMediaCellInput(input)
+        if (!normalized) return null
+        return one({ valueJsonb: normalized })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'invalid_media_cell'
+        if (message === 'too_many_media_files') {
+          throw badRequest(`${column.name} can hold at most ${MAX_MEDIA_FILES_PER_CELL} files`)
+        }
+        throw badRequest(`${column.name} needs uploaded files`)
       }
-      return one({ valueJsonb: input })
+    }
     default:
       throw badRequest(`Unsupported column type ${column.type}`)
   }
@@ -216,7 +226,7 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
     const value = row.valueJsonb as { rowId?: string } | null
     return value?.rowId ?? null
   }
-  if (column.type === 'media') return row.valueJsonb ?? null
+  if (column.type === 'media') return normalizeMediaCellValue(row.valueJsonb)
   return row.valueText ?? null
 }
 

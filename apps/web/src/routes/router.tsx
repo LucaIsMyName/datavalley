@@ -43,6 +43,7 @@ const UserGuidePage = route(() => import('../features/docs/use-page'), 'UserGuid
 const DeveloperGuidePage = route(() => import('../features/docs/develop-page'), 'DeveloperGuidePage')
 const ApiReferencePage = route(() => import('../features/docs/api-page'), 'ApiReferencePage')
 const IntegrationsPage = route(pages, 'IntegrationsPage')
+const MediaPage = route(() => import('../features/media/page'), 'MediaPage')
 const ProfilePage = route(pages, 'ProfilePage')
 const UsersPage = route(pages, 'UsersPage')
 const ApiKeysPage = route(pages, 'ApiKeysPage')
@@ -94,6 +95,7 @@ export const router = createBrowserRouter([
           },
           { path: '/recent', element: <RecentPage /> },
           { path: '/favorites', element: <FavoritesPage /> },
+          { path: '/media', element: <MediaPage /> },
           {
             path: '/doc',
             element: <DocsLayout />,

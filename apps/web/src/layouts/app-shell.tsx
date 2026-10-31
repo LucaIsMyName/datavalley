@@ -1,4 +1,4 @@
-import { Bell, BookOpen, FolderKanban, LayoutDashboard, LogOut, Menu, Plug, Settings, Star, Clock3, type LucideIcon } from 'lucide-react'
+import { Bell, BookOpen, FolderKanban, LayoutDashboard, LogOut, Menu, Paperclip, Plug, Settings, Star, Clock3, type LucideIcon } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -18,6 +18,7 @@ const links: { to: string; key: string; icon: LucideIcon; end: boolean }[] = [
   { to: '/projects', key: 'projects', icon: FolderKanban, end: false },
   { to: '/recent', key: 'recent', icon: Clock3, end: false },
   { to: '/favorites', key: 'favorites', icon: Star, end: false },
+  { to: '/media', key: 'media', icon: Paperclip, end: true },
   { to: '/doc', key: 'docs', icon: BookOpen, end: false },
   { to: '/integrations', key: 'integrations', icon: Plug, end: false },
   { to: '/settings/profile', key: 'settings', icon: Settings, end: false },

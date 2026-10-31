@@ -10,6 +10,17 @@ test('edits a table and hides it from a second user', async ({ page, browser }) 
   await page.getByLabel('New password').fill('playwright-admin-password-2')
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  await page.getByRole('link', { name: 'Media' }).click()
+  await expect(page.getByRole('heading', { name: 'Media' })).toBeVisible()
+  const uploaded = page.waitForResponse((response) => response.url().includes('/api/v1/media') && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Upload' }).click()
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082', 'hex'),
+  })
+  await uploaded
+  await expect(page.getByText('logo.png')).toBeVisible()
   await page.getByRole('link', { name: 'Projects' }).click()
   await page.getByPlaceholder('Name').fill('Playwright CRM')
   await page.getByRole('button', { name: 'New project' }).click()

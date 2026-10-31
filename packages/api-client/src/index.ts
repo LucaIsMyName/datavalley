@@ -111,6 +111,21 @@ export type TableRecord = {
   statuses?: CatalogItem[]
 }
 
+export type MediaFile = {
+  id: string
+  name: string
+  mime: string
+  size: number
+  createdAt: string
+  tableId: string | null
+  projectId: string | null
+}
+
+export type MediaListResponse = {
+  files: MediaFile[]
+  nextCursor: string | null
+}
+
 export type RowRecord = {
   id: string
   position: string

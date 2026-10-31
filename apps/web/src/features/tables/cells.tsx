@@ -10,6 +10,7 @@ import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { beginRename, colorLabelKey, composeDateValue, finishRename } from './grid-ux'
+import { MediaEditor } from './media-cell'
 
 const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
@@ -69,7 +70,7 @@ export function CellEditor({
   tags: CatalogItem[]
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
-  onEdit: (value: string | string[] | boolean, delay?: number) => void
+  onEdit: (value: string | string[] | boolean | { fileIds: string[] }, delay?: number) => void
   onFlush: () => void
   onCancel: () => void
   onOpen: () => void
@@ -85,6 +86,19 @@ export function CellEditor({
   }
   if (column.type === 'checkbox') {
     return <CheckboxEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
+  }
+  if (column.type === 'media') {
+    return (
+      <MediaEditor
+        tableId={tableId}
+        value={row.cells[column.id]}
+        active={active}
+        onEdit={(value) => onEdit(value, 0)}
+        onFlush={onFlush}
+        onOpen={onOpen}
+        onActivate={onActivate}
+      />
+    )
   }
   if (column.type === 'tags') {
     return (

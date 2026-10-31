@@ -14,4 +14,12 @@ describe('sniffMediaMime', () => {
   it('rejects binary content declared as plain text', () => {
     expect(sniffMediaMime(Buffer.from([0x00, 0x01, 0x02]), 'text/plain')).toBeNull()
   })
+
+  it('accepts a safe svg', () => {
+    expect(sniffMediaMime(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), 'image/svg+xml')).toBe('image/svg+xml')
+  })
+
+  it('rejects svg with script', () => {
+    expect(sniffMediaMime(Buffer.from('<svg><script>alert(1)</script></svg>'), 'image/svg+xml')).toBeNull()
+  })
 })

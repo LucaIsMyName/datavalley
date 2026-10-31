@@ -13,6 +13,7 @@ import {
   backgroundJobs,
   integrationSyncJobs,
   mediaFiles,
+  projects,
   notifications,
   pluginConfigurations,
   pluginConnections,
@@ -30,6 +31,7 @@ import type { RateLimiter } from '../../security/rate-limit.js'
 import { writeAudit } from '../../security/audit.js'
 import { decryptString, encryptString, randomToken, safeEqual, sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
+import { assertMediaReadable, canReadMedia } from './media-access.js'
 import { requireEditableTable, requireTable } from '../tables/service.js'
 
 export async function subjectFromApiKey(
@@ -319,14 +321,40 @@ export function createMediaStorage(env: Env): MediaStorage {
 
 void DeleteObjectCommand
 
+function presentMediaFile(file: typeof mediaFiles.$inferSelect) {
+  return {
+    id: file.id,
+    name: file.originalName,
+    mime: file.mime,
+    size: file.sizeBytes,
+    createdAt: file.createdAt.toISOString(),
+    tableId: file.tableId,
+    projectId: file.projectId,
+  }
+}
+
 export async function storeMedia(
   db: AppDatabase,
   env: Env,
   actor: Subject,
-  tableId: string,
+  scope: { tableId?: string | null },
   file: { filename: string; mimetype: string; buffer: Buffer },
 ) {
-  await requireEditableTable(db, actor, tableId, 'edit')
+  if (!actor.user) throw unauthorized()
+  let organizationId = actor.user.organizationId
+  let projectId: string | null = null
+  let tableId: string | null = null
+  if (scope.tableId) {
+    const table = await requireEditableTable(db, actor, scope.tableId, 'edit')
+    tableId = table.id
+    projectId = table.projectId
+    const [projectRow] = await db
+      .select({ organizationId: projects.organizationId })
+      .from(projects)
+      .where(eq(projects.id, table.projectId))
+      .limit(1)
+    if (projectRow) organizationId = projectRow.organizationId
+  }
   if (!allowedMediaMime(file.mimetype)) throw new AppError(400, 'unsupported_media', 'File type is not allowed')
   const mime = sniffMediaMime(file.buffer, file.mimetype)
   if (!mime) throw new AppError(400, 'unsupported_media', 'File content does not match its type')
@@ -340,19 +368,53 @@ export async function storeMedia(
       originalName: file.filename,
       mime,
       sizeBytes: file.buffer.length,
+      organizationId,
+      projectId,
       tableId,
-      createdBy: actor.id,
+      createdBy: actor.user.id,
     })
     .returning()
-  return { id: saved.id, name: saved.originalName, mime: saved.mime, size: saved.sizeBytes }
+  return presentMediaFile(saved)
 }
 
 export async function readMedia(db: AppDatabase, env: Env, actor: Subject, id: string) {
   const [file] = await db.select().from(mediaFiles).where(eq(mediaFiles.id, id)).limit(1)
-  if (!file?.tableId) throw notFound()
-  await requireTable(db, actor, file.tableId, 'view')
+  if (!file) throw notFound()
+  await assertMediaReadable(db, actor, file)
   const body = await createMediaStorage(env).get(file.storageKey)
   return { file, body }
+}
+
+export async function listMedia(
+  db: AppDatabase,
+  actor: Subject,
+  input: { limit?: number; cursor?: string | null; q?: string | null; mime?: string | null },
+) {
+  if (!actor.user) throw unauthorized()
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
+  const rows = await db
+    .select()
+    .from(mediaFiles)
+    .where(eq(mediaFiles.organizationId, actor.user.organizationId))
+    .orderBy(desc(mediaFiles.createdAt), desc(mediaFiles.id))
+    .limit(500)
+  let filtered = rows
+  const needle = input.q?.trim().toLowerCase()
+  if (needle) filtered = filtered.filter((file) => file.originalName.toLowerCase().includes(needle))
+  if (input.mime === 'image') filtered = filtered.filter((file) => file.mime.startsWith('image/'))
+  if (input.mime === 'pdf') filtered = filtered.filter((file) => file.mime === 'application/pdf')
+  if (input.cursor) {
+    const index = filtered.findIndex((file) => file.id === input.cursor)
+    if (index >= 0) filtered = filtered.slice(index + 1)
+  }
+  const accessible = []
+  for (const file of filtered) {
+    if (await canReadMedia(db, actor, file)) accessible.push(file)
+    if (accessible.length > limit) break
+  }
+  const page = accessible.slice(0, limit)
+  const nextCursor = accessible.length > limit ? (page.at(-1)?.id ?? null) : null
+  return { files: page.map(presentMediaFile), nextCursor }
 }
 
 export async function notify(db: AppDatabase, userId: string, input: { type: string; title: string; body?: string; metadata?: Record<string, unknown> }) {

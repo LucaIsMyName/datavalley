@@ -9,6 +9,7 @@ import { listProjects } from '../projects/service.js'
 import { listTables } from '../tables/service.js'
 
 const LIMIT = 8
+const ROUTE_LIMIT = 9
 const MAX_QUERY = 80
 
 export type SearchHit = {
@@ -43,6 +44,7 @@ const pageRoutes: { id: string; href: string; admin: boolean; titles: Record<Loc
   { id: 'projects', href: '/projects', admin: false, titles: { en: 'Projects', de: 'Projekte' } },
   { id: 'recent', href: '/recent', admin: false, titles: { en: 'Recent', de: 'Zuletzt' } },
   { id: 'favorites', href: '/favorites', admin: false, titles: { en: 'Favorites', de: 'Favoriten' } },
+  { id: 'media', href: '/media', admin: false, titles: { en: 'Media', de: 'Medien' } },
   { id: 'docs', href: '/doc/use', admin: false, titles: { en: 'Docs', de: 'Dokumentation' } },
   { id: 'integrations', href: '/integrations', admin: false, titles: { en: 'Integrations', de: 'Integrationen' } },
   { id: 'profile', href: '/settings/profile', admin: false, titles: { en: 'Profile', de: 'Profil' } },
@@ -92,7 +94,7 @@ function routeHits(subject: Subject, query: string, locale: Locale): SearchHit[]
   return pageRoutes
     .filter((route) => !route.admin || subject.role === 'admin')
     .filter((route) => !query || includes(query, route.titles[locale], route.href))
-    .slice(0, LIMIT)
+    .slice(0, ROUTE_LIMIT)
     .map((route) => ({ id: route.id, title: route.titles[locale], subtitle: null, href: route.href }))
 }
 

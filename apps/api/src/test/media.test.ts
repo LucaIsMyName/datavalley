@@ -17,10 +17,8 @@ async function sessionFor(harness: Harness, username: string) {
 }
 
 describe('media access', () => {
-  let harness: Harness
-
   it('scopes uploads to a table and hides files from other users', async () => {
-    harness = await createHarness()
+    const harness = await createHarness()
     await createUser(harness.db, harness.env, harness.organizationId, {
       username: 'ada',
       email: 'ada@example.com',
@@ -59,6 +57,66 @@ describe('media access', () => {
 
     const blocked = await cam.inject({ method: 'GET', url: `/api/v1/media/${fileId}` })
     expect(blocked.statusCode).toBe(404)
+
+    await harness.close()
+  })
+
+  it('lists library uploads for the uploader and supports multi-file cells', async () => {
+    const harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada2@example.com',
+      password,
+      role: 'admin',
+    })
+    const ada = await sessionFor(harness, 'ada')
+    const project = await ada.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Library' } })
+    const projectId = project.json().project.id as string
+    const table = await ada.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables`,
+      payload: { name: 'Assets' },
+    })
+    const tableId = table.json().table.id as string
+    const boundary = 'dvLibrary'
+    const library = await ada.inject({
+      method: 'POST',
+      url: '/api/v1/media',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: pngPayload(boundary),
+    })
+    expect(library.statusCode).toBe(200)
+    const libraryId = library.json().file.id as string
+    const listed = await ada.inject({ method: 'GET', url: '/api/v1/media' })
+    expect(listed.statusCode).toBe(200)
+    expect(listed.json().files.map((file: { id: string }) => file.id)).toContain(libraryId)
+
+    const column = await ada.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Attachments', type: 'media' },
+    })
+    const columnId = column.json().column.id as string
+    const tableUpload = await ada.inject({
+      method: 'POST',
+      url: `/api/v1/media?tableId=${tableId}`,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: pngPayload(boundary),
+    })
+    const tableFileId = tableUpload.json().file.id as string
+    const row = await ada.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: {} },
+    })
+    const rowId = row.json().row.id as string
+    const patched = await ada.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${rowId}`,
+      payload: { version: 1, cells: { [columnId]: { fileIds: [libraryId, tableFileId] } } },
+    })
+    expect(patched.statusCode).toBe(200)
+    expect(patched.json().row.cells[columnId]).toEqual({ fileIds: [libraryId, tableFileId] })
 
     await harness.close()
   })

@@ -48,6 +48,7 @@ export const COLUMN_TYPES = [
   'row_id',
   'formula',
   'relation',
+  'media',
 ] as const
 
 const NUMBER_VARIANTS = ['float', 'integer', 'money'] as const

@@ -1,4 +1,13 @@
-const allowedMime = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'text/csv'])
+const allowedMime = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+])
 
 export function allowedMediaMime(mime: string) {
   return allowedMime.has(mime)
@@ -21,6 +30,12 @@ function isPdf(buffer: Buffer) {
   return buffer.length >= 4 && buffer.toString('ascii', 0, 4) === '%PDF'
 }
 
+function isSvg(buffer: Buffer) {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096)).toString('utf8').trimStart()
+  if (!sample.startsWith('<svg') && !sample.startsWith('<?xml')) return false
+  return !/<script/i.test(sample)
+}
+
 function isTextLike(buffer: Buffer) {
   const sample = buffer.subarray(0, Math.min(buffer.length, 4096))
   for (const byte of sample) {
@@ -38,6 +53,7 @@ export function sniffMediaMime(buffer: Buffer, declared: string): string | null 
   if (mime === 'image/gif') return isGif(buffer) ? mime : null
   if (mime === 'image/webp') return isWebp(buffer) ? mime : null
   if (mime === 'application/pdf') return isPdf(buffer) ? mime : null
+  if (mime === 'image/svg+xml') return isSvg(buffer) ? mime : null
   if (mime === 'text/plain' || mime === 'text/csv') return isTextLike(buffer) ? mime : null
   return null
 }
