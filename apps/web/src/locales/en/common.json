@@ -216,5 +216,7 @@
   "type_user": "User",
   "type_row_id": "Row ID",
   "type_formula": "Formula",
-  "type_relation": "Relation"
+  "type_relation": "Relation",
+  "type_currency": "Currency",
+  "type_lookup": "Lookup"
 }

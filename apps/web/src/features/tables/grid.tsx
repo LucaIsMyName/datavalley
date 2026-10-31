@@ -194,6 +194,44 @@ function anchor(event: ReactMouseEvent): ViewportAnchor {
   return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
 }
 
+function ColumnTitle({ name, type, onClick }: { name: string; type: string; onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
+  const { t } = useTranslation()
+  const ref = useRef<HTMLButtonElement>(null)
+  const [tip, setTip] = useState<ViewportAnchor | null>(null)
+  function show() {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    setTip({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+  }
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        className="min-w-0 flex-1 truncate text-left"
+        onMouseEnter={show}
+        onMouseLeave={() => setTip(null)}
+        onFocus={show}
+        onBlur={() => setTip(null)}
+        onClick={onClick}
+      >
+        {name}
+      </button>
+      {tip ? (
+        <AnchoredLayer
+          anchor={tip}
+          prefer="above"
+          align="start"
+          role="tooltip"
+          className="pointer-events-none w-max max-w-56 border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md"
+        >
+          {t(`type_${type}`)}
+        </AnchoredLayer>
+      ) : null}
+    </>
+  )
+}
+
 export function TableScreen({ tableId }: { tableId: string }) {
   const { t } = useTranslation()
   const openMenu = useContextMenu()
@@ -2122,9 +2160,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                             }}
                           />
                         ) : (
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 truncate text-left"
+                          <ColumnTitle
+                            name={column.name}
+                            type={column.type}
                             onClick={(event) => {
                               event.stopPropagation()
                               if (event.shiftKey || event.metaKey || event.ctrlKey) {
@@ -2133,9 +2171,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                               }
                               setRenamingColumn(column.id)
                             }}
-                          >
-                            {column.name}
-                          </button>
+                          />
                         )}
                         <button
                           type="button"

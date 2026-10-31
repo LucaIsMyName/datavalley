@@ -216,5 +216,7 @@
   "type_user": "Benutzer",
   "type_row_id": "Zeilen-ID",
   "type_formula": "Formel",
-  "type_relation": "Relation"
+  "type_relation": "Relation",
+  "type_currency": "Währung",
+  "type_lookup": "Nachschlagen"
 }
