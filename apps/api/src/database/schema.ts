@@ -413,6 +413,7 @@ export const mediaFiles = pgTable('media_files', {
   originalName: text('original_name').notNull(),
   mime: text('mime').notNull(),
   sizeBytes: integer('size_bytes').notNull(),
+  tableId: uuid('table_id').references(() => tables.id, { onDelete: 'cascade' }),
   createdBy: uuid('created_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })

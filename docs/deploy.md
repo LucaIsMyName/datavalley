@@ -29,7 +29,8 @@ The script checks the SSH key, copies the app to `DEPLOY_PATH` (default `/opt/da
 - Installs Redis when `REDIS_URL` is set
 - Creates the database role from `DATABASE_URL` and the `APP_USER` (default `datavalley`)
 - Builds the web app, runs migrations, and seeds the admin on the first deploy
-- Installs the systemd units and a Caddy site that proxies `/api` and `/docs` to the API and serves the web build
+- Installs the systemd units and a Caddy site that proxies `/api` to the API and serves the web build (Swagger UI at `/docs` is development-only; production still exposes OpenAPI JSON for the in-app API reference)
+- Uses Redis when `REDIS_URL` is set for the worker and for shared API-key rate limiting across processes
 - Requests an HTTPS certificate for `DOMAIN`
 - Checks that the API and Caddy are active and that `https://DOMAIN/api/v1/health` succeeds
 

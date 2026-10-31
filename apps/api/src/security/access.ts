@@ -3,6 +3,7 @@ import { canSubject, type Action, type Grant, type ResourceRef, type ResourceTyp
 import { permissionGrants, projectMembers } from '../database/schema.js'
 import type { AppDatabase } from '../database/client.js'
 import { notFound } from '../errors.js'
+import { cachedGrants } from './request-context.js'
 import type { Subject } from './subject.js'
 
 export async function loadGrants(db: AppDatabase, subject: Subject): Promise<Grant[]> {
@@ -22,8 +23,14 @@ export function allows(subject: Subject, grants: Grant[], action: Action, resour
   return canSubject({ role: subject.role }, grants, action, resource)
 }
 
+export async function resolveGrants(db: AppDatabase, subject: Subject): Promise<Grant[]> {
+  const cached = cachedGrants()
+  if (cached !== undefined) return cached
+  return loadGrants(db, subject)
+}
+
 export async function assertCan(db: AppDatabase, subject: Subject, action: Action, resource: ResourceRef) {
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   if (!allows(subject, grants, action, resource)) throw notFound()
   const projectId = resource.type === 'project' ? resource.id : resource.parents?.project
   if (projectId && subject.kind === 'user') {

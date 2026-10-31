@@ -899,6 +899,72 @@
         }
       },
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "template": {
+                    "type": "string",
+                    "enum": [
+                      "demo"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "projectId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/tables/mirror": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "sourceTableId"
+                ],
+                "properties": {
+                  "sourceTableId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -918,6 +984,30 @@
     },
     "/projects/{projectId}/tables/order": {
       "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tableIds"
+                ],
+                "properties": {
+                  "tableIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minLength": 36,
+                      "maxLength": 36,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -973,6 +1063,39 @@
         }
       },
       "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "headerConfig": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "footerConfig": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "formatRules": {
+                    "type": "array",
+                    "items": {}
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1028,6 +1151,59 @@
     },
     "/tables/{tableId}/duplicate": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "includeData": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "tableId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tables/{tableId}/lock": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "tableId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tables/{tableId}/unlock": {
+      "post": {
         "parameters": [
           {
             "schema": {
@@ -1047,6 +1223,26 @@
     },
     "/tables/{tableId}/move": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "projectId"
+                ],
+                "properties": {
+                  "projectId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1121,6 +1317,30 @@
     },
     "/tables/{tableId}/columns/order": {
       "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "columnIds"
+                ],
+                "properties": {
+                  "columnIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minLength": 36,
+                      "maxLength": 36,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1140,6 +1360,28 @@
     },
     "/columns/{columnId}/convert": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "dryRun": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1159,6 +1401,31 @@
     },
     "/columns/{columnId}/relation": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "toTableId",
+                  "cardinality"
+                ],
+                "properties": {
+                  "toTableId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "cardinality": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1178,6 +1445,30 @@
     },
     "/tables/{tableId}/columns/duplicate": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "columnIds"
+                ],
+                "properties": {
+                  "columnIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minLength": 36,
+                      "maxLength": 36,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1214,6 +1505,32 @@
         }
       },
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "cells": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "beforeId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "afterId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1233,6 +1550,36 @@
     },
     "/tables/{tableId}/rows/move": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rowId"
+                ],
+                "properties": {
+                  "rowId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "beforeId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "afterId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1252,6 +1599,50 @@
     },
     "/rows/{rowId}": {
       "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "version"
+                ],
+                "properties": {
+                  "version": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "cells": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "backgrounds": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "formats": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "array",
+                      "items": {}
+                    }
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1288,6 +1679,48 @@
     },
     "/tables/{tableId}/cells/bulk": {
       "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "updates"
+                ],
+                "properties": {
+                  "updates": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "rowId",
+                        "version",
+                        "cells"
+                      ],
+                      "properties": {
+                        "rowId": {
+                          "minLength": 36,
+                          "maxLength": 36,
+                          "type": "string"
+                        },
+                        "version": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "cells": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1307,6 +1740,30 @@
     },
     "/tables/{tableId}/rows/bulk-delete": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rowIds"
+                ],
+                "properties": {
+                  "rowIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minLength": 36,
+                      "maxLength": 36,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1326,6 +1783,30 @@
     },
     "/tables/{tableId}/rows/duplicate": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rowIds"
+                ],
+                "properties": {
+                  "rowIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minLength": 36,
+                      "maxLength": 36,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1345,6 +1826,36 @@
     },
     "/tables/{tableId}/fill": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "columnId",
+                  "rowIds"
+                ],
+                "properties": {
+                  "columnId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "rowIds": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "minLength": 36,
+                      "maxLength": 36,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1494,6 +2005,19 @@
     },
     "/tables/{tableId}/export": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filter": {}
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
@@ -1604,6 +2128,35 @@
     },
     "/formulas/validate": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tableId",
+                  "expression"
+                ],
+                "properties": {
+                  "tableId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "expression": {
+                    "type": "string"
+                  },
+                  "rowId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Default Response"
@@ -2023,6 +2576,18 @@
     },
     "/media": {
       "post": {
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "query",
+            "name": "tableId",
+            "required": true
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -2035,6 +2600,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",

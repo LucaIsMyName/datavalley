@@ -2,7 +2,7 @@ import { escapeLike } from '@datavalley/shared'
 import { inArray, max, sql, type SQL } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
 import { tableCells, tableColumns, tableRows, tables, userFavorites } from '../../database/schema.js'
-import { allows, loadGrants } from '../../security/access.js'
+import { allows, resolveGrants } from '../../security/access.js'
 import type { Subject } from '../../security/subject.js'
 import { listPlugins } from '../platform/service.js'
 import { listProjects } from '../projects/service.js'
@@ -136,7 +136,7 @@ function tableHit(table: VisibleTable): SearchHit {
   }
 }
 
-async function columnHits(db: AppDatabase, subject: Subject, query: string, tablesInScope: VisibleTable[], grants: Awaited<ReturnType<typeof loadGrants>>) {
+async function columnHits(db: AppDatabase, subject: Subject, query: string, tablesInScope: VisibleTable[], grants: Awaited<ReturnType<typeof resolveGrants>>) {
   if (!query || tablesInScope.length === 0) return []
   const byId = new Map(tablesInScope.map((table) => [table.id, table]))
   const columns = await db.select().from(tableColumns).where(inArray(tableColumns.tableId, [...byId.keys()]))
@@ -157,7 +157,7 @@ async function columnHits(db: AppDatabase, subject: Subject, query: string, tabl
   return hits
 }
 
-async function rowHits(db: AppDatabase, subject: Subject, query: string, tablesInScope: VisibleTable[], grants: Awaited<ReturnType<typeof loadGrants>>) {
+async function rowHits(db: AppDatabase, subject: Subject, query: string, tablesInScope: VisibleTable[], grants: Awaited<ReturnType<typeof resolveGrants>>) {
   if (!query || tablesInScope.length === 0) return []
   const byId = new Map(tablesInScope.map((table) => [table.id, table]))
   const idList = sql.join([...byId.keys()].map((id) => sql`${id}`), sql`, `)
@@ -247,7 +247,7 @@ export async function search(db: AppDatabase, subject: Subject, input: { q?: str
     .slice(0, LIMIT)
     .map((project) => ({ id: project.id, title: project.name, subtitle: project.description || null, href: `/projects/${project.id}` }))
   results.tables = tablesInScope.filter((table) => includes(query, table.name)).slice(0, LIMIT).map(tableHit)
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   results.columns = await columnHits(db, subject, query, tablesInScope, grants)
   results.rows = await rowHits(db, subject, query, tablesInScope, grants)
   results.favorites = await favoriteHits(db, subject, query, projects, tablesInScope)

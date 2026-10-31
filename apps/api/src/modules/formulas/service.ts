@@ -33,7 +33,7 @@ import {
 import { swatchName, type FormatRule } from '@datavalley/shared'
 import { readCell } from '../../column-types/index.js'
 import { badRequest } from '../../errors.js'
-import { allows, loadGrants } from '../../security/access.js'
+import { allows, resolveGrants } from '../../security/access.js'
 import { sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
 import { loadColumns, requireTable, resolveTableContext, type LoadedColumn } from '../tables/service.js'
@@ -52,7 +52,7 @@ function bindCellNames(expression: string, names: Record<string, RefNode>) {
 
 async function namesFor(db: AppDatabase, subject: Subject, tableId: string, expression = '') {
   const table = await requireTable(db, subject, tableId, 'view')
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   const names: Record<string, RefNode> = {}
   const elsewhere = new Map<string, { ref: RefNode; count: number }>()
   const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
@@ -78,7 +78,7 @@ async function namesFor(db: AppDatabase, subject: Subject, tableId: string, expr
 
 async function catalogFor(db: AppDatabase, subject: Subject, tableId: string): Promise<BracketCatalog> {
   const table = await requireTable(db, subject, tableId, 'view')
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   const columns: BracketCatalog['columns'] = []
   const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
   for (const item of projectTables) {
@@ -499,7 +499,7 @@ async function canReadColumn(db: AppDatabase, subject: Subject, columnId: string
   if (!column) return false
   const [table] = await db.select().from(tables).where(eq(tables.id, column.tableId)).limit(1)
   if (!table) return false
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   return allows(subject, grants, 'view', { type: 'column', id: column.id, parents: { table: table.id, project: table.projectId } })
     && allows(subject, grants, 'view', { type: 'table', id: table.id, parents: { project: table.projectId } })
 }
@@ -652,7 +652,7 @@ export async function evaluateStored(db: AppDatabase, subject: Subject, formulaI
   const [formula] = await db.select().from(formulas).where(eq(formulas.id, formulaId)).limit(1)
   if (!formula) throw badRequest('Unknown formula')
   stack.add(formulaId)
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   const permissionHash = formula.crossesTables ? sha256(JSON.stringify(grants)) : ''
   const stamp = await dependencyStamp(db, rowId, formula.ast as AstNode)
   const versionHash = `${stamp}:${formula.updatedAt.toISOString()}`
@@ -692,7 +692,7 @@ export async function formulaDependenciesFor(db: AppDatabase, subject: Subject, 
 
 export async function formulaCatalog(db: AppDatabase, subject: Subject, tableId: string) {
   const table = await requireTable(db, subject, tableId, 'view')
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   const [project] = await db.select().from(projects).where(eq(projects.id, table.projectId)).limit(1)
   const columns: { tableId: string; tableName: string; columnId: string; columnName: string; projectName: string }[] = []
   const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))

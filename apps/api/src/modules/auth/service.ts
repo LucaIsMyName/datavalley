@@ -39,12 +39,25 @@ export async function findUserByLogin(db: AppDatabase, login: string) {
   return user ?? null
 }
 
+const LOCK_WINDOW_MS = 15 * 60 * 1000
+const IP_FAILURE_LIMIT = 40
+
 async function failureCount(db: AppDatabase, username: string) {
-  const since = new Date(Date.now() - 15 * 60 * 1000)
+  const since = new Date(Date.now() - LOCK_WINDOW_MS)
   const rows = await db
     .select({ id: loginAttempts.id })
     .from(loginAttempts)
     .where(and(eq(loginAttempts.username, username), eq(loginAttempts.success, false), gt(loginAttempts.createdAt, since)))
+  return rows.length
+}
+
+async function ipFailureCount(db: AppDatabase, ip: string | undefined) {
+  if (!ip) return 0
+  const since = new Date(Date.now() - LOCK_WINDOW_MS)
+  const rows = await db
+    .select({ id: loginAttempts.id })
+    .from(loginAttempts)
+    .where(and(eq(loginAttempts.ip, ip), eq(loginAttempts.success, false), gt(loginAttempts.createdAt, since)))
   return rows.length
 }
 
@@ -55,6 +68,9 @@ export async function login(
   meta: { ip?: string; userAgent?: string },
 ) {
   const key = input.login.trim().toLowerCase()
+  if ((await ipFailureCount(db, meta.ip)) >= IP_FAILURE_LIMIT) {
+    throw new AppError(429, 'locked', 'Too many login attempts from this address')
+  }
   if ((await failureCount(db, key)) >= 10) {
     await writeAudit(db, null, {
       action: 'auth.login.failure',

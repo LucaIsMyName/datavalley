@@ -25,27 +25,25 @@ import {
 } from '../../database/schema.js'
 import { AppError, badRequest, notFound, unauthorized } from '../../errors.js'
 import { assertCan, replaceGrants } from '../../security/access.js'
+import { allowedMediaMime, sniffMediaMime } from '../../security/media-mime.js'
+import type { RateLimiter } from '../../security/rate-limit.js'
 import { writeAudit } from '../../security/audit.js'
 import { decryptString, encryptString, randomToken, safeEqual, sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
-import { requireTable } from '../tables/service.js'
+import { requireEditableTable, requireTable } from '../tables/service.js'
 
-const hits = new Map<string, number[]>()
-
-export function consumeRateLimit(id: string, max: number) {
-  const now = Date.now()
-  const recent = (hits.get(id) ?? []).filter((time) => now - time < 60_000)
-  if (recent.length >= max) return false
-  recent.push(now)
-  hits.set(id, recent)
-  return true
-}
-
-export async function subjectFromApiKey(db: AppDatabase, token: string, ip?: string): Promise<Subject | null> {
+export async function subjectFromApiKey(
+  db: AppDatabase,
+  rateLimiter: RateLimiter,
+  token: string,
+  ip?: string,
+): Promise<Subject | null> {
   const [key] = await db.select().from(apiKeys).where(eq(apiKeys.tokenHash, sha256(token))).limit(1)
   if (!key || key.revokedAt) return null
   if (key.ipAllowlist.length && ip && !key.ipAllowlist.includes(ip)) return null
-  if (!consumeRateLimit(key.id, key.rateLimitPerMinute)) throw new AppError(429, 'rate_limited', 'API key rate limit exceeded')
+  if (!(await rateLimiter.consume(`api_key:${key.id}`, key.rateLimitPerMinute))) {
+    throw new AppError(429, 'rate_limited', 'API key rate limit exceeded')
+  }
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id))
   return { kind: 'api_key', id: key.id, role: 'service', source: 'api_key', user: null, apiKeyId: key.id }
 }
@@ -283,8 +281,6 @@ export async function connectionSecret(db: AppDatabase, env: Env, connectionId: 
   return decryptString(env.CREDENTIALS_KEY, connection.credentialsEncrypted)
 }
 
-const allowedMime = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'text/csv'])
-
 export interface MediaStorage {
   put(key: string, body: Buffer, mime: string): Promise<void>
   get(key: string): Promise<Buffer>
@@ -323,21 +319,38 @@ export function createMediaStorage(env: Env): MediaStorage {
 
 void DeleteObjectCommand
 
-export async function storeMedia(db: AppDatabase, env: Env, actor: Subject, file: { filename: string; mimetype: string; buffer: Buffer }) {
-  if (!allowedMime.has(file.mimetype)) throw new AppError(400, 'unsupported_media', 'File type is not allowed')
+export async function storeMedia(
+  db: AppDatabase,
+  env: Env,
+  actor: Subject,
+  tableId: string,
+  file: { filename: string; mimetype: string; buffer: Buffer },
+) {
+  await requireEditableTable(db, actor, tableId, 'edit')
+  if (!allowedMediaMime(file.mimetype)) throw new AppError(400, 'unsupported_media', 'File type is not allowed')
+  const mime = sniffMediaMime(file.buffer, file.mimetype)
+  if (!mime) throw new AppError(400, 'unsupported_media', 'File content does not match its type')
   if (file.buffer.length > env.MEDIA_MAX_BYTES) throw new AppError(400, 'payload_too_large', 'File is too large')
   const storageKey = randomBytes(16).toString('hex')
-  await createMediaStorage(env).put(storageKey, file.buffer, file.mimetype)
+  await createMediaStorage(env).put(storageKey, file.buffer, mime)
   const [saved] = await db
     .insert(mediaFiles)
-    .values({ storageKey, originalName: file.filename, mime: file.mimetype, sizeBytes: file.buffer.length, createdBy: actor.id })
+    .values({
+      storageKey,
+      originalName: file.filename,
+      mime,
+      sizeBytes: file.buffer.length,
+      tableId,
+      createdBy: actor.id,
+    })
     .returning()
   return { id: saved.id, name: saved.originalName, mime: saved.mime, size: saved.sizeBytes }
 }
 
-export async function readMedia(db: AppDatabase, env: Env, id: string) {
+export async function readMedia(db: AppDatabase, env: Env, actor: Subject, id: string) {
   const [file] = await db.select().from(mediaFiles).where(eq(mediaFiles.id, id)).limit(1)
-  if (!file) throw notFound()
+  if (!file?.tableId) throw notFound()
+  await requireTable(db, actor, file.tableId, 'view')
   const body = await createMediaStorage(env).get(file.storageKey)
   return { file, body }
 }

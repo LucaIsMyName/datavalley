@@ -4,7 +4,7 @@ import type { AppDatabase } from '../../database/client.js'
 import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
-import { allows, loadGrants } from '../../security/access.js'
+import { allows, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, evaluateStored } from '../formulas/service.js'
@@ -21,7 +21,7 @@ import {
 import { footerFor, queryRows, type SortSpec } from './query.js'
 
 async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   return columns.filter((column) =>
     allows(subject, grants, 'view', { type: 'column', id: column.id, parents: { table: tableId, project: projectId } }),
   )
@@ -32,7 +32,7 @@ async function assertRow(db: AppDatabase, subject: Subject, rowId: string, actio
   if (!row) throw notFound()
   const table = await requireTable(db, subject, row.tableId, action === 'view' ? 'view' : action === 'delete' ? 'delete' : 'edit')
   if (action !== 'view') assertTableDataEditable(table)
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   if (!allows(subject, grants, action === 'delete' ? 'delete' : action === 'edit' ? 'edit' : 'view', {
     type: 'row',
     id: row.id,

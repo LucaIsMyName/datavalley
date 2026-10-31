@@ -3,7 +3,7 @@ import { escapeLike, isResourceIcon, projectOwnerActions, type Action } from '@d
 import type { AppDatabase } from '../../database/client.js'
 import { permissionGrants, projectMembers, projects, tables, users } from '../../database/schema.js'
 import { AppError, badRequest, notFound } from '../../errors.js'
-import { allows, assertCan, loadGrants, replaceGrants } from '../../security/access.js'
+import { allows, assertCan, resolveGrants, replaceGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { seedCustomers, seedStarter } from '../tables/template.js'
@@ -188,7 +188,7 @@ async function assertKeepsAdmin(db: AppDatabase, projectId: string, userId: stri
 
 export async function listMembers(db: AppDatabase, subject: Subject, projectId: string) {
   await getProject(db, subject, projectId)
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   const canManage = allows(subject, grants, 'manage_permissions', { type: 'project', id: projectId })
   const members = await projectRoster(db, projectId)
   return { members: members.map(presentMember), canManage }
@@ -196,7 +196,7 @@ export async function listMembers(db: AppDatabase, subject: Subject, projectId: 
 
 export async function listDirectory(db: AppDatabase, subject: Subject, projectId: string, query: string) {
   const project = await getProject(db, subject, projectId)
-  const grants = await loadGrants(db, subject)
+  const grants = await resolveGrants(db, subject)
   if (!allows(subject, grants, 'manage_permissions', { type: 'project', id: projectId })) {
     throw new AppError(403, 'forbidden', 'Permission required')
   }

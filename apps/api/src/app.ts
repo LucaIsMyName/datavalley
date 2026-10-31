@@ -11,6 +11,9 @@ import Fastify from 'fastify'
 import type { Env } from './config/env.js'
 import type { AppDatabase } from './database/client.js'
 import { AppError } from './errors.js'
+import { loadGrants } from './security/access.js'
+import { bindRequestGrants } from './security/request-context.js'
+import { createRateLimiter } from './security/rate-limit.js'
 import { passwordChangeGate, registerAuthRoutes, sessionCookie } from './modules/auth/routes.js'
 import { registerDataRoutes } from './modules/data/routes.js'
 import { subjectFromSession } from './modules/auth/service.js'
@@ -29,6 +32,8 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
     genReqId: (request) => (request.headers['x-request-id'] as string | undefined) ?? crypto.randomUUID(),
   })
   app.decorateRequest('subject', null)
+  app.decorateRequest('grants', null)
+  const apiKeyRateLimiter = createRateLimiter(env)
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     try {
       const text = typeof body === 'string' ? body : ''
@@ -47,18 +52,27 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
   await app.register(swagger, {
     openapi: { info: { title: 'Datavalley API', version: '0.0.1' }, servers: [{ url: '/api/v1' }] },
   })
-  await app.register(swaggerUi, { routePrefix: '/docs' })
+  if (env.NODE_ENV !== 'production') {
+    await app.register(swaggerUi, { routePrefix: '/docs' })
+  }
 
   app.addHook('onRequest', async (request) => {
     const header = request.headers.authorization
     if (header?.toLowerCase().startsWith('bearer ')) {
-      request.subject = await subjectFromApiKey(db, header.slice(7).trim(), request.ip)
+      request.subject = await subjectFromApiKey(db, apiKeyRateLimiter, header.slice(7).trim(), request.ip)
       return
     }
     const token = sessionCookie(request)
     request.subject = token ? await subjectFromSession(db, token) : null
   })
   app.addHook('preHandler', async (request, reply) => {
+    if (request.subject) {
+      request.grants = await loadGrants(db, request.subject)
+      bindRequestGrants(request.grants)
+    } else {
+      request.grants = null
+      bindRequestGrants(null)
+    }
     if (request.subject?.user?.mustChangePassword) passwordChangeGate(request.url, request.method)
     if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return
     if (request.headers.authorization?.toLowerCase().startsWith('bearer ')) return
