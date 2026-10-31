@@ -67,6 +67,7 @@ export function CellEditor({
   onFlush,
   onCancel,
   onOpen,
+  onActivate,
   onCreated,
   hint,
 }: {
@@ -82,6 +83,7 @@ export function CellEditor({
   onFlush: () => void
   onCancel: () => void
   onOpen: () => void
+  onActivate: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
   hint?: string | null
 }) {
@@ -95,16 +97,51 @@ export function CellEditor({
     return <CheckboxEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
   }
   if (column.type === 'tags') {
-    return <TagEditor tableId={tableId} column={column} row={row} tags={tags} active={active} onEdit={onEdit} onFlush={onFlush} onOpen={onOpen} onCreated={onCreated} />
+    return (
+      <TagEditor
+        tableId={tableId}
+        column={column}
+        row={row}
+        tags={tags}
+        active={active}
+        onEdit={onEdit}
+        onFlush={onFlush}
+        onOpen={onOpen}
+        onActivate={onActivate}
+        onCreated={onCreated}
+      />
+    )
   }
   if (column.type === 'status') {
-    return <StatusEditor tableId={tableId} column={column} row={row} statuses={statuses} active={active} onEdit={onEdit} onFlush={onFlush} onOpen={onOpen} onCreated={onCreated} />
+    return (
+      <StatusEditor
+        tableId={tableId}
+        column={column}
+        row={row}
+        statuses={statuses}
+        active={active}
+        onEdit={onEdit}
+        onFlush={onFlush}
+        onOpen={onOpen}
+        onActivate={onActivate}
+        onCreated={onCreated}
+      />
+    )
   }
   if (!active) {
     if (column.type === 'user') {
       const items = names(row.cells[column.id], members.map((member) => ({ id: member.userId, name: member.username, color: 'blue', tableId: '' })))
       return (
-        <button type="button" className="flex h-full w-full items-center gap-1 overflow-hidden text-left" aria-label={editLabel} onClick={onOpen}>
+        <button
+          type="button"
+          className="flex h-full w-full items-center gap-1 overflow-hidden text-left"
+          aria-label={editLabel}
+          onClick={onOpen}
+          onDoubleClick={(event) => {
+            event.preventDefault()
+            onActivate()
+          }}
+        >
           {items.map((item) => <Badge key={item.id} color="blue">{item.name}</Badge>)}
         </button>
       )
@@ -124,7 +161,16 @@ export function CellEditor({
             : text
     return (
       <div className="flex h-full min-w-0 flex-1 items-center gap-1">
-        <button type="button" className="h-9 min-w-0 flex-1 truncate text-left leading-9" aria-label={editLabel} onClick={onOpen}>
+        <button
+          type="button"
+          className="h-9 min-w-0 flex-1 truncate text-left leading-9"
+          aria-label={editLabel}
+          onClick={onOpen}
+          onDoubleClick={(event) => {
+            event.preventDefault()
+            onActivate()
+          }}
+        >
           {shown}
         </button>
         {hint ? <FormatHint message={hint} /> : null}
@@ -310,7 +356,7 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
   )
 }
 
-function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen, onCreated }: { tableId: string; column: Column; row: RowRecord; tags: CatalogItem[]; active: boolean; onEdit: (value: string[], delay?: number) => void; onFlush: () => void; onOpen: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen, onActivate, onCreated }: { tableId: string; column: Column; row: RowRecord; tags: CatalogItem[]; active: boolean; onEdit: (value: string[], delay?: number) => void; onFlush: () => void; onOpen: () => void; onActivate: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
   const { t } = useTranslation()
   const selected = Array.isArray(row.cells[column.id]) ? (row.cells[column.id] as string[]) : []
   const [name, setName] = useState('')
@@ -363,7 +409,14 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
   }
   const menuTag = menu ? names([menu.tagId], tags)[0] : null
   return (
-    <div className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden" onClick={onOpen}>
+    <div
+      className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden"
+      onClick={onOpen}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        onActivate()
+      }}
+    >
       {names(selected, tags).map((tag) => (
         <Badge key={tag.id} color={tag.color} className="gap-0.5 pr-1">
           {renamingId === tag.id ? (
@@ -494,7 +547,7 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
   )
 }
 
-function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush, onOpen, onCreated }: { tableId: string; column: Column; row: RowRecord; statuses: CatalogItem[]; active: boolean; onEdit: (value: string, delay?: number) => void; onFlush: () => void; onOpen: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush, onOpen, onActivate, onCreated }: { tableId: string; column: Column; row: RowRecord; statuses: CatalogItem[]; active: boolean; onEdit: (value: string, delay?: number) => void; onFlush: () => void; onOpen: () => void; onActivate: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
   const { t } = useTranslation()
   const currentId = typeof row.cells[column.id] === 'string' ? row.cells[column.id] : ''
   const current = statuses.find((status) => status.id === currentId) ?? null
@@ -547,7 +600,14 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
   }
   const currentColor = current && palette.includes(current.color) ? current.color : 'slate'
   return (
-    <div className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden" onClick={onOpen}>
+    <div
+      className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden"
+      onClick={onOpen}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        onActivate()
+      }}
+    >
       {current ? (
         <Badge color={current.color} className="gap-0.5 pr-1">
           <span className="truncate">{current.name}</span>

@@ -314,6 +314,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
   }
 
+  function activateCell(row: RowRecord, column: Column) {
+    if (column.type === 'formula') {
+      openFormula(row.id, column.id, column.name)
+      return
+    }
+    if (!fillable(column) || column.type === 'checkbox') return
+    setEditing(`${row.id}:${column.id}`)
+  }
+
+  function focusCell(rowIndex: number, columnIndex: number) {
+    setSelected({ row: rowIndex, column: columnIndex })
+    parentRef.current?.focus({ preventScroll: true })
+  }
+
   const rowsQuery = useInfiniteQuery({
     queryKey: ['rows', tableId, search, sort, filterKey],
     initialPageParam: null as string | null,
@@ -525,12 +539,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const column = visible[selected.column]
     const row = rows[selected.row]
     if (!column || !row || editing) return
-    if (column.type === 'formula') {
-      openFormula(row.id, column.id, column.name)
-      return
-    }
-    if (!fillable(column) || column.type === 'checkbox') return
-    setEditing(`${row.id}:${column.id}`)
+    activateCell(row, column)
   }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1527,13 +1536,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         label: t('edit'),
         icon: Pencil,
         disabled: !writable(column) && column.type !== 'formula',
-        onSelect: () => {
-          if (column.type === 'formula') {
-            openFormula(row.id, column.id, column.name)
-            return
-          }
-          setEditing(`${row.id}:${column.id}`)
-        },
+        onSelect: () => activateCell(row, column),
       },
       {
         id: 'copy',
@@ -1859,19 +1862,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 fontWeight: ruleStyle.bold ? 700 : 400,
               }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
-              onClick={() => {
-                setSelected({ row: row.index, column: columnIndex })
-                parentRef.current?.focus({ preventScroll: true })
-              }}
-              onDoubleClick={() => {
-                setSelected({ row: row.index, column: columnIndex })
-                parentRef.current?.focus({ preventScroll: true })
-                if (column.type === 'formula') {
-                  openFormula(row.original.id, column.id, column.name)
-                  return
-                }
-                if (!fillable(column) || column.type === 'checkbox') return
-                setEditing(`${row.original.id}:${column.id}`)
+              onClick={(event) => {
+                focusCell(row.index, columnIndex)
+                if (event.detail >= 2) activateCell(row.original, column)
               }}
             >
               {active && column.type === 'relation' ? (
@@ -1921,10 +1914,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     clearInvalid(`cell:${row.original.id}:${column.id}`)
                     setEditing(null)
                   }}
-                  onOpen={() => {
-                    setSelected({ row: row.index, column: columnIndex })
-                    parentRef.current?.focus({ preventScroll: true })
-                  }}
+                  onOpen={() => focusCell(row.index, columnIndex)}
+                  onActivate={() => activateCell(row.original, column)}
                   onCreated={(kind, item) =>
                     patchCachedTable(queryClient, tableId, (current) => ({
                       ...current,
