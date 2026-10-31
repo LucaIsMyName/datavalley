@@ -80,8 +80,7 @@ export function MediaCellBadges({
 export function MediaEditor({
   value,
   active,
-  onEdit,
-  onFlush,
+  onCommit,
   onOpen,
   onActivate,
   onOpenLibrary,
@@ -90,18 +89,18 @@ export function MediaEditor({
 }: {
   value: unknown
   active: boolean
-  onEdit: (value: { fileIds: string[] } | null) => void
-  onFlush: () => void
+  onCommit: (value: { fileIds: string[] } | null) => Promise<void>
   onOpen: () => void
   onActivate: () => void
   onOpenLibrary: (existingIds: string[]) => void
   onPreviewFile: (file: MediaFile) => void
-  onUpload: (file: File) => Promise<void>
+  onUpload: (file: File) => Promise<string[]>
 }) {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState<string[]>(() => readFileIds(value))
   const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     if (active) setDraft(readFileIds(value))
@@ -111,8 +110,15 @@ export function MediaEditor({
     const current = active ? draft : readFileIds(value)
     const next = current.filter((item) => item !== id)
     if (active) setDraft(next)
-    onEdit(next.length ? { fileIds: next } : null)
-    onFlush()
+    void (async () => {
+      setError('')
+      try {
+        await onCommit(next.length ? { fileIds: next } : null)
+      } catch (caught) {
+        if (active) setDraft(readFileIds(value))
+        setError(caught instanceof Error ? caught.message : t('error'))
+      }
+    })()
   }
 
   if (!active) {
@@ -155,6 +161,7 @@ export function MediaEditor({
           variant="outline"
           className="size-7 shrink-0 p-0"
           aria-label={t('mediaUpload')}
+          disabled={uploading}
           onClick={(event) => {
             event.stopPropagation()
             inputRef.current?.click()
@@ -167,6 +174,7 @@ export function MediaEditor({
           variant="outline"
           className="size-7 shrink-0 p-0"
           aria-label={t('mediaLibrary')}
+          disabled={uploading}
           onClick={(event) => {
             event.stopPropagation()
             onOpenLibrary(draft)
@@ -185,15 +193,28 @@ export function MediaEditor({
           if (!file) return
           void (async () => {
             setError('')
+            setUploading(true)
             try {
-              await onUpload(file)
+              const nextIds = await onUpload(file)
+              setDraft(nextIds)
             } catch (caught) {
               setError(caught instanceof Error ? caught.message : t('error'))
+            } finally {
+              setUploading(false)
             }
           })()
         }}
       />
-      {error ? <span className="sr-only" role="alert">{error}</span> : null}
+      {error ? (
+        <span className="sr-only" role="alert">
+          {error}
+        </span>
+      ) : null}
+      {uploading ? (
+        <span className="sr-only" role="status">
+          {t('loading')}
+        </span>
+      ) : null}
     </div>
   )
 }

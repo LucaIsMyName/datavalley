@@ -64,7 +64,7 @@ export function CellEditor({
   onMediaLibrary,
   onMediaPreview,
   onMediaUpload,
-  onMediaFlush,
+  onMediaCommit,
 }: {
   column: Column
   row: RowRecord
@@ -83,8 +83,8 @@ export function CellEditor({
   hint?: string | null
   onMediaLibrary?: (existingIds: string[]) => void
   onMediaPreview?: (file: MediaFile) => void
-  onMediaUpload?: (file: File) => Promise<void>
-  onMediaFlush?: () => void
+  onMediaUpload?: (file: File) => Promise<string[]>
+  onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
 }) {
   const { t } = useTranslation()
   const editLabel = t('editColumn', { name: column.name })
@@ -100,14 +100,17 @@ export function CellEditor({
       <MediaEditor
         value={row.cells[column.id]}
         active={active}
-        onEdit={(value) => onEdit(value, 0)}
-        onFlush={onMediaFlush ?? onFlush}
+        onCommit={async (value) => {
+          if (!onMediaCommit) throw new Error('Media save is unavailable')
+          await onMediaCommit(value)
+        }}
         onOpen={onOpen}
         onActivate={onActivate}
         onOpenLibrary={(existingIds) => onMediaLibrary?.(existingIds)}
         onPreviewFile={(file) => onMediaPreview?.(file)}
         onUpload={async (file) => {
-          if (onMediaUpload) await onMediaUpload(file)
+          if (!onMediaUpload) throw new Error('Media upload is unavailable')
+          return onMediaUpload(file)
         }}
       />
     )

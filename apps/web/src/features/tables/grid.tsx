@@ -697,8 +697,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
   }
 
+  function cellDraftUnchanged(column: Column, draft: unknown, previous: unknown) {
+    if (draft === previous) return true
+    if (column.type === 'media') {
+      return JSON.stringify(draft ?? null) === JSON.stringify(previous ?? null)
+    }
+    return false
+  }
+
+  function warnReadOnlyEdit() {
+    showEditError(readOnlyReason === 'locked' ? t('lockedTableBanner') : t('error'))
+  }
+
   function scheduleCell(row: RowRecord, column: Column, nextValue: unknown, delay = 300) {
-    if (dataReadOnly) return
+    if (dataReadOnly) {
+      warnReadOnlyEdit()
+      return
+    }
     const columnId = column.id
     const key = `cell:${row.id}:${columnId}`
     const next = nextValue === '' ? null : nextValue
@@ -725,7 +740,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         )
       },
       commit: async (draft) => {
-        if (draft === previous)
+        if (cellDraftUnchanged(column, draft, previous))
           return {
             row: {
               ...(readCachedRow(queryClient, tableId, row.id) ?? row),
@@ -782,24 +797,73 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
   }
 
-  function flushMediaCell(row: RowRecord, column: Column) {
-    void sync
-      .flush(`cell:${row.id}:${column.id}`)
-      .catch((error: unknown) => {
-        const message = editFailureMessage(error, t('error'), { cell: true })
-        if (message) showEditError(message)
+  async function commitMediaCell(rowId: string, column: Column, value: { fileIds: string[] } | null) {
+    if (dataReadOnly) {
+      warnReadOnlyEdit()
+      throw new Error('read_only')
+    }
+    const columnId = column.id
+    const key = `cell:${rowId}:${columnId}`
+    sync.discard(key)
+    cellBaseline.current.delete(key)
+    clearInvalid(key)
+
+    const row =
+      readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId)
+    if (!row) throw new Error('Row not found')
+
+    const formatKey = cellFormatError(column, value)
+    if (formatKey) {
+      setInvalidCells((current) => ({
+        ...current,
+        [key]: { text: value == null ? '' : JSON.stringify(value), message: t(formatKey) },
+      }))
+      throw new Error(t(formatKey))
+    }
+
+    const previous = row.cells[columnId] ?? null
+    const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ version: row.version, cells: { [columnId]: value } }),
+    })
+
+    mapCachedRows(queryClient, tableId, (item) =>
+      item.id === row.id
+        ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } }
+        : item,
+    )
+
+    const saved = result.row.cells[columnId] ?? null
+    if (JSON.stringify(saved ?? null) !== JSON.stringify(previous ?? null)) {
+      pushCommand(tableId, {
+        kind: 'patch',
+        undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
+        redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
       })
-  }
-
-  function applyMediaCell(row: RowRecord, column: Column, value: { fileIds: string[] } | null) {
-    scheduleCell(row, column, value, 0)
-    flushMediaCell(row, column)
+      void invalidateFooter(queryClient, tableId)
+    }
     void queryClient.invalidateQueries({ queryKey: ['media', 'catalog'] })
+    return result.row
   }
 
-  async function uploadMediaToCell(row: RowRecord, column: Column, file: File, existing: unknown) {
+  async function applyMediaCell(row: RowRecord, column: Column, value: { fileIds: string[] } | null) {
+    try {
+      await commitMediaCell(row.id, column, value)
+    } catch (error) {
+      const message = editFailureMessage(error, t('error'), { cell: true })
+      if (message) showEditError(message)
+      throw error
+    }
+  }
+
+  async function uploadMediaToCell(rowId: string, column: Column, file: File): Promise<string[]> {
     const saved = await uploadMedia(file)
-    applyMediaCell(row, column, mergeMediaIntoCell(existing, [saved.id]))
+    const row =
+      readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId)
+    if (!row) throw new Error('Row not found')
+    const next = mergeMediaIntoCell(row.cells[column.id], [saved.id])
+    await applyMediaCell(row, column, next)
+    return next?.fileIds ?? []
   }
 
   async function openMediaPreview(file: MediaFile, rowId: string, columnId: string) {
@@ -2086,8 +2150,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     setMediaLibrary({ rowId: row.original.id, columnId: column.id, existingIds })
                   }
                   onMediaPreview={(file) => void openMediaPreview(file, row.original.id, column.id)}
-                  onMediaUpload={(file) => uploadMediaToCell(row.original, column, file, value)}
-                  onMediaFlush={() => flushMediaCell(row.original, column)}
+                  onMediaUpload={(file) => uploadMediaToCell(row.original.id, column, file)}
+                  onMediaCommit={(value) => applyMediaCell(row.original, column, value)}
                 />
               )}
               {picked && !active && fillable(column) ? (
@@ -2955,12 +3019,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
         existingIds={mediaLibrary?.existingIds ?? []}
         onInsert={(added) => {
           if (!mediaLibrary) return
-          const row = rows.find((item) => item.id === mediaLibrary.rowId)
           const column = columns.find((item) => item.id === mediaLibrary.columnId)
+          const row =
+            readCachedRow(queryClient, tableId, mediaLibrary.rowId) ??
+            rows.find((item) => item.id === mediaLibrary.rowId)
           if (!row || !column) return
-          const merged = mergeMediaFileIds(mediaLibrary.existingIds, added)
-          applyMediaCell(row, column, merged.length ? { fileIds: merged } : null)
-          setMediaLibrary(null)
+          void applyMediaCell(row, column, mergeMediaIntoCell(row.cells[column.id], added)).then(() =>
+            setMediaLibrary(null),
+          )
         }}
       />
       <MediaPreviewDrawer
@@ -2974,8 +3040,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 if (!row || !column) return
                 const ids = normalizeMediaCellValue(row.cells[column.id])?.fileIds ?? []
                 const next = ids.filter((id) => id !== mediaPreview.file.id)
-                applyMediaCell(row, column, next.length ? { fileIds: next } : null)
-                setMediaPreview(null)
+                void applyMediaCell(row, column, next.length ? { fileIds: next } : null).then(() =>
+                  setMediaPreview(null),
+                )
               }
             : undefined
         }
