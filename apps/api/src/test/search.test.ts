@@ -180,4 +180,35 @@ describe('search', () => {
     expect((await stranger.inject({ method: 'GET', url: '/api/v1/search?q=Acme' })).json().rows).toEqual([])
     expect(admin.id).toBeTruthy()
   })
+
+  it('finds the documentation guides', async () => {
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'docs-admin',
+      email: 'docs-admin@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    await login(session, 'docs-admin', password)
+    const blank = await session.inject({ method: 'GET', url: '/api/v1/search' })
+    expect(blank.json().routes.map((hit: { id: string; href: string }) => [hit.id, hit.href])).toContainEqual(['docs', '/doc/use'])
+    expect((await session.inject({ method: 'GET', url: '/api/v1/search?q=User%20guide' })).json().routes).toContainEqual({
+      id: 'docs-use',
+      title: 'User guide',
+      subtitle: null,
+      href: '/doc/use',
+    })
+    expect((await session.inject({ method: 'GET', url: '/api/v1/search?q=Entwicklerhandbuch&locale=de' })).json().routes).toContainEqual({
+      id: 'docs-develop',
+      title: 'Entwicklerhandbuch',
+      subtitle: null,
+      href: '/doc/develop',
+    })
+    expect((await session.inject({ method: 'GET', url: '/api/v1/search?q=API-Referenz&locale=de' })).json().routes).toContainEqual({
+      id: 'docs-api',
+      title: 'API-Referenz',
+      subtitle: null,
+      href: '/doc/api',
+    })
+  })
 })

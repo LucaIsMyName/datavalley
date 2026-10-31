@@ -12,6 +12,7 @@ export type Crumb = { label: string; to?: string }
 
 export function useCrumbs(): Crumb[] {
   const { t } = useTranslation()
+  const { t: td } = useTranslation('docs')
   const { pathname } = useLocation()
   const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
   const projectMatch = useMatch('/projects/:projectId')
@@ -49,6 +50,18 @@ export function useCrumbs(): Crumb[] {
     return [
       { label: t('settings'), to: '/settings/profile' },
       { label: t(settings[pathname]) },
+    ]
+  }
+
+  const docs: Record<string, string> = {
+    '/doc/use': 'use',
+    '/doc/develop': 'develop',
+    '/doc/api': 'api',
+  }
+  if (docs[pathname]) {
+    return [
+      { label: t('docs'), to: '/doc/use' },
+      { label: td(docs[pathname]) },
     ]
   }
 

@@ -1,7 +1,10 @@
 import { Navigate, Outlet, createBrowserRouter } from 'react-router'
 import { LoadingBlock } from '../components/states'
 import { api } from '../lib/api'
-import { DocsPage } from '../features/docs'
+import { ApiReferencePage } from '../features/docs/api-page'
+import { DeveloperGuidePage } from '../features/docs/develop-page'
+import { DocsIndexRedirect, DocsLayout } from '../features/docs/layout'
+import { UserGuidePage } from '../features/docs/use-page'
 import { AppShell } from '../layouts/app-shell'
 import { useSession } from '../stores/session'
 import {
@@ -57,7 +60,16 @@ export const router = createBrowserRouter([
           },
           { path: '/recent', element: <RecentPage /> },
           { path: '/favorites', element: <FavoritesPage /> },
-          { path: '/doc', element: <DocsPage /> },
+          {
+            path: '/doc',
+            element: <DocsLayout />,
+            children: [
+              { index: true, element: <DocsIndexRedirect /> },
+              { path: 'use', element: <UserGuidePage /> },
+              { path: 'develop', element: <DeveloperGuidePage /> },
+              { path: 'api', element: <ApiReferencePage /> },
+            ],
+          },
           { path: '/integrations', element: <IntegrationsPage /> },
           { path: '/settings/profile', element: <ProfilePage /> },
           {

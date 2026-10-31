@@ -271,7 +271,7 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
           </p>
         )}
         <div className="flex shrink-0 items-center justify-between gap-2">
-          <Link className="text-sm underline" to="/doc#formulas">{t('formulaDocs')}</Link>
+          <Link className="text-sm underline" to="/doc/use#formulas">{t('formulaDocs')}</Link>
           <Button type="button" onClick={() => void save()} disabled={saving || draft === null}>{t('save')}</Button>
         </div>
       </div>

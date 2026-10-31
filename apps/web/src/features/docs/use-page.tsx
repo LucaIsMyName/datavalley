@@ -1,17 +1,31 @@
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Page } from '../components/states'
-import { FORMULA_HELP } from './tables/formula-help'
+import { Page } from '../../components/states'
+import { FORMULA_HELP } from '../tables/formula-help'
+import { useDocsToc } from './layout'
+import type { TocItem } from './toc'
 
-export function DocsPage() {
+export function UserGuidePage() {
   const { t } = useTranslation('docs')
+  const toc = useMemo<TocItem[]>(
+    () => [
+      { id: 'projects', title: t('projectsTitle') },
+      { id: 'tables', title: t('tablesTitle') },
+      { id: 'formulas', title: t('formulasTitle') },
+      { id: 'lookup', title: t('lookupTitle') },
+    ],
+    [t],
+  )
+  useDocsToc(toc)
+
   return (
-    <Page title={t('title')}>
+    <Page title={t('use')}>
       <article className="max-w-3xl space-y-8 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
-        <section>
+        <section id="projects">
           <h2 className="text-lg font-semibold">{t('projectsTitle')}</h2>
           <p className="mt-2 text-muted-foreground">{t('projectsBody')}</p>
         </section>
-        <section>
+        <section id="tables">
           <h2 className="text-lg font-semibold">{t('tablesTitle')}</h2>
           <p className="mt-2 text-muted-foreground">{t('tablesBody')}</p>
         </section>

@@ -43,12 +43,15 @@ const pageRoutes: { id: string; href: string; admin: boolean; titles: Record<Loc
   { id: 'projects', href: '/projects', admin: false, titles: { en: 'Projects', de: 'Projekte' } },
   { id: 'recent', href: '/recent', admin: false, titles: { en: 'Recent', de: 'Zuletzt' } },
   { id: 'favorites', href: '/favorites', admin: false, titles: { en: 'Favorites', de: 'Favoriten' } },
-  { id: 'docs', href: '/doc', admin: false, titles: { en: 'Docs', de: 'Dokumentation' } },
+  { id: 'docs', href: '/doc/use', admin: false, titles: { en: 'Docs', de: 'Dokumentation' } },
   { id: 'integrations', href: '/integrations', admin: false, titles: { en: 'Integrations', de: 'Integrationen' } },
   { id: 'profile', href: '/settings/profile', admin: false, titles: { en: 'Profile', de: 'Profil' } },
   { id: 'users', href: '/settings/users', admin: true, titles: { en: 'Users', de: 'Benutzer' } },
   { id: 'api-keys', href: '/settings/api-keys', admin: true, titles: { en: 'API keys', de: 'API-Schlüssel' } },
   { id: 'audit', href: '/settings/audit', admin: true, titles: { en: 'Audit log', de: 'Protokoll' } },
+  { id: 'docs-use', href: '/doc/use', admin: false, titles: { en: 'User guide', de: 'Benutzerhandbuch' } },
+  { id: 'docs-develop', href: '/doc/develop', admin: false, titles: { en: 'Developer guide', de: 'Entwicklerhandbuch' } },
+  { id: 'docs-api', href: '/doc/api', admin: false, titles: { en: 'API reference', de: 'API-Referenz' } },
 ]
 
 function emptyResults(): SearchResults {
