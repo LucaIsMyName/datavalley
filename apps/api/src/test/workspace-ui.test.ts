@@ -128,4 +128,86 @@ describe('workspace library', () => {
     const denied = await viewerSession.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/directory` })
     expect(denied.statusCode).toBe(403)
   })
+
+  it('keeps an administrator and lets a permitted user add a table', async () => {
+    const member = await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'member',
+      email: 'member@example.com',
+      password,
+      role: 'user',
+    })
+    const memberSession = await new ApiSession(harness.app).prepare()
+    expect((await login(memberSession, 'member', password)).statusCode).toBe(200)
+    const blocked = await memberSession.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Nope' } })
+    expect(blocked.statusCode).toBe(403)
+
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Roster' } })
+    const projectId = project.json().project.id as string
+    expect((await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/members`, payload: { username: 'member' } })).statusCode).toBe(200)
+    const deniedTable = await memberSession.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Notes' } })
+    expect(deniedTable.statusCode).toBe(404)
+    const granted = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/permissions`,
+      payload: {
+        userId: member.id,
+        grants: [
+          { action: 'view', effect: 'allow' },
+          { action: 'manage_structure', effect: 'allow' },
+        ],
+      },
+    })
+    expect(granted.statusCode).toBe(200)
+    const table = await memberSession.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Notes' } })
+    expect(table.statusCode).toBe(200)
+
+    const suspended = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/projects/${projectId}/members/${member.id}`,
+      payload: { disabled: true },
+    })
+    expect(suspended.statusCode).toBe(200)
+    expect(suspended.json().member.disabled).toBe(true)
+    const hidden = await memberSession.inject({ method: 'GET', url: '/api/v1/projects' })
+    expect((hidden.json().projects as { id: string }[]).map((item) => item.id)).not.toContain(projectId)
+    expect((await memberSession.inject({ method: 'GET', url: `/api/v1/projects/${projectId}` })).statusCode).toBe(404)
+
+    const enabled = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/projects/${projectId}/members/${member.id}`,
+      payload: { disabled: false },
+    })
+    expect(enabled.statusCode).toBe(200)
+    const shown = await memberSession.inject({ method: 'GET', url: '/api/v1/projects' })
+    expect((shown.json().projects as { id: string }[]).map((item) => item.id)).toContain(projectId)
+
+    const roster = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/members` })
+    const adaId = (roster.json().members as { userId: string; username: string }[]).find((item) => item.username === 'ada')?.userId
+    expect(roster.json().canManage).toBe(true)
+    expect((await session.inject({ method: 'PATCH', url: `/api/v1/projects/${projectId}/members/${adaId}`, payload: { disabled: true } })).statusCode).toBe(400)
+    expect((await session.inject({ method: 'DELETE', url: `/api/v1/projects/${projectId}/members/${adaId}` })).statusCode).toBe(400)
+
+    const other = await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada2',
+      email: 'ada2@example.com',
+      password,
+      role: 'admin',
+    })
+    expect((await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/members`, payload: { username: 'ada2' } })).statusCode).toBe(200)
+    const shared = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/permissions`,
+      payload: { userId: other.id, grants: [{ action: 'view', effect: 'allow' }, { action: 'manage_permissions', effect: 'allow' }] },
+    })
+    expect(shared.statusCode).toBe(200)
+    expect((await session.inject({ method: 'PATCH', url: `/api/v1/projects/${projectId}/members/${adaId}`, payload: { disabled: true } })).statusCode).toBe(200)
+    const otherSession = await new ApiSession(harness.app).prepare()
+    expect((await login(otherSession, 'ada2', password)).statusCode).toBe(200)
+    expect((await otherSession.inject({ method: 'PATCH', url: `/api/v1/projects/${projectId}/members/${adaId}`, payload: { disabled: false } })).statusCode).toBe(200)
+    expect((await memberSession.inject({ method: 'GET', url: '/api/v1/projects' })).json().projects.map((item: { id: string }) => item.id)).toContain(projectId)
+
+    expect((await session.inject({ method: 'DELETE', url: `/api/v1/projects/${projectId}/members/${member.id}` })).statusCode).toBe(200)
+    expect((await session.inject({ method: 'DELETE', url: `/api/v1/projects/${projectId}/members/${other.id}` })).statusCode).toBe(200)
+    expect((await session.inject({ method: 'DELETE', url: `/api/v1/projects/${projectId}/members/${adaId}` })).statusCode).toBe(400)
+  })
 })

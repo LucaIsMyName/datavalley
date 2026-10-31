@@ -128,6 +128,7 @@ export const projectMembers = pgTable(
   {
     projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
     userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.projectId, table.userId] })],

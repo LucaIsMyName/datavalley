@@ -20,7 +20,7 @@ describe('table fields', () => {
       username: 'outsider',
       email: 'outsider@example.com',
       password,
-      role: 'user',
+      role: 'admin',
     })
     session = await new ApiSession(harness.app).prepare()
     const signedIn = await login(session, 'ada', password)

@@ -2,7 +2,7 @@ import { Type } from '@sinclair/typebox'
 import type { Action } from '@datavalley/shared'
 import type { FastifyInstance } from 'fastify'
 import type { AppDatabase } from '../../database/client.js'
-import { unauthorized } from '../../errors.js'
+import { badRequest, unauthorized } from '../../errors.js'
 import {
   addMember,
   createProject,
@@ -12,6 +12,7 @@ import {
   listMembers,
   listProjects,
   removeMember,
+  setMemberDisabled,
   setArchived,
   setProjectGrants,
   updateProject,
@@ -76,13 +77,21 @@ export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
 
   app.get('/projects/:id/members', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { members: await listMembers(db, request.subject, (request.params as { id: string }).id) }
+    return listMembers(db, request.subject, (request.params as { id: string }).id)
   })
 
   app.post('/projects/:id/members', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { username: string }
     return { member: await addMember(db, request.subject, (request.params as { id: string }).id, body.username) }
+  })
+
+  app.patch('/projects/:id/members/:userId', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const params = request.params as { id: string; userId: string }
+    const body = request.body as { disabled?: boolean }
+    if (typeof body.disabled !== 'boolean') throw badRequest('disabled is required')
+    return { member: await setMemberDisabled(db, request.subject, params.id, params.userId, body.disabled) }
   })
 
   app.delete('/projects/:id/members/:userId', async (request) => {

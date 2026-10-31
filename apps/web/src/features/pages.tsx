@@ -259,6 +259,7 @@ export function DashboardPage() {
 
 export function ProjectsPage() {
   const { t } = useTranslation()
+  const user = useSession((state) => state.user)
   const navigate = useNavigate()
   const openMenu = useContextMenu()
   const queryClient = useQueryClient()
@@ -281,7 +282,7 @@ export function ProjectsPage() {
   return (
     <Page
       title={t('projects')}
-      actions={<Button type="button" onClick={() => { setProjectName(t('name')); setCustomers(false); setCreating(true) }}>{t('newProject')}</Button>}
+      actions={user?.role === 'admin' ? <Button type="button" onClick={() => { setProjectName(t('name')); setCustomers(false); setCreating(true) }}>{t('newProject')}</Button> : null}
     >
       {projects.isLoading ? <LoadingBlock /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
@@ -432,10 +433,16 @@ export function ProjectPage() {
   const [membersOpen, setMembersOpen] = useState(false)
   const [descriptionOpen, setDescriptionOpen] = useState(false)
   const [memberName, setMemberName] = useState('')
+  const [memberError, setMemberError] = useState('')
+  const [dropMember, setDropMember] = useState<{ userId: string; username: string } | null>(null)
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
   const tables = useQuery({ queryKey: ['tables', projectId], queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`) })
-  const members = useQuery({ queryKey: ['members', projectId], enabled: membersOpen, queryFn: () => api.request<{ members: { userId: string; username: string }[] }>(`/projects/${projectId}/members`) })
+  const members = useQuery({
+    queryKey: ['members', projectId],
+    enabled: membersOpen,
+    queryFn: () => api.request<{ members: { userId: string; username: string; email: string; role: string; disabled: boolean }[]; canManage: boolean }>(`/projects/${projectId}/members`),
+  })
   const directory = useQuery({
     queryKey: ['directory', projectId, memberName],
     enabled: membersOpen,
@@ -667,7 +674,11 @@ export function ProjectPage() {
         open={membersOpen}
         onOpenChange={(open) => {
           setMembersOpen(open)
-          if (!open) setMemberName('')
+          if (!open) {
+            setMemberName('')
+            setMemberError('')
+            setDropMember(null)
+          }
         }}
       >
         <Dialog.Portal>
@@ -675,8 +686,50 @@ export function ProjectPage() {
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(32rem,calc(100vh-2rem))] w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto  border border-border bg-card p-4 shadow-md">
             <Dialog.Title className="text-base font-semibold">{t('members')}</Dialog.Title>
             <ul className="mt-3 min-h-8 text-sm">
-              {members.data?.members.map((member) => <li key={member.userId} className="min-h-9 py-1">{member.username}</li>)}
+              {members.data?.members.map((member) => {
+                const roster = members.data?.members ?? []
+                const activeAdmins = roster.filter((item) => item.role === 'admin' && !item.disabled).length
+                const lastAdmin = member.role === 'admin' && !member.disabled && activeAdmins <= 1
+                return (
+                  <li key={member.userId} className="flex min-h-11 flex-wrap items-center gap-2 py-1">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{member.username}</span>
+                      <span className="block truncate text-muted-foreground">{member.email}</span>
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">{member.role}</span>
+                    {member.disabled ? <span className="shrink-0 text-muted-foreground">{t('disabled')}</span> : null}
+                    {members.data?.canManage ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="shrink-0 whitespace-nowrap"
+                          disabled={lastAdmin}
+                          onClick={() => {
+                            setMemberError('')
+                            void api.request(`/projects/${projectId}/members/${member.userId}`, { method: 'PATCH', body: JSON.stringify({ disabled: !member.disabled }) })
+                              .then(() => queryClient.invalidateQueries({ queryKey: ['members', projectId] }))
+                              .catch((error: unknown) => setMemberError(error instanceof ApiClientError ? error.message : t('error')))
+                          }}
+                        >
+                          {member.disabled ? t('enable') : t('disable')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="shrink-0 whitespace-nowrap"
+                          disabled={lastAdmin || roster.length <= 1}
+                          onClick={() => setDropMember(member)}
+                        >
+                          {t('removeMember')}
+                        </Button>
+                      </>
+                    ) : null}
+                  </li>
+                )
+              })}
             </ul>
+            {memberError ? <p className="mt-2 text-sm text-danger">{memberError}</p> : null}
             <form
               className="mt-3"
               onSubmit={async (event) => {
@@ -719,6 +772,24 @@ export function ProjectPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+      <ConfirmDialog
+        open={Boolean(dropMember)}
+        title={t('removeMemberTitle')}
+        body={t('removeMemberWarning', { name: dropMember?.username ?? '' })}
+        confirmLabel={t('confirm')}
+        cancelLabel={t('cancel')}
+        onClose={() => setDropMember(null)}
+        onConfirm={() => {
+          if (!dropMember) return
+          const userId = dropMember.userId
+          setDropMember(null)
+          setMemberError('')
+          void api.request(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
+            .then(() => queryClient.invalidateQueries({ queryKey: ['members', projectId] }))
+            .then(() => queryClient.invalidateQueries({ queryKey: ['directory', projectId] }))
+            .catch((error: unknown) => setMemberError(error instanceof ApiClientError ? error.message : t('error')))
+        }}
+      />
       <ConfirmDialog
         open={Boolean(remove)}
         title={t('deleteTableTitle')}

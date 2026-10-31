@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { canSubject, type Action, type Grant, type ResourceRef, type ResourceType } from '@datavalley/shared'
-import { permissionGrants } from '../database/schema.js'
+import { permissionGrants, projectMembers } from '../database/schema.js'
 import type { AppDatabase } from '../database/client.js'
 import { notFound } from '../errors.js'
 import type { Subject } from './subject.js'
@@ -25,6 +25,15 @@ export function allows(subject: Subject, grants: Grant[], action: Action, resour
 export async function assertCan(db: AppDatabase, subject: Subject, action: Action, resource: ResourceRef) {
   const grants = await loadGrants(db, subject)
   if (!allows(subject, grants, action, resource)) throw notFound()
+  const projectId = resource.type === 'project' ? resource.id : resource.parents?.project
+  if (projectId && subject.kind === 'user') {
+    const [membership] = await db
+      .select({ disabledAt: projectMembers.disabledAt })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, subject.id)))
+      .limit(1)
+    if (membership?.disabledAt) throw notFound()
+  }
   return grants
 }
 

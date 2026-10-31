@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { escapeLike, isResourceIcon, projectOwnerActions, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { permissionGrants, projectMembers, projects, users } from '../../database/schema.js'
@@ -29,9 +29,16 @@ export async function listProjects(db: AppDatabase, subject: Subject, includeArc
     .where(and(eq(permissionGrants.subjectType, subject.kind), eq(permissionGrants.subjectId, subject.id), eq(permissionGrants.action, 'view'), eq(permissionGrants.resourceType, 'project')))
   const allowed = new Set(grants.filter((grant) => grant.effect === 'allow' && grant.resourceId).map((grant) => grant.resourceId as string))
   const denied = new Set(grants.filter((grant) => grant.effect === 'deny' && grant.resourceId).map((grant) => grant.resourceId as string))
+  const suspended = subject.kind === 'user'
+    ? await db
+        .select({ projectId: projectMembers.projectId })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.userId, subject.id), isNotNull(projectMembers.disabledAt)))
+    : []
+  const suspendedIds = new Set(suspended.map((member) => member.projectId))
   const rows = await db.select().from(projects)
   return rows
-    .filter((project) => allowed.has(project.id) && !denied.has(project.id))
+    .filter((project) => allowed.has(project.id) && !denied.has(project.id) && !suspendedIds.has(project.id))
     .filter((project) => includeArchived || !project.archivedAt)
     .map(present)
 }
@@ -42,6 +49,7 @@ export async function createProject(
   input: { name: string; template?: 'blank' | 'customers' },
 ) {
   if (!subject.user) throw notFound()
+  if (subject.role !== 'admin') throw new AppError(403, 'forbidden', 'Admin access is required')
   const name = input.name.trim()
   if (!name) throw badRequest('Project name is required')
   return db.transaction(async (tx) => {
@@ -111,14 +119,47 @@ export async function deleteProject(db: AppDatabase, subject: Subject, id: strin
   await writeAudit(db, subject, { action: 'project.delete', resourceType: 'project', resourceId: id })
 }
 
-export async function listMembers(db: AppDatabase, subject: Subject, projectId: string) {
-  await getProject(db, subject, projectId)
-  const members = await db
-    .select({ userId: projectMembers.userId, username: users.username, email: users.email })
+async function projectRoster(db: AppDatabase, projectId: string) {
+  return db
+    .select({
+      userId: projectMembers.userId,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+      disabledAt: projectMembers.disabledAt,
+    })
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .where(eq(projectMembers.projectId, projectId))
-  return members
+}
+
+function presentMember(member: { userId: string; username: string; email: string; role: string; disabledAt: Date | null }) {
+  return {
+    userId: member.userId,
+    username: member.username,
+    email: member.email,
+    role: member.role,
+    disabled: Boolean(member.disabledAt),
+  }
+}
+
+async function assertKeepsAdmin(db: AppDatabase, projectId: string, userId: string, mode: 'remove' | 'suspend') {
+  const roster = await projectRoster(db, projectId)
+  const target = roster.find((member) => member.userId === userId)
+  if (!target) throw notFound()
+  if (mode === 'remove' && roster.length <= 1) throw badRequest('A project must keep an administrator')
+  const activeAdmins = roster.filter((member) => member.role === 'admin' && !member.disabledAt)
+  const targetIsActiveAdmin = target.role === 'admin' && !target.disabledAt
+  if (targetIsActiveAdmin && activeAdmins.length <= 1) throw badRequest('A project must keep an administrator')
+  return target
+}
+
+export async function listMembers(db: AppDatabase, subject: Subject, projectId: string) {
+  await getProject(db, subject, projectId)
+  const grants = await loadGrants(db, subject)
+  const canManage = allows(subject, grants, 'manage_permissions', { type: 'project', id: projectId })
+  const members = await projectRoster(db, projectId)
+  return { members: members.map(presentMember), canManage }
 }
 
 export async function listDirectory(db: AppDatabase, subject: Subject, projectId: string, query: string) {
@@ -166,10 +207,35 @@ export async function addMember(db: AppDatabase, subject: Subject, projectId: st
 
 export async function removeMember(db: AppDatabase, subject: Subject, projectId: string, userId: string) {
   await assertCan(db, subject, 'manage_permissions', { type: 'project', id: projectId })
+  await assertKeepsAdmin(db, projectId, userId, 'remove')
   await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
   const grants = await db.select().from(permissionGrants).where(and(eq(permissionGrants.subjectId, userId), eq(permissionGrants.resourceId, projectId)))
   for (const grant of grants) await db.delete(permissionGrants).where(eq(permissionGrants.id, grant.id))
   await writeAudit(db, subject, { action: 'project.member.remove', resourceType: 'project', resourceId: projectId, metadata: { userId } })
+}
+
+export async function setMemberDisabled(db: AppDatabase, subject: Subject, projectId: string, userId: string, disabled: boolean) {
+  await assertCan(db, subject, 'manage_permissions', { type: 'project', id: projectId })
+  if (disabled) await assertKeepsAdmin(db, projectId, userId, 'suspend')
+  else {
+    const roster = await projectRoster(db, projectId)
+    if (!roster.some((member) => member.userId === userId)) throw notFound()
+  }
+  const [updated] = await db
+    .update(projectMembers)
+    .set({ disabledAt: disabled ? new Date() : null })
+    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+    .returning()
+  if (!updated) throw notFound()
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+  if (!user) throw notFound()
+  await writeAudit(db, subject, {
+    action: disabled ? 'project.member.disable' : 'project.member.enable',
+    resourceType: 'project',
+    resourceId: projectId,
+    metadata: { userId },
+  })
+  return presentMember({ ...updated, username: user.username, email: user.email, role: user.role })
 }
 
 export async function setProjectGrants(
