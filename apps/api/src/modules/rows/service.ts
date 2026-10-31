@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { parseCsv, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
+import { csvTable, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
@@ -8,7 +8,7 @@ import { allows, loadGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, evaluateStored } from '../formulas/service.js'
-import { loadColumns, positionBetween, requireTable, type LoadedColumn } from '../tables/service.js'
+import { ensureTextColumns, loadColumns, positionBetween, requireTable, type LoadedColumn } from '../tables/service.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 
 async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
@@ -445,22 +445,19 @@ export async function footer(db: AppDatabase, subject: Subject, tableId: string,
 
 export async function importCsv(db: AppDatabase, subject: Subject, tableId: string, csv: string, chunkSize = 500) {
   const table = await requireTable(db, subject, tableId, 'import')
-  const columns = await loadColumns(db, tableId)
-  const grid = parseCsv(csv)
-  const [header, ...records] = grid
-  if (!header) throw badRequest('CSV is empty')
-  const mapping = header.map((name) => columns.find((column) => column.name.toLowerCase() === name.trim().toLowerCase()) ?? null)
+  const parsed = csvTable(csv, true)
+  if (parsed.names.length === 0) throw badRequest('CSV is empty')
+  const mapping = await ensureTextColumns(db, tableId, parsed.names)
   const chunks: { chunk: number; error?: string }[] = []
   let created = 0
-  for (let index = 0; index < records.length; index += chunkSize) {
-    const slice = records.slice(index, index + chunkSize)
+  for (let index = 0; index < parsed.records.length; index += chunkSize) {
+    const slice = parsed.records.slice(index, index + chunkSize)
     const chunk = Math.floor(index / chunkSize) + 1
     try {
       await db.transaction(async (tx) => {
         for (const [rowOffset, record] of slice.entries()) {
           const cells: Record<string, unknown> = {}
           mapping.forEach((column, columnIndex) => {
-            if (!column) return
             const raw = record[columnIndex] ?? ''
             if (raw === '') return
             coerceImport(column, raw)
@@ -512,7 +509,7 @@ export async function exportCsv(db: AppDatabase, subject: Subject, tableId: stri
     if (column.type === 'user' && Array.isArray(value)) return value.map((id) => members.find((member) => member.userId === id)?.username ?? String(id)).join('|')
     return display(value)
   }
-  const lines = [[...columns.map((column) => column.name), 'Notes'], ...rendered.map((row) => [...columns.map((column) => label(column, row.cells[column.id])), row.notes ?? ''])]
+  const lines = [columns.map((column) => column.name), ...rendered.map((row) => columns.map((column) => label(column, row.cells[column.id])))]
   return { csv: toCsv(lines), rowCount: rendered.length, truncated: Boolean(cursor) }
 }
 

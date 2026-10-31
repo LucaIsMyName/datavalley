@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Info, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
+import { FolderOpen, GripVertical, Info, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -20,6 +20,7 @@ import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states
 import { patchCachedTable } from './tables/cache'
 import { pushCommand } from './tables/history'
 import { createdProjectPath } from './tables/grid-ux'
+import { moveTab, tableNameFromFile } from './tables/table-tabs'
 import { TableScreen } from './tables/grid'
 import { openRegisteredTableMenu } from './tables/table-menu'
 import { api } from '../lib/api'
@@ -475,6 +476,13 @@ export function ProjectPage() {
   const [memberError, setMemberError] = useState('')
   const [dropMember, setDropMember] = useState<{ userId: string; username: string } | null>(null)
   const [remove, setRemove] = useState<TableRecord | null>(null)
+  const [creatingTable, setCreatingTable] = useState(false)
+  const [tableKind, setTableKind] = useState<'blank' | 'demo' | 'csv'>('blank')
+  const [csvName, setCsvName] = useState('')
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvHeader, setCsvHeader] = useState(true)
+  const [createTableError, setCreateTableError] = useState('')
+  const [creatingTableBusy, setCreatingTableBusy] = useState(false)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
   const tables = useQuery({ queryKey: ['tables', projectId], queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`) })
   const members = useQuery({
@@ -560,6 +568,56 @@ export function ProjectPage() {
     patchCachedTable(queryClient, id, (current) => ({ ...current, icon: result.table.icon }))
   }
 
+  async function reorderTabs(fromId: string, toId: string) {
+    const current = tableRows
+    const next = moveTab(current, fromId, toId)
+    if (next === current) return
+    queryClient.setQueryData(['tables', projectId], { tables: next })
+    try {
+      await api.request(`/projects/${projectId}/tables/order`, {
+        method: 'PUT',
+        body: JSON.stringify({ tableIds: next.map((table) => table.id) }),
+      })
+    } catch {
+      queryClient.setQueryData(['tables', projectId], { tables: current })
+    }
+  }
+
+  async function openCreatedTable(table: TableRecord, focusName: boolean) {
+    await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
+    navigate(`/projects/${projectId}/tables/${table.id}`, focusName ? { state: { focusName: true } } : undefined)
+  }
+
+  async function submitNewTable() {
+    setCreateTableError('')
+    setCreatingTableBusy(true)
+    try {
+      if (tableKind === 'csv') {
+        if (!csvFile) throw new Error(t('chooseCsv'))
+        const name = csvName.trim() || tableNameFromFile(csvFile.name)
+        if (!name) throw new Error(t('tableName'))
+        const body = new FormData()
+        body.append('file', csvFile)
+        body.append('name', name)
+        body.append('headerRow', csvHeader ? 'true' : 'false')
+        const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables/import`, { method: 'POST', body })
+        setCreatingTable(false)
+        await openCreatedTable(created.table, false)
+        return
+      }
+      const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, {
+        method: 'POST',
+        body: JSON.stringify(tableKind === 'demo' ? { template: 'demo' } : {}),
+      })
+      setCreatingTable(false)
+      await openCreatedTable(created.table, tableKind === 'blank')
+    } catch (error) {
+      setCreateTableError(error instanceof Error ? error.message : t('error'))
+    } finally {
+      setCreatingTableBusy(false)
+    }
+  }
+
   const favoriteProject = [
     {
       id: 'favorite',
@@ -627,6 +685,17 @@ export function ProjectPage() {
             return (
               <div
                 key={table.id}
+                draggable={!current}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData('text/plain', `table:${table.id}`)
+                  event.dataTransfer.effectAllowed = 'move'
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const fromId = event.dataTransfer.getData('text/plain').replace(/^table:/, '')
+                  if (fromId) void reorderTabs(fromId, table.id)
+                }}
                 className={`flex h-10 shrink-0 items-center gap-1 border border-b-0 px-1 pr-4 ${current ? 'border-border bg-card' : 'border-transparent'}`}
                 {...(current
                   ? {
@@ -650,6 +719,23 @@ export function ProjectPage() {
                     }
                   : pressMenuProps(openMenu, pressTimer, pressOrigin, items))}
               >
+                {current ? (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    draggable
+                    aria-label={t('reorder')}
+                    className="inline-flex shrink-0 cursor-grab text-muted-foreground"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                      event.stopPropagation()
+                      event.dataTransfer.setData('text/plain', `table:${table.id}`)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                  >
+                    <GripVertical className="size-3.5" />
+                  </span>
+                ) : null}
                 <IconButton name={table.icon} onChange={(icon) => void saveIcon('table', table.id, icon)} />
                 {current ? (
                   <QuietInput
@@ -673,10 +759,13 @@ export function ProjectPage() {
           <button
             type="button"
             className="flex h-10 shrink-0 items-center gap-1 whitespace-nowrap border border-transparent text-sm font-medium"
-            onClick={async () => {
-              const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
-              await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
-              navigate(`/projects/${projectId}/tables/${created.table.id}`, { state: { focusName: true } })
+            onClick={() => {
+              setTableKind('blank')
+              setCsvName('')
+              setCsvFile(null)
+              setCsvHeader(true)
+              setCreateTableError('')
+              setCreatingTable(true)
             }}
           >
             <Plus className="size-4" />
@@ -844,6 +933,70 @@ export function ProjectPage() {
             .catch((error: unknown) => setMemberError(error instanceof ApiClientError ? error.message : t('error')))
         }}
       />
+      <Dialog.Root open={creatingTable} onOpenChange={(open) => { if (!open) setCreatingTable(false) }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
+            <Dialog.Title className="text-base font-semibold">{t('newTable')}</Dialog.Title>
+            <Dialog.Description className="sr-only">{t('newTable')}</Dialog.Description>
+            <form
+              className="mt-3 flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void submitNewTable()
+              }}
+            >
+              <fieldset className="flex flex-col gap-2">
+                <legend className="sr-only">{t('newTable')}</legend>
+                {([
+                  ['blank', 'blankTable'],
+                  ['demo', 'demoTable'],
+                  ['csv', 'importCsv'],
+                ] as const).map(([value, key]) => (
+                  <label key={value} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="table-kind"
+                      checked={tableKind === value}
+                      onChange={() => setTableKind(value)}
+                    />
+                    {t(key)}
+                  </label>
+                ))}
+              </fieldset>
+              {tableKind === 'csv' ? (
+                <>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    aria-label={t('importCsv')}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null
+                      setCsvFile(file)
+                      if (file) setCsvName(tableNameFromFile(file.name))
+                    }}
+                  />
+                  <input
+                    aria-label={t('tableName')}
+                    className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    value={csvName}
+                    onChange={(event) => setCsvName(event.target.value)}
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={csvHeader} onChange={(event) => setCsvHeader(event.target.checked)} />
+                    {t('csvHasHeader')}
+                  </label>
+                </>
+              ) : null}
+              {createTableError ? <p role="alert" className="text-sm text-danger">{createTableError}</p> : null}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setCreatingTable(false)}>{t('cancel')}</Button>
+                <Button type="submit" disabled={creatingTableBusy}>{t('confirm')}</Button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <ConfirmDialog
         open={Boolean(remove)}
         title={t('deleteTableTitle')}

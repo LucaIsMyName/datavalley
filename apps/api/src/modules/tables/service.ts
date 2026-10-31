@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
-import { isResourceIcon, type Action } from '@datavalley/shared'
+import { csvTable, isResourceIcon, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
@@ -19,6 +19,7 @@ import { badRequest, conflict, notFound } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
+import { seedDemoTable } from './template.js'
 
 export type LoadedColumn = ColumnShape & {
   tableId: string
@@ -73,6 +74,7 @@ export function presentTable(table: typeof tables.$inferSelect) {
     name: table.name,
     description: table.description,
     icon: table.icon,
+    position: table.position,
     headerConfig: table.headerConfig,
     footerConfig: table.footerConfig,
     formatRules: table.formatRules ?? [],
@@ -129,9 +131,18 @@ async function uniqueOrConflict(error: unknown): Promise<never> {
   throw error
 }
 
+export async function nextTablePosition(db: AppDatabase, projectId: string) {
+  const existing = await db
+    .select({ id: tables.id, position: tables.position })
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
+    .orderBy(asc(tables.position))
+  return positionBetween(existing)
+}
+
 export async function listTables(db: AppDatabase, subject: Subject, projectId: string) {
   await assertCan(db, subject, 'view', { type: 'project', id: projectId })
-  const rows = await db.select().from(tables).where(eq(tables.projectId, projectId)).orderBy(asc(tables.name))
+  const rows = await db.select().from(tables).where(eq(tables.projectId, projectId)).orderBy(asc(tables.position), asc(tables.name))
   const visible = []
   for (const table of rows) {
     try {
@@ -144,16 +155,23 @@ export async function listTables(db: AppDatabase, subject: Subject, projectId: s
   return visible
 }
 
-export async function createTable(db: AppDatabase, subject: Subject, projectId: string, input: { name?: string; description?: string }) {
+export async function createTable(
+  db: AppDatabase,
+  subject: Subject,
+  projectId: string,
+  input: { name?: string; description?: string; template?: 'demo' },
+) {
   await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
   const requested = input.name?.trim() ?? ''
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const name = requested || (await nextTableName(db, projectId))
     try {
+      const position = await nextTablePosition(db, projectId)
       const [table] = await db
         .insert(tables)
-        .values({ projectId, name, description: input.description ?? '', createdBy: subject.id })
+        .values({ projectId, name, description: input.description ?? '', position, createdBy: subject.id })
         .returning()
+      if (input.template === 'demo') await seedDemoTable(db, table.id, subject.id)
       await writeAudit(db, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
       return presentTable(table)
     } catch (error) {
@@ -161,6 +179,106 @@ export async function createTable(db: AppDatabase, subject: Subject, projectId: 
     }
   }
   throw conflict('A record with that name already exists')
+}
+
+export async function reorderTables(db: AppDatabase, subject: Subject, projectId: string, tableIds: string[]) {
+  await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
+  const existing = await db.select({ id: tables.id }).from(tables).where(eq(tables.projectId, projectId))
+  const allowed = new Set(existing.map((table) => table.id))
+  if (tableIds.length === 0 || tableIds.some((id) => !allowed.has(id))) throw badRequest('Unknown table')
+  let previous: string | null = null
+  for (const tableId of tableIds) {
+    previous = generateKeyBetween(previous, null)
+    await db.update(tables).set({ position: previous, updatedAt: new Date() }).where(and(eq(tables.id, tableId), eq(tables.projectId, projectId)))
+  }
+}
+
+export async function ensureTextColumns(db: AppDatabase, tableId: string, names: string[]) {
+  const existing = await loadColumns(db, tableId)
+  const byName = new Map(existing.map((column) => [column.name.toLowerCase(), column]))
+  let lastPos = existing.map((column) => column.position).sort().at(-1) ?? null
+  const mapped: LoadedColumn[] = []
+  for (const name of names) {
+    const found = byName.get(name.toLowerCase())
+    if (found) {
+      mapped.push(found)
+      continue
+    }
+    lastPos = generateKeyBetween(lastPos, null)
+    const [column] = await db
+      .insert(tableColumns)
+      .values({
+        tableId,
+        name,
+        type: 'text',
+        config: { icon: defaultColumnIcon('text') },
+        position: lastPos,
+      })
+      .returning()
+    const loaded: LoadedColumn = {
+      id: column.id,
+      tableId: column.tableId,
+      name: column.name,
+      type: column.type,
+      config: (column.config ?? {}) as Record<string, unknown>,
+      description: column.description,
+      position: column.position,
+      hidden: column.hidden,
+      width: column.width,
+      frozen: column.frozen,
+      options: [],
+    }
+    byName.set(column.name.toLowerCase(), loaded)
+    mapped.push(loaded)
+  }
+  return mapped
+}
+
+export async function createTableFromCsv(
+  db: AppDatabase,
+  subject: Subject,
+  projectId: string,
+  input: { name?: string; csv: string; headerRow: boolean },
+) {
+  await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
+  const parsed = csvTable(input.csv, input.headerRow)
+  if (parsed.names.length === 0) throw badRequest('CSV is empty')
+  const requested = input.name?.trim() ?? ''
+  const name = requested || (await nextTableName(db, projectId))
+  try {
+    return await db.transaction(async (tx) => {
+      const position = await nextTablePosition(tx as unknown as AppDatabase, projectId)
+      const [table] = await tx
+        .insert(tables)
+        .values({ projectId, name, description: '', position, createdBy: subject.id })
+        .returning()
+      const columns = await ensureTextColumns(tx as unknown as AppDatabase, table.id, parsed.names)
+      let rowPos: string | null = null
+      let rowNumber = 1
+      for (const record of parsed.records) {
+        rowPos = generateKeyBetween(rowPos, null)
+        const [row] = await tx
+          .insert(tableRows)
+          .values({ tableId: table.id, position: rowPos, rowNumber, createdBy: subject.id })
+          .returning()
+        const cells = columns
+          .map((column, index) => ({
+            tableId: table.id,
+            rowId: row.id,
+            columnId: column.id,
+            valueText: record[index] ?? '',
+          }))
+          .filter((cell) => cell.valueText !== '')
+        if (cells.length > 0) await tx.insert(tableCells).values(cells)
+        rowNumber += 1
+      }
+      await tx.update(tables).set({ nextRowNumber: rowNumber }).where(eq(tables.id, table.id))
+      await writeAudit(tx as unknown as AppDatabase, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
+      return presentTable(table)
+    })
+  } catch (error) {
+    return uniqueOrConflict(error)
+  }
 }
 
 export async function getTable(db: AppDatabase, subject: Subject, tableId: string) {
@@ -435,6 +553,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       name: `${table.name} copy`,
       description: table.description,
       icon: table.icon,
+      position: await nextTablePosition(db, table.projectId),
       headerConfig: table.headerConfig,
       footerConfig: table.footerConfig,
       formatRules: table.formatRules,
@@ -511,7 +630,11 @@ export async function moveTable(db: AppDatabase, subject: Subject, tableId: stri
     const [other] = await db.select().from(tables).where(eq(tables.id, otherId)).limit(1)
     if (other && other.projectId !== projectId) throw conflict('This table has a relationship in another project')
   }
-  const [updated] = await db.update(tables).set({ projectId, updatedAt: new Date() }).where(eq(tables.id, table.id)).returning()
+  const [updated] = await db
+    .update(tables)
+    .set({ projectId, position: await nextTablePosition(db, projectId), updatedAt: new Date() })
+    .where(eq(tables.id, table.id))
+    .returning()
   await writeAudit(db, subject, { action: 'table.move', resourceType: 'table', resourceId: tableId, metadata: { from: table.projectId, to: projectId } })
   return presentTable(updated)
 }

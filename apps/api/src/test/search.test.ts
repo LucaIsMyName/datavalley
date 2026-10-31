@@ -33,10 +33,18 @@ describe('search', () => {
       email: 'bea@example.com',
       password,
     })
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'owner',
+      email: 'owner@example.com',
+      password,
+      role: 'admin',
+    })
     const session = await new ApiSession(harness.app).prepare()
     await login(session, 'admin', password)
     const stranger = await new ApiSession(harness.app).prepare()
     await login(stranger, 'bea', password)
+    const owner = await new ApiSession(harness.app).prepare()
+    await login(owner, 'owner', password)
 
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Pipeline' } })
     expect(project.statusCode).toBe(200)
@@ -68,21 +76,22 @@ describe('search', () => {
     await harness.db.update(tableRows).set({ updatedAt: new Date('2030-01-01T00:00:00.000Z') }).where(eq(tableRows.id, rowId))
     expect((await session.inject({ method: 'POST', url: '/api/v1/favorites', payload: { resourceType: 'table', resourceId: tableId } })).statusCode).toBe(200)
 
-    const vault = await stranger.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Vault' } })
+    const vault = await owner.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Vault' } })
+    expect(vault.statusCode).toBe(200)
     const vaultId = vault.json().project.id as string
-    const secretTable = await stranger.inject({
+    const secretTable = await owner.inject({
       method: 'POST',
       url: `/api/v1/projects/${vaultId}/tables`,
       payload: { name: 'Secrets' },
     })
     const secretTableId = secretTable.json().table.id as string
-    const secretColumn = await stranger.inject({
+    const secretColumn = await owner.inject({
       method: 'POST',
       url: `/api/v1/tables/${secretTableId}/columns`,
       payload: { name: 'Hidden Code', type: 'text' },
     })
     const secretColumnId = secretColumn.json().column.id as string
-    await stranger.inject({
+    await owner.inject({
       method: 'POST',
       url: `/api/v1/tables/${secretTableId}/rows`,
       payload: { cells: { [secretColumnId]: 'SENTINEL' } },

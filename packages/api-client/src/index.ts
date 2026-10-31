@@ -88,6 +88,7 @@ export type TableRecord = {
   name: string
   description: string
   icon: string
+  position: string
   headerConfig: Record<string, unknown>
   footerConfig: Record<string, unknown>
   formatRules: FormatRule[]

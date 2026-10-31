@@ -241,4 +241,144 @@ describe('table interactions', () => {
       filter: { op: 'contains', columnId: nameId, value: 'Ada' },
     })
   })
+
+  it('orders tables, seeds demo data, and imports a CSV as a new table', async () => {
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Tabs' } })
+    const projectId = project.json().project.id as string
+    const first = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Alpha' } })
+    const second = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Beta' } })
+    expect(first.statusCode).toBe(200)
+    const firstId = first.json().table.id as string
+    const secondId = second.json().table.id as string
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    expect((listed.json().tables as { name: string }[]).map((table) => table.name)).toEqual(['People', 'Alpha', 'Beta'])
+    const ordered = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/tables/order`,
+      payload: { tableIds: [secondId, firstId, (listed.json().tables as { id: string; name: string }[]).find((table) => table.name === 'People')!.id] },
+    })
+    expect(ordered.statusCode).toBe(200)
+    const after = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    expect((after.json().tables as { name: string }[]).map((table) => table.name)).toEqual(['Beta', 'Alpha', 'People'])
+
+    const demo = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { template: 'demo' } })
+    expect(demo.statusCode).toBe(200)
+    const demoId = demo.json().table.id as string
+    const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${demoId}` })
+    const columns = detail.json().table.columns as { id: string; name: string; type: string }[]
+    expect(columns.map((column) => [column.name, column.type])).toEqual([
+      ['Name', 'text'],
+      ['Email', 'text'],
+      ['Company', 'text'],
+      ['Notes', 'text'],
+    ])
+    const rows = await session.inject({ method: 'GET', url: `/api/v1/tables/${demoId}/rows` })
+    expect(rows.json().rows).toHaveLength(3)
+    expect(rows.json().rows[0].cells[columns[0].id]).toBe('Ada Lovelace')
+
+    const boundary = '----datavalley-new-table'
+    const csvBody = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="name"',
+      '',
+      'Cities',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="headerRow"',
+      '',
+      'true',
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="cities.csv"',
+      'Content-Type: text/csv',
+      '',
+      'City,Country\nParis,France\nRome,Italy',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n')
+    const imported = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables/import`,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: csvBody,
+    })
+    expect(imported.statusCode).toBe(200)
+    expect(imported.json().table.name).toBe('Cities')
+    const csvId = imported.json().table.id as string
+    const csvDetail = await session.inject({ method: 'GET', url: `/api/v1/tables/${csvId}` })
+    expect((csvDetail.json().table.columns as { name: string; type: string }[]).map((column) => [column.name, column.type])).toEqual([
+      ['City', 'text'],
+      ['Country', 'text'],
+    ])
+    const csvRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${csvId}/rows` })
+    expect(csvRows.json().rows).toHaveLength(2)
+
+    const rawBoundary = '----datavalley-raw'
+    const rawBody = [
+      `--${rawBoundary}`,
+      'Content-Disposition: form-data; name="name"',
+      '',
+      'Raw',
+      `--${rawBoundary}`,
+      'Content-Disposition: form-data; name="headerRow"',
+      '',
+      'false',
+      `--${rawBoundary}`,
+      'Content-Disposition: form-data; name="file"; filename="raw.csv"',
+      'Content-Type: text/csv',
+      '',
+      'Ada,London',
+      `--${rawBoundary}--`,
+      '',
+    ].join('\r\n')
+    const raw = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables/import`,
+      headers: { 'content-type': `multipart/form-data; boundary=${rawBoundary}` },
+      payload: rawBody,
+    })
+    expect(raw.statusCode).toBe(200)
+    const rawDetail = await session.inject({ method: 'GET', url: `/api/v1/tables/${raw.json().table.id}` })
+    expect((rawDetail.json().table.columns as { name: string }[]).map((column) => column.name)).toEqual(['Column 1', 'Column 2'])
+  })
+
+  it('creates missing columns when importing a CSV into an existing table', async () => {
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Import columns' } })
+    const projectId = project.json().project.id as string
+    const table = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Companies' } })
+    const tableId = table.json().table.id as string
+    await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Name', type: 'text' } })
+    const boundary = '----datavalley-existing-import'
+    const csv = 'ID,Name,UID,Mail\n1,Diakonie Österreich,1234,ada@example.com\n2,Diakoniewerk,3456,'
+    const body = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="companies.csv"',
+      'Content-Type: text/csv',
+      '',
+      csv,
+      `--${boundary}--`,
+      '',
+    ].join('\r\n')
+    const imported = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/import`,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    })
+    expect(imported.statusCode).toBe(200)
+    expect(imported.json().created).toBe(2)
+    expect(imported.json().errors).toEqual([])
+    const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}` })
+    const columns = detail.json().table.columns as { id: string; name: string; type: string }[]
+    expect(columns.map((column) => [column.name, column.type])).toEqual([
+      ['Name', 'text'],
+      ['ID', 'text'],
+      ['UID', 'text'],
+      ['Mail', 'text'],
+    ])
+    const rows = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const nameId = columns.find((column) => column.name === 'Name')!.id
+    const idCol = columns.find((column) => column.name === 'ID')!.id
+    expect(rows.json().rows).toHaveLength(2)
+    expect(rows.json().rows[0].cells[nameId]).toBe('Diakonie Österreich')
+    expect(rows.json().rows[0].cells[idCol]).toBe('1')
+  })
 })

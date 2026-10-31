@@ -1,6 +1,6 @@
 import { isFormulaError, type AstNode, type FormulaValue, type RefNode } from './ast.js'
 import { parseFormula } from './parse.js'
-import { runFormula } from './eval.js'
+import { runFormula, type EvalContext } from './eval.js'
 
 export type ConditionBlock = 'lookup' | 'relation' | 'column' | 'cell'
 
@@ -45,7 +45,7 @@ function isTrue(value: FormulaValue) {
   return false
 }
 
-function context(item: FormulaValue, values: Record<string, FormulaValue>) {
+function context(item: FormulaValue, values: Record<string, FormulaValue>): Omit<EvalContext, 'now'> {
   return {
     item,
     blankItem: true,

@@ -142,6 +142,7 @@ export const tables = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     icon: text('icon').notNull().default('Table'),
+    position: text('position').notNull().default('a0'),
     headerConfig: jsonb('header_config').notNull().default({}),
     footerConfig: jsonb('footer_config').notNull().default({}),
     formatRules: jsonb('format_rules').notNull().default([]),

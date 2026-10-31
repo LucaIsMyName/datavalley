@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { paintSwatch, swatchName } from './colors.js'
-import { parseCsv, toCsv } from './csv.js'
+import { csvTable, parseCsv, toCsv, uniqueColumnNames } from './csv.js'
 import { compareOp } from './filters.js'
 import { conditionalStyle, expressionFromOperator, stylesForCell } from './formatting.js'
 import { decide } from './permissions.js'
@@ -132,6 +132,25 @@ describe('csv', () => {
       ['Grace', 'line\nbreak'],
     ]
     expect(parseCsv(toCsv(rows))).toEqual(rows)
+  })
+
+  it('deduplicates blank and repeated headers', () => {
+    expect(uniqueColumnNames(['Name', 'Name', '', 'Name'])).toEqual(['Name', 'Name 2', 'Column 3', 'Name 3'])
+  })
+
+  it('builds a text table from a CSV with or without a header row', () => {
+    expect(csvTable('Name,City\nAda,London\n', true)).toEqual({
+      names: ['Name', 'City'],
+      records: [['Ada', 'London']],
+    })
+    expect(csvTable('Ada,London\nGrace\n', false)).toEqual({
+      names: ['Column 1', 'Column 2'],
+      records: [
+        ['Ada', 'London'],
+        ['Grace', ''],
+      ],
+    })
+    expect(csvTable('', true)).toEqual({ names: [], records: [] })
   })
 })
 

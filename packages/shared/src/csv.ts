@@ -1,3 +1,34 @@
+export function uniqueColumnNames(headers: string[]): string[] {
+  const used = new Map<string, number>()
+  return headers.map((raw, index) => {
+    const base = raw.trim() || `Column ${index + 1}`
+    const count = used.get(base) ?? 0
+    used.set(base, count + 1)
+    if (count === 0) return base
+    let next = count + 1
+    let name = `${base} ${next}`
+    while (used.has(name)) {
+      next += 1
+      name = `${base} ${next}`
+    }
+    used.set(name, 1)
+    return name
+  })
+}
+
+export function csvTable(input: string, headerRow: boolean): { names: string[]; records: string[][] } {
+  const grid = parseCsv(input)
+  if (grid.length === 0) return { names: [], records: [] }
+  const width = Math.max(0, ...grid.map((row) => row.length))
+  if (width === 0) return { names: [], records: [] }
+  const pad = (row: string[]) => Array.from({ length: width }, (_, index) => row[index] ?? '')
+  if (headerRow) return { names: uniqueColumnNames(pad(grid[0] ?? [])), records: grid.slice(1).map(pad) }
+  return {
+    names: uniqueColumnNames(Array.from({ length: width }, (_, index) => `Column ${index + 1}`)),
+    records: grid.map(pad),
+  }
+}
+
 export function parseCsv(input: string): string[][] {
   const text = input.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const rows: string[][] = []

@@ -49,7 +49,7 @@ describe('table fields', () => {
     expect(cleared.json().project.description).toBe('')
   })
 
-  it('stores row notes and includes them in the CSV', async () => {
+  it('stores row notes and keeps them out of the CSV', async () => {
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Notes' } })
     const projectId = project.json().project.id as string
     const table = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Notes' } })
@@ -68,8 +68,8 @@ describe('table fields', () => {
     const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
     expect(listed.json().rows[0].notes).toBe('**Hello**')
     const exported = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/export`, payload: {} })
-    expect(exported.json().csv).toContain('Notes')
-    expect(exported.json().csv).toContain('**Hello**')
+    expect(exported.json().csv).toBe('Name\nAda')
+    expect(exported.json().csv).not.toContain('**Hello**')
   })
 
   it('reuses a tag name and rejects a second row with that name', async () => {
