@@ -25,6 +25,7 @@ import { createdProjectPath } from './tables/grid-ux'
 import { tabDropEdge } from './tables/drop-place'
 import { moveTab, tableNameFromFile } from './tables/table-tabs'
 import { openRegisteredTableMenu } from './tables/table-menu'
+import { TableToolbarProvider, TableToolbarRow } from './tables/table-toolbar'
 import { api } from '../lib/api'
 import { sync } from '../lib/sync'
 import { applyTheme, useSession } from '../stores/session'
@@ -649,6 +650,7 @@ export function ProjectPage() {
   ]
 
   return (
+    <TableToolbarProvider>
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 flex-col gap-3 px-4 pt-4 md:px-6 md:pt-6">
         <div className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -827,6 +829,11 @@ export function ProjectPage() {
           </button>
         </div>
       </header>
+      {tableId && tableRows.length > 0 ? (
+        <div className="flex shrink-0 px-4 md:px-6">
+          <TableToolbarRow />
+        </div>
+      ) : null}
       <div className="flex min-h-0 flex-1 flex-col">
         {tableRows.length === 0 ? (
           <div className="p-4 md:p-6">
@@ -1070,6 +1077,7 @@ export function ProjectPage() {
         }}
       />
     </section>
+    </TableToolbarProvider>
   )
 }
 
@@ -1156,34 +1164,6 @@ export function IntegrationsPage() {
   )
 }
 
-function SettingsNav() {
-  const { t } = useTranslation()
-  const user = useSession((state) => state.user)
-  const links = [
-    { to: '/settings/profile', key: 'profile' },
-    ...(user?.role === 'admin'
-      ? [
-          { to: '/settings/users', key: 'users' },
-          { to: '/settings/api-keys', key: 'apiKeys' },
-          { to: '/settings/audit', key: 'audit' },
-        ]
-      : []),
-  ]
-  return (
-    <nav className="flex min-h-9 flex-wrap gap-2 text-sm">
-      {links.map((link) => (
-        <NavLink
-          key={link.to}
-          to={link.to}
-          className={({ isActive }) => `px-2 py-1 ${isActive ? 'bg-accent font-medium' : 'hover:bg-accent'}`}
-        >
-          {t(link.key)}
-        </NavLink>
-      ))}
-    </nav>
-  )
-}
-
 export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -1191,7 +1171,6 @@ export function UsersPage() {
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.request<{ users: User[] }>('/users') })
   return (
     <Page title={t('users')}>
-      <SettingsNav />
       <form
         className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
         onSubmit={async (event) => {
@@ -1259,7 +1238,6 @@ export function ApiKeysPage() {
   const keys = useQuery({ queryKey: ['api-keys'], queryFn: () => api.request<{ apiKeys: { id: string; name: string; prefix: string; revokedAt: string | null }[] }>('/api-keys') })
   return (
     <Page title={t('apiKeys')}>
-      <SettingsNav />
       <form
         className="flex flex-col gap-2 sm:flex-row"
         onSubmit={async (event) => {
@@ -1305,7 +1283,6 @@ export function AuditPage() {
   const audit = useQuery({ queryKey: ['audit'], queryFn: () => api.request<{ entries: { id: string; action: string; createdAt: string }[] }>('/audit') })
   return (
     <Page title={t('audit')}>
-      <SettingsNav />
       {audit.isLoading ? <LoadingBlock /> : null}
       {audit.isError ? <ErrorState message={(audit.error as Error).message} /> : null}
       {audit.data && audit.data.entries.length === 0 ? <EmptyState title={t('emptyAudit')} body={t('emptyAudit')} /> : null}
@@ -1342,7 +1319,6 @@ function ProfileForm({ user }: { user: User }) {
 
   return (
     <Page title={t('profile')}>
-      <SettingsNav />
       <div className="grid max-w-md gap-3">
         <Label htmlFor="locale">{t('language')}</Label>
         <Select

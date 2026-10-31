@@ -22,6 +22,7 @@ function route<Exports extends Record<string, unknown>>(
 
 const pages = () => import('../features/pages')
 const docsLayout = () => import('../features/docs/layout')
+const settingsLayout = () => import('../features/settings/layout')
 
 const LoginPage = route(pages, 'LoginPage', screenFallback)
 const ForgotPasswordPage = route(pages, 'ForgotPasswordPage', screenFallback)
@@ -36,6 +37,7 @@ const RecentPage = route(pages, 'RecentPage')
 const FavoritesPage = route(pages, 'FavoritesPage')
 const DocsLayout = route(docsLayout, 'DocsLayout')
 const DocsIndexRedirect = route(docsLayout, 'DocsIndexRedirect')
+const SettingsLayout = route(settingsLayout, 'SettingsLayout')
 const UserGuidePage = route(() => import('../features/docs/use-page'), 'UserGuidePage')
 const DeveloperGuidePage = route(() => import('../features/docs/develop-page'), 'DeveloperGuidePage')
 const ApiReferencePage = route(() => import('../features/docs/api-page'), 'ApiReferencePage')
@@ -91,13 +93,20 @@ export const router = createBrowserRouter([
             ],
           },
           { path: '/integrations', element: <IntegrationsPage /> },
-          { path: '/settings/profile', element: <ProfilePage /> },
           {
-            element: <RequireAdmin />,
+            path: '/settings',
+            element: <SettingsLayout />,
             children: [
-              { path: '/settings/users', element: <UsersPage /> },
-              { path: '/settings/api-keys', element: <ApiKeysPage /> },
-              { path: '/settings/audit', element: <AuditPage /> },
+              { index: true, element: <Navigate to="/settings/profile" replace /> },
+              { path: 'profile', element: <ProfilePage /> },
+              {
+                element: <RequireAdmin />,
+                children: [
+                  { path: 'users', element: <UsersPage /> },
+                  { path: 'api-keys', element: <ApiKeysPage /> },
+                  { path: 'audit', element: <AuditPage /> },
+                ],
+              },
             ],
           },
         ],

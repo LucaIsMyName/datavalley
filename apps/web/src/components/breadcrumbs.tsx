@@ -10,6 +10,12 @@ import { fitCrumbs } from '../lib/fit-crumbs'
 
 export type Crumb = { label: string; to?: string }
 
+const TOP_LEVEL_PATHS = new Set(['/', '/projects', '/recent', '/favorites', '/integrations'])
+
+export function breadcrumbHidden(pathname: string) {
+  return TOP_LEVEL_PATHS.has(pathname)
+}
+
 export function useCrumbs(): Crumb[] {
   const { t } = useTranslation()
   const { t: td } = useTranslation('docs')
@@ -97,6 +103,7 @@ function CrumbRow({ crumbs, measure = false }: { crumbs: Crumb[]; measure?: bool
 
 export function Breadcrumbs() {
   const { t } = useTranslation()
+  const { pathname } = useLocation()
   const crumbs = useCrumbs()
   const slotRef = useRef<HTMLElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
@@ -122,6 +129,10 @@ export function Breadcrumbs() {
   const hidden = crumbs.filter((_, index) => !visible.includes(index))
   const shown = visible.map((index) => crumbs[index]).filter((crumb): crumb is Crumb => Boolean(crumb))
   const currentIndex = crumbs.length - 1
+
+  if (breadcrumbHidden(pathname)) {
+    return <div className="min-w-0 flex-1" aria-hidden />
+  }
 
   return (
     <nav ref={slotRef} aria-label={t('breadcrumbs')} className="relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-sm">

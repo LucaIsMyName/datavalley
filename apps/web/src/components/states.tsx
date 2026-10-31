@@ -1,13 +1,25 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useCrumbs } from './breadcrumbs'
 
 export function Page({ title, actions, children }: { title: ReactNode; actions?: ReactNode; children: ReactNode }) {
+  const crumbs = useCrumbs()
+  const titleText = typeof title === 'string' ? title : null
+  const lastCrumb = crumbs[crumbs.length - 1]?.label
+  const hideTitle = titleText != null && crumbs.length > 0 && lastCrumb === titleText
+  const showHeader = !hideTitle || Boolean(actions)
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 md:p-6">
-      <header className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {typeof title === 'string' ? <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{title}</h1> : title}
-        {actions ? <div className="flex min-h-9 flex-wrap items-center gap-2">{actions}</div> : null}
-      </header>
+      {showHeader ? (
+        <header className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {hideTitle ? null : typeof title === 'string' ? (
+            <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{title}</h1>
+          ) : (
+            title
+          )}
+          {actions ? <div className="flex min-h-9 flex-wrap items-center gap-2">{actions}</div> : null}
+        </header>
+      ) : null}
       {children}
     </section>
   )

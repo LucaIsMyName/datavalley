@@ -92,6 +92,7 @@ import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
 import { Swatches } from './swatches'
 import { registerTableMenu } from './table-menu'
+import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import {
   historyFlags,
   pushCommand,
@@ -1697,6 +1698,34 @@ export function TableScreen({ tableId }: { tableId: string }) {
     setPopover(null)
     await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
   }
+
+  const toolbarActions = useMemo(() => {
+    if (!table) return null
+    return {
+      find: (el: HTMLElement) => setPopover({ kind: 'find', ...viewportAnchorFrom(el) }),
+      exportCsv: () => void exportCsv(),
+      importCsv: () => importRef.current?.click(),
+      views: (views.data?.views ?? []).map((view) => ({
+        id: view.id,
+        name: view.name,
+        apply: () => applyView(view),
+      })),
+      saveView: (el: HTMLElement) => setPopover({ kind: 'view', ...viewportAnchorFrom(el) }),
+      duplicateTable: () =>
+        void api.request(`/tables/${tableId}/duplicate`, {
+          method: 'POST',
+          body: JSON.stringify({ includeData: true }),
+        }),
+      deleteTable: () =>
+        setConfirm({
+          title: t('deleteTableTitle'),
+          body: t('deleteTableWarning', { name: table.name }),
+          run: deleteThisTable,
+        }),
+    }
+  }, [table, tableId, t, views.data?.views])
+
+  useRegisterTableToolbar(toolbarActions)
 
   const columnSignature = JSON.stringify(
     columns.map((column) => [
