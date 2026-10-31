@@ -267,6 +267,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const rowParam = searchParams.get('row') ?? ''
   const parentRef = useRef<HTMLDivElement>(null)
   const importRef = useRef<HTMLInputElement>(null)
+  const mediaFileRef = useRef<HTMLInputElement>(null)
+  const mediaUploadTarget = useRef<{ rowId: string; columnId: string } | null>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
   const dragItem = useRef<{ kind: 'column' | 'row'; id: string } | null>(null)
@@ -315,6 +317,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     rowId: string
     columnId: string
   } | null>(null)
+  const [mediaUploadingKey, setMediaUploadingKey] = useState<string | null>(null)
   const [selectingAll, setSelectingAll] = useState(false)
   const filter = useMemo(() => activeFilter(filters), [filters])
   const filterKey = JSON.stringify(filter)
@@ -856,11 +859,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
   }
 
+  function requestMediaUpload(rowId: string, columnId: string) {
+    mediaUploadTarget.current = { rowId, columnId }
+    mediaFileRef.current?.click()
+  }
+
   async function uploadMediaToCell(rowId: string, column: Column, file: File): Promise<string[]> {
-    const saved = await uploadMedia(file)
+    let saved
+    try {
+      saved = await uploadMedia(file)
+    } catch (error) {
+      const message = editFailureMessage(error, t('error'), { cell: true })
+      if (message) showEditError(message)
+      throw error
+    }
     const row =
       readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId)
-    if (!row) throw new Error('Row not found')
+    if (!row) {
+      showEditError(t('error'))
+      throw new Error('Row not found')
+    }
     const next = mergeMediaIntoCell(row.cells[column.id], [saved.id])
     await applyMediaCell(row, column, next)
     return next?.fileIds ?? []
@@ -2150,7 +2168,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     setMediaLibrary({ rowId: row.original.id, columnId: column.id, existingIds })
                   }
                   onMediaPreview={(file) => void openMediaPreview(file, row.original.id, column.id)}
-                  onMediaUpload={(file) => uploadMediaToCell(row.original.id, column, file)}
+                  onMediaRequestUpload={() => requestMediaUpload(row.original.id, column.id)}
+                  onMediaUploading={mediaUploadingKey === `${row.original.id}:${column.id}`}
                   onMediaCommit={(value) => applyMediaCell(row.original, column, value)}
                 />
               )}
@@ -2177,6 +2196,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       columnSignature,
       editing,
       fill,
+      mediaUploadingKey,
       invalidSignature,
       rulesSignature,
       selected,
@@ -2336,6 +2356,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
             .catch((caught) => {
               showEditError(caught instanceof Error ? caught.message : t('error'))
             })
+        }}
+      />
+      <input
+        ref={mediaFileRef}
+        aria-label={t('mediaUpload')}
+        type="file"
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          const target = mediaUploadTarget.current
+          mediaUploadTarget.current = null
+          if (!file || !target) return
+          const column = columns.find((item) => item.id === target.columnId)
+          if (!column) return
+          const key = `${target.rowId}:${target.columnId}`
+          setMediaUploadingKey(key)
+          void uploadMediaToCell(target.rowId, column, file).finally(() => {
+            setMediaUploadingKey((current) => (current === key ? null : current))
+          })
         }}
       />
       <div className="flex min-h-0 flex-1 flex-col border border-border bg-card">

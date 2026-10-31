@@ -1,7 +1,7 @@
 import { mergeMediaFileIds, normalizeMediaCellValue } from '@datavalley/shared'
 import type { MediaFile } from '@datavalley/api-client'
 import { Library, Paperclip, Upload, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -80,27 +80,27 @@ export function MediaCellBadges({
 export function MediaEditor({
   value,
   active,
+  uploading,
   onCommit,
   onOpen,
   onActivate,
   onOpenLibrary,
   onPreviewFile,
-  onUpload,
+  onRequestUpload,
 }: {
   value: unknown
   active: boolean
+  uploading: boolean
   onCommit: (value: { fileIds: string[] } | null) => Promise<void>
   onOpen: () => void
   onActivate: () => void
   onOpenLibrary: (existingIds: string[]) => void
   onPreviewFile: (file: MediaFile) => void
-  onUpload: (file: File) => Promise<string[]>
+  onRequestUpload: () => void
 }) {
   const { t } = useTranslation()
-  const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState<string[]>(() => readFileIds(value))
   const [error, setError] = useState('')
-  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     if (active) setDraft(readFileIds(value))
@@ -164,7 +164,7 @@ export function MediaEditor({
           disabled={uploading}
           onClick={(event) => {
             event.stopPropagation()
-            inputRef.current?.click()
+            onRequestUpload()
           }}
         >
           <Upload className="size-3.5" />
@@ -183,28 +183,6 @@ export function MediaEditor({
           <Library className="size-3.5" />
         </Button>
       </div>
-      <input
-        ref={inputRef}
-        type="file"
-        className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (!file) return
-          void (async () => {
-            setError('')
-            setUploading(true)
-            try {
-              const nextIds = await onUpload(file)
-              setDraft(nextIds)
-            } catch (caught) {
-              setError(caught instanceof Error ? caught.message : t('error'))
-            } finally {
-              setUploading(false)
-            }
-          })()
-        }}
-      />
       {error ? (
         <span className="sr-only" role="alert">
           {error}

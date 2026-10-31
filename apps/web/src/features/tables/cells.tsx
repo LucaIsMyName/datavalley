@@ -63,7 +63,8 @@ export function CellEditor({
   hint,
   onMediaLibrary,
   onMediaPreview,
-  onMediaUpload,
+  onMediaRequestUpload,
+  onMediaUploading,
   onMediaCommit,
 }: {
   column: Column
@@ -83,7 +84,8 @@ export function CellEditor({
   hint?: string | null
   onMediaLibrary?: (existingIds: string[]) => void
   onMediaPreview?: (file: MediaFile) => void
-  onMediaUpload?: (file: File) => Promise<string[]>
+  onMediaRequestUpload?: () => void
+  onMediaUploading?: boolean
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
 }) {
   const { t } = useTranslation()
@@ -100,6 +102,7 @@ export function CellEditor({
       <MediaEditor
         value={row.cells[column.id]}
         active={active}
+        uploading={Boolean(onMediaUploading)}
         onCommit={async (value) => {
           if (!onMediaCommit) throw new Error('Media save is unavailable')
           await onMediaCommit(value)
@@ -108,10 +111,7 @@ export function CellEditor({
         onActivate={onActivate}
         onOpenLibrary={(existingIds) => onMediaLibrary?.(existingIds)}
         onPreviewFile={(file) => onMediaPreview?.(file)}
-        onUpload={async (file) => {
-          if (!onMediaUpload) throw new Error('Media upload is unavailable')
-          return onMediaUpload(file)
-        }}
+        onRequestUpload={() => onMediaRequestUpload?.()}
       />
     )
   }
