@@ -12,7 +12,7 @@ TRUE
 FALSE
 ```
 
-An empty value is null. `+ - * / %` work on numbers. `&` and `CONCAT` join text. `=` and `<>` compare two numbers, two texts, or two booleans. `> < >= <=` compare two numbers or two texts. Mixing a number with text is `#VALUE`.
+An empty value is null. `+ - * / %` work on numbers. `&` and `CONCAT` join text. Text in quotes is never a column name. `=` and `<>` compare two numbers, two texts, or two booleans. `> < >= <=` compare two numbers or two texts. Mixing a number with text is `#VALUE`.
 
 `IF(condition, whenTrue, whenFalse)` returns either branch. A branch may be a number, text, or a boolean. The false branch may be omitted and is then `FALSE`. `IFNOT` reverses the condition. `IFS(condition1, value1, condition2, value2)` returns the value of the first true condition, or `#N/A`. `AND`, `OR`, and `NOT` return a boolean.
 

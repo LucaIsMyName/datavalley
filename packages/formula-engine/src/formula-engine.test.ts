@@ -104,6 +104,14 @@ describe('formula engine', () => {
     expect(canonical).toBe(`SUM({${table}}.{${column}})`)
   })
 
+  it('keeps a quoted column name as text and still binds the name outside quotes', () => {
+    const names = { Test: { tableId: table, columnId: column } }
+    const ref = `{${table}}.{${column}}`
+    expect(canonicalize(`IF(${ref} = "Test", TRUE, FALSE)`, names)).toBe(`IF(${ref} = "Test", TRUE, FALSE)`)
+    expect(canonicalize('Test = "Test"', names)).toBe(`${ref} = "Test"`)
+    expect(canonicalize('Test = "Say ""Test"""', names)).toBe(`${ref} = "Say ""Test"""`)
+  })
+
   it('returns a number, text, or boolean from a condition', () => {
     expect(run('IF(1, 2, 3)')).toBe(2)
     expect(run('IF(0, "High", "Low")')).toBe('Low')
