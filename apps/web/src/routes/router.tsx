@@ -1,29 +1,49 @@
+import type { ReactNode } from 'react'
 import { Navigate, Outlet, createBrowserRouter } from 'react-router'
 import { LoadingBlock } from '../components/states'
 import { api } from '../lib/api'
-import { ApiReferencePage } from '../features/docs/api-page'
-import { DeveloperGuidePage } from '../features/docs/develop-page'
-import { DocsIndexRedirect, DocsLayout } from '../features/docs/layout'
-import { UserGuidePage } from '../features/docs/use-page'
-import { AppShell } from '../layouts/app-shell'
 import { useSession } from '../stores/session'
-import {
-  ApiKeysPage,
-  AuditPage,
-  ChangePasswordPage,
-  DashboardPage,
-  ForgotPasswordPage,
-  FavoritesPage,
-  IntegrationsPage,
-  LoginPage,
-  ProfilePage,
-  ProjectPage,
-  ProjectsPage,
-  RecentPage,
-  ResetPasswordPage,
-  TablePage,
-  UsersPage,
-} from '../features/pages'
+import { lazyRoute } from './lazy-route'
+
+const screenFallback = (
+  <div className="grid h-screen place-items-center bg-background">
+    <LoadingBlock />
+  </div>
+)
+const pageFallback = <LoadingBlock />
+
+function route<Exports extends Record<string, unknown>>(
+  load: () => Promise<Exports>,
+  name: keyof Exports & string,
+  fallback: ReactNode = pageFallback,
+) {
+  return lazyRoute(load, name, fallback)
+}
+
+const pages = () => import('../features/pages')
+const docsLayout = () => import('../features/docs/layout')
+
+const LoginPage = route(pages, 'LoginPage', screenFallback)
+const ForgotPasswordPage = route(pages, 'ForgotPasswordPage', screenFallback)
+const ResetPasswordPage = route(pages, 'ResetPasswordPage', screenFallback)
+const ChangePasswordPage = route(pages, 'ChangePasswordPage', screenFallback)
+const AppShell = route(() => import('../layouts/app-shell'), 'AppShell', screenFallback)
+const DashboardPage = route(pages, 'DashboardPage')
+const ProjectsPage = route(pages, 'ProjectsPage')
+const ProjectPage = route(pages, 'ProjectPage')
+const TablePage = route(() => import('../features/tables/page'), 'TablePage')
+const RecentPage = route(pages, 'RecentPage')
+const FavoritesPage = route(pages, 'FavoritesPage')
+const DocsLayout = route(docsLayout, 'DocsLayout')
+const DocsIndexRedirect = route(docsLayout, 'DocsIndexRedirect')
+const UserGuidePage = route(() => import('../features/docs/use-page'), 'UserGuidePage')
+const DeveloperGuidePage = route(() => import('../features/docs/develop-page'), 'DeveloperGuidePage')
+const ApiReferencePage = route(() => import('../features/docs/api-page'), 'ApiReferencePage')
+const IntegrationsPage = route(pages, 'IntegrationsPage')
+const ProfilePage = route(pages, 'ProfilePage')
+const UsersPage = route(pages, 'UsersPage')
+const ApiKeysPage = route(pages, 'ApiKeysPage')
+const AuditPage = route(pages, 'AuditPage')
 
 function RequireAuth() {
   const user = useSession((state) => state.user)

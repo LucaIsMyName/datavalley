@@ -21,7 +21,6 @@ import { patchCachedTable } from './tables/cache'
 import { pushCommand } from './tables/history'
 import { createdProjectPath } from './tables/grid-ux'
 import { moveTab, tableNameFromFile } from './tables/table-tabs'
-import { TableScreen } from './tables/grid'
 import { openRegisteredTableMenu } from './tables/table-menu'
 import { api } from '../lib/api'
 import { sync } from '../lib/sync'
@@ -1016,11 +1015,6 @@ export function ProjectPage() {
       />
     </section>
   )
-}
-
-export function TablePage() {
-  const { tableId = '' } = useParams()
-  return <TableScreen tableId={tableId} />
 }
 
 export function RecentPage() {
