@@ -1167,55 +1167,85 @@ export function IntegrationsPage() {
 export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [creating, setCreating] = useState(false)
   const [role, setRole] = useState('user')
+  const [createError, setCreateError] = useState('')
+  const [createPending, setCreatePending] = useState(false)
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.request<{ users: User[] }>('/users') })
   return (
-    <Page title={t('users')}>
-      <form
-        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
-        onSubmit={async (event) => {
-          event.preventDefault()
-          const form = event.currentTarget
-          const data = new FormData(form)
-          await api.request('/users', {
-            method: 'POST',
-            body: JSON.stringify({
-              username: data.get('username'),
-              email: data.get('email'),
-              password: data.get('password'),
-              role,
-            }),
-          })
-          await queryClient.invalidateQueries({ queryKey: ['users'] })
-          form.reset()
-          setRole('user')
-        }}
-      >
-        <div className="grid gap-1">
-          <Label htmlFor="new-username">{t('username')}</Label>
-          <Input id="new-username" name="username" required className="sm:w-32" />
-        </div>
-        <div className="grid gap-1">
-          <Label htmlFor="new-email">{t('email')}</Label>
-          <Input id="new-email" name="email" type="email" required className="sm:w-44" />
-        </div>
-        <div className="grid gap-1">
-          <Label htmlFor="new-password">{t('password')}</Label>
-          <Input id="new-password" name="password" type="password" required minLength={12} className="sm:w-40" />
-        </div>
-        <div className="grid gap-1">
-          <Label htmlFor="new-role">{t('role')}</Label>
-          <Select value={role} onValueChange={setRole}>
-            <SelectTrigger id="new-role" aria-label={t('role')} className="sm:w-32">
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="user">{t('roleUser')}</SelectItem>
-              <SelectItem value="admin">{t('roleAdmin')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button type="submit">{t('create')}</Button>
-      </form>
+    <Page
+      title={t('users')}
+      actions={
+        <Button type="button" onClick={() => { setCreateError(''); setRole('user'); setCreating(true) }}>
+          {t('create')}
+        </Button>
+      }
+    >
+      <Dialog.Root open={creating} onOpenChange={(open) => { if (!open) setCreating(false) }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-border bg-card p-4 shadow-md">
+            <Dialog.Title className="text-base font-semibold">{t('create')}</Dialog.Title>
+            <Dialog.Description className="sr-only">{t('users')}</Dialog.Description>
+            <form
+              className="mt-3 flex flex-col gap-3"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                const data = new FormData(event.currentTarget)
+                setCreateError('')
+                setCreatePending(true)
+                try {
+                  await api.request('/users', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      username: data.get('username'),
+                      email: data.get('email'),
+                      password: data.get('password'),
+                      role,
+                    }),
+                  })
+                  await queryClient.invalidateQueries({ queryKey: ['users'] })
+                  setCreating(false)
+                  setRole('user')
+                  event.currentTarget.reset()
+                } catch (caught) {
+                  setCreateError(caught instanceof ApiClientError ? caught.message : caught instanceof Error ? caught.message : t('error'))
+                } finally {
+                  setCreatePending(false)
+                }
+              }}
+            >
+              <div className="grid gap-1">
+                <Label htmlFor="new-username">{t('username')}</Label>
+                <Input id="new-username" name="username" autoFocus required />
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="new-email">{t('email')}</Label>
+                <Input id="new-email" name="email" type="email" autoComplete="email" required />
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="new-password">{t('password')}</Label>
+                <Input id="new-password" name="password" type="password" autoComplete="new-password" required minLength={12} />
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="new-role">{t('role')}</Label>
+                <Select value={role} onValueChange={setRole}>
+                  <SelectTrigger id="new-role" aria-label={t('role')} />
+                  <SelectContent>
+                    <SelectItem value="user">{t('roleUser')}</SelectItem>
+                    <SelectItem value="admin">{t('roleAdmin')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {createError ? <p role="alert" className="text-sm text-danger">{createError}</p> : null}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setCreating(false)}>{t('cancel')}</Button>
+                <Button type="submit" disabled={createPending}>{t('create')}</Button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       {users.isLoading ? <LoadingBlock /> : null}
       {users.isError ? <ErrorState message={(users.error as Error).message} /> : null}
       {users.data && users.data.users.length === 0 ? <EmptyState title={t('emptyUsers')} body={t('emptyUsers')} /> : null}

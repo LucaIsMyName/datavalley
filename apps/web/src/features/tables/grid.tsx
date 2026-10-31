@@ -56,7 +56,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
@@ -247,6 +247,7 @@ function ColumnTitle({ name, type, onClick }: { name: string; type: string; onCl
 
 export function TableScreen({ tableId }: { tableId: string }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const openMenu = useContextMenu()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
@@ -1626,11 +1627,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         id: 'duplicate',
         label: t('duplicateTable'),
         icon: Copy,
-        onSelect: () =>
-          void api.request(`/tables/${tableId}/duplicate`, {
-            method: 'POST',
-            body: JSON.stringify({ includeData: true }),
-          }),
+        onSelect: () => void duplicateThisTable(),
       },
       {
         id: 'delete',
@@ -1684,6 +1681,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
     window.location.assign(`/projects/${projectId}`)
   }
 
+  async function duplicateThisTable() {
+    if (!projectId) return
+    try {
+      const result = await api.request<{ table: TableRecord }>(`/tables/${tableId}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({ includeData: true }),
+      })
+      await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
+      navigate(`/projects/${projectId}/tables/${result.table.id}`)
+    } catch (caught) {
+      showEditError(caught instanceof Error ? caught.message : t('error'))
+    }
+  }
+
   async function saveView() {
     if (!viewName.trim()) return
     await api.request(`/tables/${tableId}/views`, {
@@ -1711,11 +1722,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         apply: () => applyView(view),
       })),
       saveView: (el: HTMLElement) => setPopover({ kind: 'view', ...viewportAnchorFrom(el) }),
-      duplicateTable: () =>
-        void api.request(`/tables/${tableId}/duplicate`, {
-          method: 'POST',
-          body: JSON.stringify({ includeData: true }),
-        }),
+      duplicateTable: () => void duplicateThisTable(),
       deleteTable: () =>
         setConfirm({
           title: t('deleteTableTitle'),
