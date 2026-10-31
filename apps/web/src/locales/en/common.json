@@ -90,6 +90,7 @@
   "viewName": "View name",
   "shared": "Shared",
   "fillDown": "Fill down",
+  "fillHandle": "Copy this value up or down",
   "imported": "Imported {{count}} rows",
   "operator": "Operator",
   "value": "Value",

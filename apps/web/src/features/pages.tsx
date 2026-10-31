@@ -578,7 +578,7 @@ export function ProjectPage() {
             return (
               <div
                 key={table.id}
-                className={`flex h-10 shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-2 ${current ? 'border-border bg-card' : 'border-transparent'}`}
+                className={`flex h-10 shrink-0 items-center gap-1 border border-b-0 px-1 pr-4 ${current ? 'border-border bg-card' : 'border-transparent'}`}
                 {...(current
                   ? {
                       onContextMenu: (event: ReactMouseEvent) => openRegisteredTableMenu(event),
@@ -623,7 +623,7 @@ export function ProjectPage() {
           })}
           <button
             type="button"
-            className="flex h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-t-md border border-transparent px-2 text-sm font-medium"
+            className="flex h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-t-md border border-transparent text-sm font-medium"
             onClick={async () => {
               const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
               await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })

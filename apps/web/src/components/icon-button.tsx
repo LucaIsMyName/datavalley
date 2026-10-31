@@ -34,7 +34,7 @@ export function IconButton({
       <button
         type="button"
         aria-label={t('icon')}
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent"
+        className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
         onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -49,14 +49,14 @@ export function IconButton({
           prefer="below"
           align="start"
           anchor={open}
-          className="grid w-[min(20rem,calc(100vw-2rem))] grid-cols-8 gap-1 rounded-md border border-border bg-card p-2 shadow-md"
+          className="grid w-[min(20rem,calc(100vw-2rem))] grid-cols-8 gap-1 border border-border bg-card p-2 shadow-md"
         >
           {resourceIconNames.map((icon) => (
             <button
               key={icon}
               type="button"
               aria-label={icon}
-              className={`flex h-8 items-center justify-center rounded hover:bg-accent ${icon === name ? 'bg-accent' : ''}`}
+              className={`flex h-8 items-center justify-center hover:bg-accent ${icon === name ? 'bg-accent' : ''}`}
               onClick={() => {
                 onChange(icon)
                 setOpen(null)

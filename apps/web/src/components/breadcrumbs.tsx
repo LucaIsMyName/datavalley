@@ -120,15 +120,15 @@ export function Breadcrumbs() {
       </button>
       {hidden.length > 0 ? (
         <DropdownMenu.Root>
-          <DropdownMenu.Trigger className="inline-flex h-8 shrink-0 items-center rounded-md px-1.5 hover:bg-accent" aria-label={t('breadcrumbs')}>
+          <DropdownMenu.Trigger className="inline-flex h-8 shrink-0 items-center  px-1.5 hover:bg-accent" aria-label={t('breadcrumbs')}>
             …
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content className="z-50 min-w-40 rounded-md border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
+            <DropdownMenu.Content className="z-50 min-w-40  border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
               {hidden.map((crumb) => (
                 <DropdownMenu.Item key={`${crumb.to}-${crumb.label}`} asChild>
                   {crumb.to ? (
-                    <Link to={crumb.to} className="flex min-h-9 cursor-pointer items-center rounded px-2 text-sm outline-none data-[highlighted]:bg-accent">
+                    <Link to={crumb.to} className="flex min-h-9 cursor-pointer items-center  px-2 text-sm outline-none data-[highlighted]:bg-accent">
                       {crumb.label}
                     </Link>
                   ) : (

@@ -164,7 +164,7 @@ function SearchMenu({
             onOpen(false)
             event.currentTarget.blur()
           }}
-          className="h-9 w-full rounded-md border border-border bg-card px-3 text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:text-sm"
+          className="h-9 w-full border border-border bg-card px-3 text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:text-sm"
         />
         {variant === 'drawer' ? (
           <Button type="button" variant="ghost" onClick={() => onOpen(false)}>
@@ -176,7 +176,7 @@ function SearchMenu({
         <Command.List
           className={
             variant === 'inline'
-              ? 'absolute right-0 top-full z-30 mt-1 max-h-80 min-h-16 w-80 overflow-auto rounded-md border border-border bg-card p-1 shadow-md [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground'
+              ? 'absolute right-0 top-full z-30 mt-1 max-h-80 min-h-16 w-80 overflow-auto border border-border bg-card p-1 shadow-md [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground'
               : 'mt-3 min-h-16 flex-1 overflow-auto [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground'
           }
           onMouseDown={(event) => event.preventDefault()}
@@ -193,7 +193,7 @@ function SearchMenu({
                   key={hit.id}
                   value={hit.id}
                   onSelect={() => onPick(hit.href)}
-                  className="flex min-h-11 cursor-pointer flex-col justify-center rounded px-2 py-2 text-left data-[selected=true]:bg-accent"
+                  className="flex min-h-11 cursor-pointer flex-col justify-center px-2 py-2 text-left data-[selected=true]:bg-accent"
                 >
                   <span className="truncate text-sm">{hit.title}</span>
                   {hit.subtitle ? <span className="truncate text-xs text-muted-foreground">{hit.subtitle}</span> : null}

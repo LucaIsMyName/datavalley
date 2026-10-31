@@ -18,11 +18,11 @@
   --background: #f6f7f4;
   --foreground: #252525;
   --card: #ffffff;
-  --muted: #dfdfdf;
+  --muted: #f1f1f1;
   --muted-foreground: #3a3a3a;
-  --border: #aaaaaa;
+  --border: #c5c5c5;
   --primary: #1c0f6e;
-  --primary-foreground: #d7d7e5;
+  --primary-foreground: #dedede;
   --accent: #e5e6f4;
   --danger: #9f2d2d;
   color-scheme: light;
@@ -57,6 +57,12 @@ body {
 
 * {
   box-sizing: border-box;
+}
+button:hover {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
 }
 
 ::selection {

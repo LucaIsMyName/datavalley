@@ -23,7 +23,7 @@ export function ConfirmDialog({
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-card p-4 shadow-md">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-muted-foreground">{body}</Dialog.Description>
           <div className="mt-4 flex justify-end gap-2">
@@ -61,12 +61,12 @@ export function PromptDialog({
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-card p-4 shadow-md">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           <input
             autoFocus
             aria-label={label}
-            className="mt-3 h-9 w-full rounded-md border border-border bg-card px-2 text-sm outline-none"
+            className="mt-3 h-9 w-full  border border-border bg-card px-2 text-sm outline-none"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {

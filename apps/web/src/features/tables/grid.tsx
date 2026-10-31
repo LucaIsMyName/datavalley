@@ -23,6 +23,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router'
@@ -42,6 +43,7 @@ import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
+import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
 import { FORMULA_HELP, formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
@@ -113,6 +115,10 @@ function showCell(value: unknown) {
 
 function writable(column: Column) {
   return column.type !== 'formula' && column.type !== 'lookup'
+}
+
+function fillable(column: Column) {
+  return writable(column) && column.type !== 'row_id'
 }
 
 function operatorsFor(type: string) {
@@ -205,6 +211,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [spotlight, setSpotlight] = useState<{ rowId: string; columnId: string } | null>(null)
   const [columnAnchor, setColumnAnchor] = useState<string | null>(null)
   const [selected, setSelected] = useState({ row: 0, column: 0 })
+  const [fill, setFill] = useState<{ columnId: string; from: number; to: number } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [invalidCells, setInvalidCells] = useState<
     Record<string, { text: string; message: string }>
@@ -443,8 +450,21 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   const undoRef = useRef(undo)
   const boundsRef = useRef({ rows: rows.length, columns: visible.length })
+  const activateRef = useRef<() => void>(() => {})
+  const beginFillRef = useRef<(event: ReactPointerEvent, rowIndex: number, column: Column) => void>(() => {})
   undoRef.current = undo
   boundsRef.current = { rows: rows.length, columns: visible.length }
+  activateRef.current = () => {
+    const column = visible[selected.column]
+    const row = rows[selected.row]
+    if (!column || !row || editing) return
+    if (column.type === 'formula') {
+      openFormula(row.id, column.id, column.name)
+      return
+    }
+    if (!fillable(column)) return
+    setEditing(`${row.id}:${column.id}`)
+  }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
@@ -456,6 +476,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !typing) {
         event.preventDefault()
         void undoRef.current(event.shiftKey ? 'redo' : 'undo')
+        return
+      }
+      if (
+        !typing &&
+        parentRef.current?.contains(document.activeElement) &&
+        event.key === 'Enter'
+      ) {
+        event.preventDefault()
+        activateRef.current()
         return
       }
       if (
@@ -1144,6 +1173,88 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await refresh()
   }
 
+  async function commitFill(column: Column, from: number, to: number) {
+    const ids = fillTargets(rows, from, to, fillable(column))
+    if (ids.length === 0) return
+    const source = rows[from]
+    if (!source) return
+    const value = source.cells[column.id] ?? null
+    const updates = ids.map((rowId) => {
+      const row = rows.find((item) => item.id === rowId)
+      return { rowId, version: row?.version ?? 1, cells: { [column.id]: value } }
+    })
+    const previous = ids.map((rowId) => {
+      const row = rows.find((item) => item.id === rowId)
+      return { rowId, version: row?.version ?? 1, cells: { [column.id]: row?.cells[column.id] ?? null } }
+    })
+    try {
+      await api.request(`/tables/${tableId}/cells/bulk`, {
+        method: 'PATCH',
+        body: JSON.stringify({ updates }),
+      })
+      const fresh = await fetchRows()
+      const stamp = (items: { rowId: string; version: number; cells: Record<string, unknown> }[]) =>
+        items.map((item) => ({
+          ...item,
+          version: fresh.find((row) => row.id === item.rowId)?.version ?? item.version,
+        }))
+      pushCommand(tableId, { kind: 'patch', undo: stamp(previous), redo: stamp(updates) })
+      await refresh()
+    } catch {
+      showEditError(t('error'))
+    }
+  }
+
+  function rowIndexAt(clientY: number) {
+    const parent = parentRef.current
+    if (!parent || rows.length === 0) return 0
+    const header = parent.querySelector('thead')
+    const headerHeight = header?.getBoundingClientRect().height ?? 40
+    const top = parent.getBoundingClientRect().top
+    const y = parent.scrollTop + (clientY - top) - headerHeight
+    return Math.min(rows.length - 1, Math.max(0, Math.floor(y / 36)))
+  }
+
+  function beginFill(event: ReactPointerEvent, rowIndex: number, column: Column) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.currentTarget instanceof HTMLElement) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // A pointer that is already released still tracks through the window listeners below.
+      }
+    }
+    let lastY = event.clientY
+    setFill({ columnId: column.id, from: rowIndex, to: rowIndex })
+    const previousSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    function tick() {
+      const parent = parentRef.current
+      if (!parent) return
+      const rect = parent.getBoundingClientRect()
+      if (lastY < rect.top + 36) parent.scrollTop -= 18
+      else if (lastY > rect.bottom - 36) parent.scrollTop += 18
+      setFill({ columnId: column.id, from: rowIndex, to: rowIndexAt(lastY) })
+    }
+    const frame = window.setInterval(tick, 40)
+    function move(next: PointerEvent) {
+      lastY = next.clientY
+      setFill({ columnId: column.id, from: rowIndex, to: rowIndexAt(next.clientY) })
+    }
+    function up(next: PointerEvent) {
+      window.clearInterval(frame)
+      document.body.style.userSelect = previousSelect
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setFill(null)
+      void commitFill(column, rowIndex, rowIndexAt(next.clientY))
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  beginFillRef.current = beginFill
+
   async function saveConfig(column: Column, patch: Record<string, unknown>) {
     const config = { ...column.config, ...patch }
     patchCachedTable(queryClient, tableId, (current) => ({
@@ -1590,11 +1701,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const lit =
             spotlight?.columnId === column.id &&
             (spotlight.rowId === row.original.id || !spotlight.rowId)
+          const columnIndex = visible.findIndex((item) => item.id === column.id)
+          const picked = selected.row === row.index && selected.column === columnIndex
+          const inFill = Boolean(
+            fill &&
+              fill.columnId === column.id &&
+              row.index >= Math.min(fill.from, fill.to) &&
+              row.index <= Math.max(fill.from, fill.to),
+          )
           return (
             <div
-              className={`flex h-9 min-w-0 items-center overflow-hidden px-2 ${mono ? 'font-mono' : ''} ${lit ? 'ring-2 ring-inset ring-primary' : ''}`}
-              style={{ color: ruleStyle.color, background, fontWeight: ruleStyle.bold ? 700 : 400 }}
+              className={`relative flex h-9 min-w-0 items-center overflow-hidden px-2 ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
+              style={{ color: ruleStyle.color, background: inFill && !picked ? undefined : background, fontWeight: ruleStyle.bold ? 700 : 400 }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
+              onClick={() => {
+                if (column.type !== 'row_id') return
+                setSelected({ row: row.index, column: columnIndex })
+              }}
             >
               {active && column.type === 'relation' ? (
                 <SelectField
@@ -1644,14 +1767,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     setEditing(null)
                   }}
                   onOpen={() => {
+                    const already = selected.row === row.index && selected.column === columnIndex
+                    setSelected({ row: row.index, column: columnIndex })
+                    if (!already) return
                     if (column.type === 'formula') {
                       openFormula(row.original.id, column.id, column.name)
                       return
                     }
-                    setSelected({
-                      row: row.index,
-                      column: visible.findIndex((item) => item.id === column.id),
-                    })
+                    if (!fillable(column)) return
                     setEditing(`${row.original.id}:${column.id}`)
                   }}
                   onCreated={(kind, item) =>
@@ -1672,6 +1795,17 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   }
                 />
               )}
+              {picked && !active && fillable(column) ? (
+                <button
+                  type="button"
+                  aria-label={t('fillHandle')}
+                  className="absolute bottom-0.5 right-0.5 z-10 flex size-3.5 cursor-crosshair items-center justify-center rounded-sm border border-primary bg-card text-primary"
+                  onPointerDown={(event) => beginFillRef.current(event, row.index, column)}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <Plus className="size-2.5" />
+                </button>
+              ) : null}
             </div>
           )
         },
@@ -1683,8 +1817,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
       checked,
       columnSignature,
       editing,
+      fill,
       invalidSignature,
       rulesSignature,
+      selected,
       spotlight,
       t,
       targetSignature,
@@ -2099,7 +2235,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 return (
                   <tr
                     key={row.id}
-                    className={`group ${selected.row === virtualRow.index ? 'bg-accent/40' : ''} ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : ''}`}
+                    className={`group ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : ''}`}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={(event) => {
                       event.preventDefault()
@@ -2112,7 +2248,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={`overflow-hidden border-b border-r border-border p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${selected.row === virtualRow.index ? 'bg-accent' : 'bg-card'}` : ''}`}
+                        className={`overflow-hidden border-b border-r border-border p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>

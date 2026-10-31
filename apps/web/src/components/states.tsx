@@ -14,12 +14,12 @@ export function Page({ title, actions, children }: { title: ReactNode; actions?:
 }
 
 export function LoadingBlock() {
-  return <div className="h-40 animate-pulse rounded-md bg-muted" aria-hidden />
+  return <div className="h-40 animate-pulse bg-muted" aria-hidden />
 }
 
 export function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="flex h-40 flex-col items-center justify-center rounded-md border border-dashed border-border text-center">
+    <div className="flex h-40 flex-col items-center justify-center border border-dashed border-border text-center">
       <p className="font-medium">{title}</p>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">{body}</p>
     </div>
@@ -29,7 +29,7 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
 export function ErrorState({ message }: { message: string }) {
   const { t } = useTranslation()
   return (
-    <div className="flex h-40 items-center justify-center rounded-md border border-danger/40 bg-card px-4 text-sm text-danger">
+    <div className="flex h-40 items-center justify-center border border-danger/40 bg-card px-4 text-sm text-danger">
       {t('error')}: {message}
     </div>
   )

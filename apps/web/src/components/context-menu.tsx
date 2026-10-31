@@ -49,7 +49,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
           prefer="below"
           align="start"
           anchor={{ left: menu.x, top: menu.y, right: menu.x, bottom: menu.y }}
-          className="min-w-52 rounded-md border border-border bg-card p-1 shadow-md"
+          className="min-w-52 border border-border bg-card p-1 shadow-md"
         >
           {menu.items.map((item) => (
             <button
@@ -57,7 +57,7 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
               type="button"
               role="menuitem"
               disabled={item.disabled}
-              className={`flex h-8 w-full items-center rounded px-2 text-left text-sm hover:bg-accent disabled:opacity-40 ${item.danger ? 'text-danger' : ''}`}
+              className={`flex h-8 w-full items-center  px-2 text-left text-sm hover:bg-accent disabled:opacity-40 ${item.danger ? 'text-danger' : ''}`}
               onClick={() => {
                 setMenu(null)
                 item.onSelect()

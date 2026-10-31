@@ -90,6 +90,7 @@
   "viewName": "Ansichtsname",
   "shared": "Geteilt",
   "fillDown": "Nach unten füllen",
+  "fillHandle": "Diesen Wert nach oben oder unten kopieren",
   "imported": "{{count}} Zeilen importiert",
   "operator": "Operator",
   "value": "Wert",
