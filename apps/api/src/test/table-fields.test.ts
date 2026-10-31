@@ -541,6 +541,50 @@ describe('table fields', () => {
     expect(fresh.find((row) => row.id === earlyId)?.cells[totalId]).toBe(114)
   })
 
+  it('renames and recolors a status used by more than one row', async () => {
+    const { tableId } = await blankTable('Statuses')
+    const stage = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Stage', type: 'status' } })
+    const stageId = stage.json().column.id as string
+    const open = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/statuses`, payload: { name: 'Open' } })
+    const done = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/statuses`, payload: { name: 'Done' } })
+    const openId = open.json().status.id as string
+    const first = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [stageId]: openId } } })
+    const second = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [stageId]: openId } } })
+    const renamed = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/statuses/${openId}`,
+      payload: { name: 'Progress' },
+    })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json().status.name).toBe('Progress')
+    const colored = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/statuses/${openId}`,
+      payload: { color: 'green' },
+    })
+    expect(colored.statusCode).toBe(200)
+    expect(colored.json().status).toMatchObject({ name: 'Progress', color: 'green' })
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const rows = listed.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(rows.find((row) => row.id === first.json().row.id)?.cells[stageId]).toBe(openId)
+    expect(rows.find((row) => row.id === second.json().row.id)?.cells[stageId]).toBe(openId)
+    const table = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}` })
+    expect(table.json().table.statuses).toContainEqual(expect.objectContaining({ id: openId, name: 'Progress', color: 'green' }))
+    const duplicate = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/statuses/${openId}`,
+      payload: { name: 'done' },
+    })
+    expect(duplicate.statusCode).toBe(400)
+    expect(done.statusCode).toBe(200)
+    const empty = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/statuses/${openId}`,
+      payload: { name: '   ' },
+    })
+    expect(empty.statusCode).toBe(400)
+  })
+
   async function blankTable(name: string) {
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name } })
     const projectId = project.json().project.id as string

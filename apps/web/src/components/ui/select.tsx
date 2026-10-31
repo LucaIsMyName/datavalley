@@ -29,7 +29,7 @@ export function SelectTrigger({ className, ...props }: ComponentProps<typeof Sel
     <SelectPrimitive.Trigger
       type="button"
       className={cn(
-        'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2 text-left text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 md:text-sm',
+        'flex h-9 w-full items-center justify-between gap-2  border border-border bg-card px-2 text-left text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 md:text-sm',
         className,
       )}
       {...props}
@@ -49,7 +49,7 @@ export function SelectContent({ className, children, ...props }: ComponentProps<
         position="popper"
         sideOffset={4}
         className={cn(
-          'z-50 max-h-72 w-[var(--radix-select-trigger-width)] min-w-32 max-w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-md border border-border bg-card p-1 text-base shadow-md md:text-sm',
+          'z-50 max-h-72 w-[var(--radix-select-trigger-width)] min-w-32 max-w-[min(20rem,calc(100vw-2rem))] overflow-auto  border border-border bg-card p-1 text-base shadow-md md:text-sm',
           className,
         )}
         {...props}
@@ -65,7 +65,7 @@ export function SelectItem({ className, children, value, ...props }: ComponentPr
     <SelectPrimitive.Item
       value={value === '' ? EMPTY : value}
       className={cn(
-        'relative flex min-h-9 cursor-pointer items-center rounded-sm py-1.5 pr-8 pl-2 outline-none select-none focus:bg-accent data-[disabled]:opacity-40',
+        'relative flex min-h-9 cursor-pointer items-center py-1.5 pr-8 pl-2 outline-none select-none focus:bg-accent data-[disabled]:opacity-40',
         className,
       )}
       {...props}

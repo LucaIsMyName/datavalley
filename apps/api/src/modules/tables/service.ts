@@ -570,9 +570,20 @@ export async function createStatus(db: AppDatabase, subject: Subject, tableId: s
 
 export async function updateStatus(db: AppDatabase, subject: Subject, tableId: string, statusId: string, input: { color?: string; name?: string }) {
   await requireTable(db, subject, tableId, 'edit')
+  const patch: { color?: string; name?: string } = {}
+  if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
+  if (input.name != null) {
+    const trimmed = input.name.trim()
+    if (!trimmed) throw badRequest('Status name is required')
+    const existing = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId))
+    const clash = existing.find((status) => status.id !== statusId && status.name.toLowerCase() === trimmed.toLowerCase())
+    if (clash) throw badRequest('A status with that name already exists')
+    patch.name = trimmed
+  }
+  if (!patch.color && !patch.name) throw badRequest('Status name is required')
   const [status] = await db
     .update(tableStatuses)
-    .set({ color: input.color, name: input.name?.trim() || undefined })
+    .set(patch)
     .where(and(eq(tableStatuses.id, statusId), eq(tableStatuses.tableId, tableId)))
     .returning()
   if (!status) throw notFound()

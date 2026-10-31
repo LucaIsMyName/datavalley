@@ -94,15 +94,10 @@ export function CellEditor({
   if (column.type === 'tags') {
     return <TagEditor tableId={tableId} column={column} row={row} tags={tags} active={active} onEdit={onEdit} onFlush={onFlush} onOpen={onOpen} onCreated={onCreated} />
   }
+  if (column.type === 'status') {
+    return <StatusEditor tableId={tableId} column={column} row={row} statuses={statuses} active={active} onEdit={onEdit} onFlush={onFlush} onOpen={onOpen} onCreated={onCreated} />
+  }
   if (!active) {
-    if (column.type === 'status') {
-      const items = names(row.cells[column.id] ? [row.cells[column.id]] : [], statuses)
-      return (
-        <button type="button" className="flex h-full w-full items-center gap-1 overflow-hidden text-left" aria-label={`Edit ${column.name}`} onClick={onOpen}>
-          {items.map((item) => <Badge key={item.id} color={item.color}>{item.name}</Badge>)}
-        </button>
-      )
-    }
     if (column.type === 'user') {
       const items = names(row.cells[column.id], members.map((member) => ({ id: member.userId, name: member.username, color: 'blue', tableId: '' })))
       return (
@@ -122,7 +117,6 @@ export function CellEditor({
     )
   }
   if (column.type === 'date' || column.type === 'datetime') return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
-  if (column.type === 'status') return <StatusEditor tableId={tableId} column={column} row={row} statuses={statuses} onEdit={onEdit} onFlush={onFlush} onCreated={onCreated} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
   return (
     <div className="flex h-full min-w-0 flex-1 items-center gap-1">
@@ -400,45 +394,171 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
   )
 }
 
-function StatusEditor({ tableId, column, row, statuses, onEdit, onFlush, onCreated }: { tableId: string; column: Column; row: RowRecord; statuses: CatalogItem[]; onEdit: (value: string, delay?: number) => void; onFlush: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush, onOpen, onCreated }: { tableId: string; column: Column; row: RowRecord; statuses: CatalogItem[]; active: boolean; onEdit: (value: string, delay?: number) => void; onFlush: () => void; onOpen: () => void; onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void }) {
+  const { t } = useTranslation()
+  const currentId = typeof row.cells[column.id] === 'string' ? row.cells[column.id] : ''
+  const current = statuses.find((status) => status.id === currentId) ?? null
   const [name, setName] = useState('')
+  const [draft, setDraft] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const [menu, setMenu] = useState<ViewportAnchor | null>(null)
+  const pending = useRef(false)
+  const skipBlur = useRef(false)
+  useEffect(() => {
+    if (!menu) return
+    const close = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-tag-menu]') || target?.closest('[data-tag-chevron]')) return
+      setMenu(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+  function choose(next: string) {
+    onEdit(next, 0)
+    onFlush()
+    setMenu(null)
+  }
+  async function saveName() {
+    if (!current || pending.current) return
+    const trimmed = draft.trim()
+    if (!trimmed || trimmed === current.name) {
+      setRenameError(null)
+      return
+    }
+    pending.current = true
+    try {
+      const result = await api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ name: trimmed }) })
+      onCreated('status', { ...result.status, tableId })
+      setDraft(result.status.name)
+      setRenameError(null)
+      pending.current = false
+    } catch (error) {
+      pending.current = false
+      setRenameError(error instanceof ApiClientError ? error.message : t('error'))
+    }
+  }
+  const currentColor = current && palette.includes(current.color) ? current.color : 'slate'
   return (
-    <div className="flex h-full items-center gap-1">
-      <SelectField
-        label={`Edit ${column.name}`}
-        className="h-7 border-0 bg-transparent px-0"
-        value={typeof row.cells[column.id] === 'string' ? String(row.cells[column.id]) : ''}
-        onValueChange={(value) => { onEdit(value, 0); onFlush() }}
-        options={[{ value: '', label: '\u00a0' }, ...statuses.map((status) => ({ value: status.id, label: status.name }))]}
-      />
-      {statuses.filter((status) => status.id === row.cells[column.id]).map((status) => (
-        <SelectField
-          key={status.id}
-          label={`${status.name} color`}
-          className="h-6 w-24 border-0 bg-transparent px-0 text-xs"
-          value={palette.includes(status.color) ? status.color : 'slate'}
-          onValueChange={(color) => {
-            void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${status.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => onCreated('status', { ...result.status, tableId }))
+    <div className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden" onClick={onOpen}>
+      {current ? (
+        <Badge color={current.color} className="gap-0.5 pr-1">
+          <span className="truncate">{current.name}</span>
+          <button
+            type="button"
+            aria-label={t('color')}
+            data-tag-chevron=""
+            className="inline-flex shrink-0"
+            onClick={(event) => {
+              event.stopPropagation()
+              if (menu) {
+                setMenu(null)
+                return
+              }
+              pending.current = false
+              setRenameError(null)
+              setDraft(current.name)
+              const rect = event.currentTarget.getBoundingClientRect()
+              setMenu({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+            }}
+          >
+            <ChevronDown className="size-3" />
+          </button>
+        </Badge>
+      ) : null}
+      {active ? (
+        <input
+          autoFocus
+          aria-label="New status"
+          className="h-7 min-w-16 flex-1 bg-transparent outline-none"
+          value={name}
+          placeholder="New"
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || !name.trim()) return
+            event.preventDefault()
+            void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses`, { method: 'POST', body: JSON.stringify({ name: name.trim() }) }).then((result) => {
+              onCreated('status', { ...result.status, tableId })
+              choose(result.status.id)
+              setName('')
+            })
           }}
-          options={palette.map((color) => ({ value: color, label: color }))}
         />
-      ))}
-      <input
-        aria-label="New status"
-        className="h-7 w-20 bg-transparent outline-none"
-        value={name}
-        placeholder="New"
-        onChange={(event) => setName(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' || !name.trim()) return
-          event.preventDefault()
-          void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses`, { method: 'POST', body: JSON.stringify({ name: name.trim() }) }).then((result) => {
-            onCreated('status', { ...result.status, tableId })
-            onEdit(result.status.id, 0)
-            onFlush()
-          })
-        }}
-      />
+      ) : null}
+      {renameError ? <FormatHint message={renameError} /> : null}
+      {menu && current ? (
+        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu className="w-[min(12rem,calc(100vw-2rem))] rounded-md border border-border bg-card p-2 shadow-md">
+          <ul className="max-h-40 overflow-auto">
+            {statuses.map((status) => (
+              <li key={status.id}>
+                <button
+                  type="button"
+                  className={`block min-h-9 w-full truncate rounded px-2 text-left text-sm hover:bg-accent ${status.id === current.id ? 'font-medium' : ''}`}
+                  onClick={() => choose(status.id)}
+                >
+                  {status.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <input
+            autoFocus
+            aria-label={t('rename')}
+            className="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2 text-sm outline-none"
+            value={draft}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={() => {
+              if (skipBlur.current) {
+                skipBlur.current = false
+                return
+              }
+              void saveName()
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                void saveName()
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                pending.current = false
+                setRenameError(null)
+                if (draft === current.name) {
+                  skipBlur.current = true
+                  setMenu(null)
+                } else setDraft(current.name)
+              }
+            }}
+          />
+          <div className="mt-2 flex flex-wrap gap-1">
+            {palette.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={color}
+                className={`h-5 w-5 rounded-full border border-border ${swatch[color] ?? swatch.slate} ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
+                onClick={() => {
+                  void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
+                    onCreated('status', { ...result.status, tableId })
+                    setMenu(null)
+                  })
+                }}
+              />
+            ))}
+          </div>
+          <button type="button" className="mt-2 w-full text-left text-sm" onClick={() => choose('')}>{t('clearCell')}</button>
+        </AnchoredLayer>
+      ) : null}
     </div>
   )
 }

@@ -307,7 +307,7 @@ export function ProjectsPage() {
       <Dialog.Root open={creating} onOpenChange={(open) => { if (!open) setCreating(false) }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-card p-4 shadow-md">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
             <Dialog.Title className="text-base font-semibold">{t('newProject')}</Dialog.Title>
             <form
               className="mt-3 flex flex-col gap-3"
@@ -323,7 +323,7 @@ export function ProjectsPage() {
                 ref={nameInput}
                 autoFocus
                 aria-label={t('name')}
-                className="h-9 w-full rounded-md border border-border bg-card px-2 text-sm outline-none"
+                className="h-9 w-full  border border-border bg-card px-2 text-sm outline-none"
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
               />
@@ -382,7 +382,7 @@ function ProjectDescription({ projectId, value }: { projectId: string; value: st
   return (
     <textarea
       aria-label={t('description')}
-      className="min-h-40 w-full flex-1 resize-none rounded-md border border-border bg-transparent p-2 text-sm leading-5 outline-none"
+      className="min-h-40 w-full flex-1 resize-none  border border-border bg-transparent p-2 text-sm leading-5 outline-none"
       value={text}
       placeholder={t('description')}
       onFocus={() => { focused.current = true }}
@@ -547,7 +547,7 @@ export function ProjectPage() {
             <button
               type="button"
               aria-label={t('info')}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent"
+              className="inline-flex size-8 shrink-0 items-center justify-center  hover:bg-accent"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation()
@@ -657,7 +657,7 @@ export function ProjectPage() {
             <Dialog.Title className="text-lg font-semibold">{t('description')}</Dialog.Title>
             <Dialog.Description className="sr-only">{t('description')}</Dialog.Description>
             <ProjectDescription projectId={projectId} value={record?.description ?? ''} />
-            <Dialog.Close className="self-end rounded-md border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
+            <Dialog.Close className="self-end  border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -670,7 +670,7 @@ export function ProjectPage() {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(32rem,calc(100vh-2rem))] w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-md border border-border bg-card p-4 shadow-md">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(32rem,calc(100vh-2rem))] w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto  border border-border bg-card p-4 shadow-md">
             <Dialog.Title className="text-base font-semibold">{t('members')}</Dialog.Title>
             <ul className="mt-3 min-h-8 text-sm">
               {members.data?.members.map((member) => <li key={member.userId} className="min-h-9 py-1">{member.username}</li>)}
@@ -704,7 +704,7 @@ export function ProjectPage() {
                   <li key={user.id}>
                     <button
                       type="button"
-                      className="flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-accent"
+                      className="flex min-h-11 w-full items-center gap-3  px-2 text-left text-sm hover:bg-accent"
                       onClick={() => setMemberName(user.username)}
                     >
                       <span className="truncate font-medium">{user.username}</span>
@@ -858,7 +858,7 @@ export function UsersPage() {
       </form>
       {users.isLoading ? <LoadingBlock /> : null}
       {users.isError ? <ErrorState message={(users.error as Error).message} /> : null}
-      <div className="overflow-hidden rounded-md border border-border">
+      <div className="overflow-hidden  border border-border">
         {users.data?.users.map((user) => (
           <div key={user.id} className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3 text-sm last:border-b-0">
             <span className="min-w-0 truncate">{user.username} · {user.email}</span>
@@ -908,7 +908,7 @@ export function AuditPage() {
     <Page title={t('audit')}>
       {audit.isLoading ? <LoadingBlock /> : null}
       {audit.isError ? <ErrorState message={(audit.error as Error).message} /> : null}
-      <div className="rounded-md border border-border">
+      <div className=" border border-border">
         {audit.data?.entries.map((entry) => (
           <div key={entry.id} className="flex min-h-10 flex-col gap-1 border-b border-border px-3 py-2 text-sm last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
             <span>{entry.action}</span>
@@ -941,9 +941,9 @@ function ProfileForm({ user }: { user: User }) {
   return (
     <Page title={t('profile')}>
       <nav className="flex min-h-9 flex-wrap gap-2 text-sm">
-        <NavLink to="/settings/users" className="rounded-md px-2 py-1 hover:bg-accent">{t('users')}</NavLink>
-        <NavLink to="/settings/api-keys" className="rounded-md px-2 py-1 hover:bg-accent">{t('apiKeys')}</NavLink>
-        <NavLink to="/settings/audit" className="rounded-md px-2 py-1 hover:bg-accent">{t('audit')}</NavLink>
+        <NavLink to="/settings/users" className=" px-2 py-1 hover:bg-accent">{t('users')}</NavLink>
+        <NavLink to="/settings/api-keys" className=" px-2 py-1 hover:bg-accent">{t('apiKeys')}</NavLink>
+        <NavLink to="/settings/audit" className=" px-2 py-1 hover:bg-accent">{t('audit')}</NavLink>
       </nav>
       <div className="grid max-w-md gap-3">
         <Label htmlFor="locale">{t('language')}</Label>
