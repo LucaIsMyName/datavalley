@@ -1,14 +1,39 @@
-import { and, asc, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNotNull, isNull, max, notInArray, sql } from 'drizzle-orm'
 import { escapeLike, isResourceIcon, projectOwnerActions, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
-import { permissionGrants, projectMembers, projects, users } from '../../database/schema.js'
+import { permissionGrants, projectMembers, projects, tables, users } from '../../database/schema.js'
 import { AppError, badRequest, notFound } from '../../errors.js'
 import { allows, assertCan, loadGrants, replaceGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { seedCustomers, seedStarter } from '../tables/template.js'
 
-function present(project: typeof projects.$inferSelect) {
+type ProjectTableStats = { tableCount: number; latestTableEdit: Date | null }
+
+async function projectTableStats(db: AppDatabase, projectIds: string[]) {
+  if (projectIds.length === 0) return new Map<string, ProjectTableStats>()
+  const rows = await db
+    .select({
+      projectId: tables.projectId,
+      tableCount: count(),
+      latestTableEdit: max(tables.updatedAt),
+    })
+    .from(tables)
+    .where(and(inArray(tables.projectId, projectIds), isNull(tables.archivedAt)))
+    .groupBy(tables.projectId)
+  return new Map(
+    rows.map((row) => [
+      row.projectId,
+      { tableCount: Number(row.tableCount), latestTableEdit: row.latestTableEdit ?? null },
+    ]),
+  )
+}
+
+function present(project: typeof projects.$inferSelect, stats?: ProjectTableStats) {
+  const tableCount = stats?.tableCount ?? 0
+  const projectUpdated = project.updatedAt.getTime()
+  const tableUpdated = stats?.latestTableEdit?.getTime() ?? 0
+  const lastEditedAt = new Date(Math.max(projectUpdated, tableUpdated)).toISOString()
   return {
     id: project.id,
     name: project.name,
@@ -19,6 +44,8 @@ function present(project: typeof projects.$inferSelect) {
     settings: project.settings,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
+    tableCount,
+    lastEditedAt,
   }
 }
 
@@ -37,10 +64,11 @@ export async function listProjects(db: AppDatabase, subject: Subject, includeArc
     : []
   const suspendedIds = new Set(suspended.map((member) => member.projectId))
   const rows = await db.select().from(projects)
-  return rows
+  const visible = rows
     .filter((project) => allowed.has(project.id) && !denied.has(project.id) && !suspendedIds.has(project.id))
     .filter((project) => includeArchived || !project.archivedAt)
-    .map(present)
+  const stats = await projectTableStats(db, visible.map((project) => project.id))
+  return visible.map((project) => present(project, stats.get(project.id)))
 }
 
 export async function createProject(
@@ -71,7 +99,8 @@ export async function createProject(
     await seedStarter(tx as unknown as AppDatabase, project.id, subject.id)
     if (input.template === 'customers') await seedCustomers(tx as unknown as AppDatabase, project.id, subject.id)
     await writeAudit(tx as unknown as AppDatabase, subject, { action: 'project.create', resourceType: 'project', resourceId: project.id })
-    return present(project)
+    const stats = await projectTableStats(tx as unknown as AppDatabase, [project.id])
+    return present(project, stats.get(project.id))
   })
 }
 
@@ -79,7 +108,8 @@ export async function getProject(db: AppDatabase, subject: Subject, id: string) 
   const [project] = await db.select().from(projects).where(eq(projects.id, id)).limit(1)
   if (!project) throw notFound()
   await assertCan(db, subject, 'view', { type: 'project', id: project.id })
-  return present(project)
+  const stats = await projectTableStats(db, [project.id])
+  return present(project, stats.get(project.id))
 }
 
 export async function updateProject(db: AppDatabase, subject: Subject, id: string, input: { name?: string; description?: string; settings?: Record<string, unknown>; icon?: string }) {
@@ -97,7 +127,8 @@ export async function updateProject(db: AppDatabase, subject: Subject, id: strin
     })
     .where(eq(projects.id, id))
     .returning()
-  return present(project)
+  const stats = await projectTableStats(db, [project.id])
+  return present(project, stats.get(project.id))
 }
 
 export async function setArchived(db: AppDatabase, subject: Subject, id: string, archived: boolean) {
@@ -109,7 +140,8 @@ export async function setArchived(db: AppDatabase, subject: Subject, id: string,
     .where(eq(projects.id, id))
     .returning()
   await writeAudit(db, subject, { action: archived ? 'project.archive' : 'project.restore', resourceType: 'project', resourceId: id })
-  return present(project)
+  const stats = await projectTableStats(db, [project.id])
+  return present(project, stats.get(project.id))
 }
 
 export async function deleteProject(db: AppDatabase, subject: Subject, id: string) {

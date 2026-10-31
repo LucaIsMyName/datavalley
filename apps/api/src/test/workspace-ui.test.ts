@@ -65,8 +65,21 @@ describe('workspace library', () => {
         resourceType: 'table',
         resourceId: tableId,
         title: 'Invoices',
+        subtitle: 'Library',
         icon: 'Wallet',
         href: `/projects/${projectId}/tables/${tableId}`,
+      }),
+    )
+
+    const listed = await session.inject({ method: 'GET', url: '/api/v1/projects' })
+    expect(listed.statusCode).toBe(200)
+    const library = listed.json().projects.find((item: { id: string }) => item.id === projectId)
+    expect(library).toEqual(
+      expect.objectContaining({
+        name: 'Library',
+        tableCount: 2,
+        lastEditedAt: expect.any(String),
+        updatedAt: expect.any(String),
       }),
     )
 

@@ -58,6 +58,9 @@ export type Project = {
   icon: string
   archivedAt: string | null
   organizationId: string
+  updatedAt: string
+  tableCount: number
+  lastEditedAt: string
 }
 
 export type CatalogItem = {

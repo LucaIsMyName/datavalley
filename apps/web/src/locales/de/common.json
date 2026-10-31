@@ -32,6 +32,8 @@
   "name": "Name",
   "loading": "Wird geladen",
   "error": "Etwas ist schiefgelaufen",
+  "lastEdited": "Bearbeitet {{date}}",
+  "projectTableCount": "{{count}} Tabellen",
   "emptyProjects": "Noch keine Projekte",
   "emptyProjectsBody": "Erstelle ein Projekt, um Datensätze zu sammeln.",
   "emptyTables": "Noch keine Tabellen",

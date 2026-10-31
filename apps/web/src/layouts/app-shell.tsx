@@ -48,7 +48,7 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
       <Button
         variant="ghost"
-        className="h-11 md:h-9"
+        className="h-11 w-full justify-start md:h-9"
         onClick={async () => {
           await api.request('/auth/logout', { method: 'POST' })
           useSession.getState().setUser(null)

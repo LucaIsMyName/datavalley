@@ -27,7 +27,9 @@ import { moveTab, tableNameFromFile } from './tables/table-tabs'
 import { openRegisteredTableMenu } from './tables/table-menu'
 import { TableToolbarProvider, TableToolbarRow } from './tables/table-toolbar'
 import { api } from '../lib/api'
+import { formatDateTime, formatRecentTitle } from '../lib/format'
 import { sync } from '../lib/sync'
+import { toast } from 'sonner'
 import { applyTheme, useSession } from '../stores/session'
 
 export function LoginPage() {
@@ -199,7 +201,7 @@ export function ResetPasswordPage() {
   )
 }
 
-type SavedHit = { resourceType: string; resourceId: string; title: string; icon: string; href: string }
+type SavedHit = { resourceType: string; resourceId: string; title: string; subtitle?: string | null; icon: string; href: string }
 
 function SavedRows({ items, empty }: { items: SavedHit[]; empty: string }) {
   if (items.length === 0) return <p className="mt-2 text-sm text-muted-foreground">{empty}</p>
@@ -209,7 +211,7 @@ function SavedRows({ items, empty }: { items: SavedHit[]; empty: string }) {
         <li key={`${item.resourceType}:${item.resourceId}`} className="border-t border-border">
           <Link to={item.href} className="flex min-h-11 items-center gap-2 text-sm">
             <ResourceIcon name={item.icon} />
-            <span className="truncate">{item.title}</span>
+            <span className="min-w-0 truncate">{formatRecentTitle(item)}</span>
           </Link>
         </li>
       ))}
@@ -237,9 +239,14 @@ export function DashboardPage() {
                   {projectRows.map((project) => (
                     <tr key={project.id} className="border-t border-border">
                       <td>
-                        <Link to={`/projects/${project.id}`} className="flex min-h-11 items-center gap-2">
-                          <ResourceIcon name={project.icon} />
-                          <span className="truncate">{project.name}</span>
+                        <Link to={`/projects/${project.id}`} className="flex min-h-11 flex-col justify-center gap-0.5 py-2">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <ResourceIcon name={project.icon} />
+                            <span className="truncate">{project.name}</span>
+                          </span>
+                          <span className="pl-6 text-xs text-muted-foreground">
+                            {t('lastEdited', { date: formatDateTime(project.lastEditedAt) })}
+                          </span>
                         </Link>
                       </td>
                     </tr>
@@ -324,21 +331,26 @@ export function ProjectsPage() {
             to={`/projects/${project.id}`}
             onContextMenu={(event) => openMenu(event, items)}
           >
-            <Card className="flex min-h-24 items-center gap-2 p-4 hover:bg-accent">
-              <ResourceIcon name={project.icon} />
-              <span className="min-w-0 flex-1 truncate">{project.name}</span>
-              <button
-                type="button"
-                aria-label={t('menu')}
-                className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  openMenu(event, items)
-                }}
-              >
-                <MoreHorizontal className="size-4" />
-              </button>
+            <Card className="flex min-h-24 flex-col items-start gap-2 p-4 hover:bg-accent">
+              <div className="flex w-full items-start gap-2">
+                <ResourceIcon name={project.icon} />
+                <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
+                <button
+                  type="button"
+                  aria-label={t('menu')}
+                  className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    openMenu(event, items)
+                  }}
+                >
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t('projectTableCount', { count: project.tableCount })} · {t('lastEdited', { date: formatDateTime(project.lastEditedAt) })}
+              </p>
             </Card>
           </Link>
           )
@@ -1095,7 +1107,7 @@ export function RecentPage() {
             <Link to={item.href}>
               <Card className="flex min-h-11 items-center gap-2 p-3 text-sm">
                 <ResourceIcon name={item.icon} />
-                <span className="truncate">{item.title}</span>
+                <span className="min-w-0 truncate">{formatRecentTitle(item)}</span>
               </Card>
             </Link>
           </li>
@@ -1129,10 +1141,32 @@ export function FavoritesPage() {
   )
 }
 
+type PluginSummary = { id: string; name: string; enabled: boolean }
+
 export function IntegrationsPage() {
   const { t } = useTranslation()
-  const plugins = useQuery({ queryKey: ['plugins'], queryFn: () => api.request<{ plugins: { id: string; name: string; enabled: boolean }[] }>('/plugins') })
-  const [pending, setPending] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const plugins = useQuery({ queryKey: ['plugins'], queryFn: () => api.request<{ plugins: PluginSummary[] }>('/plugins') })
+  const toggle = useMutation({
+    mutationFn: async (plugin: PluginSummary) => {
+      await api.ensureCsrf()
+      return api.request<{ plugin: PluginSummary }>(`/plugins/${plugin.id}/${plugin.enabled ? 'disable' : 'enable'}`, { method: 'POST' })
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<{ plugins: PluginSummary[] }>(['plugins'], (current) => {
+        if (!current) return current
+        return {
+          plugins: current.plugins.map((plugin) =>
+            plugin.id === result.plugin.id ? { ...plugin, enabled: result.plugin.enabled } : plugin,
+          ),
+        }
+      })
+      void queryClient.invalidateQueries({ queryKey: ['plugins'] })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : t('error'))
+    },
+  })
   return (
     <Page title={t('integrations')}>
       {plugins.isLoading ? <LoadingBlock /> : null}
@@ -1147,13 +1181,8 @@ export function IntegrationsPage() {
             </div>
             <Button
               variant="outline"
-              disabled={pending === plugin.id}
-              onClick={() => {
-                setPending(plugin.id)
-                void api.request(`/plugins/${plugin.id}/${plugin.enabled ? 'disable' : 'enable'}`, { method: 'POST' })
-                  .then(() => plugins.refetch())
-                  .finally(() => setPending(null))
-              }}
+              disabled={toggle.isPending && toggle.variables?.id === plugin.id}
+              onClick={() => toggle.mutate(plugin)}
             >
               {plugin.enabled ? t('disable') : t('enable')}
             </Button>
