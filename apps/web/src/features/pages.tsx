@@ -20,6 +20,7 @@ import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states
 import { patchCachedTable } from './tables/cache'
 import { pushCommand } from './tables/history'
 import { createdProjectPath } from './tables/grid-ux'
+import { tabDropEdge } from './tables/drop-place'
 import { moveTab, tableNameFromFile } from './tables/table-tabs'
 import { openRegisteredTableMenu } from './tables/table-menu'
 import { api } from '../lib/api'
@@ -469,6 +470,8 @@ export function ProjectPage() {
   const nameRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
+  const tabFrom = useRef<string | null>(null)
+  const [tabOver, setTabOver] = useState<string | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
   const [descriptionOpen, setDescriptionOpen] = useState(false)
   const [memberName, setMemberName] = useState('')
@@ -692,6 +695,7 @@ export function ProjectPage() {
         <div className="flex h-11 items-end gap-1 overflow-x-auto">
           {tableRows.map((table) => {
             const current = table.id === tableId
+            const tabEdge = tabOver === table.id ? tabDropEdge(tableRows.map((item) => item.id), tabFrom.current ?? '', table.id) : null
             const items = [
               { id: 'open', label: t('open'), icon: FolderOpen, onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
               {
@@ -709,16 +713,29 @@ export function ProjectPage() {
                 key={table.id}
                 draggable={!current}
                 onDragStart={(event) => {
+                  tabFrom.current = table.id
                   event.dataTransfer.setData('text/plain', `table:${table.id}`)
                   event.dataTransfer.effectAllowed = 'move'
                 }}
-                onDragOver={(event) => event.preventDefault()}
+                onDragEnd={() => {
+                  tabFrom.current = null
+                  setTabOver(null)
+                }}
+                onDragOver={(event) => {
+                  const from = tabFrom.current
+                  if (!from) return
+                  event.preventDefault()
+                  const next = tabDropEdge(tableRows.map((item) => item.id), from, table.id) ? table.id : null
+                  setTabOver((currentOver) => (currentOver === next ? currentOver : next))
+                }}
                 onDrop={(event) => {
                   event.preventDefault()
                   const fromId = event.dataTransfer.getData('text/plain').replace(/^table:/, '')
+                  tabFrom.current = null
+                  setTabOver(null)
                   if (fromId) void reorderTabs(fromId, table.id)
                 }}
-                className={`flex h-10 shrink-0 items-center gap-1 border border-b-0 px-1 pr-4 ${current ? 'border-border bg-card' : 'border-transparent'}`}
+                className={`relative flex h-10 shrink-0 items-center gap-1 border border-b-0 px-1 pr-4 ${current ? 'border-border bg-card' : 'border-transparent'}`}
                 {...(current
                   ? {
                       onContextMenu: (event: ReactMouseEvent) => openRegisteredTableMenu(event),
@@ -750,12 +767,23 @@ export function ProjectPage() {
                   onMouseDown={(event) => event.stopPropagation()}
                   onDragStart={(event) => {
                     event.stopPropagation()
+                    tabFrom.current = table.id
                     event.dataTransfer.setData('text/plain', `table:${table.id}`)
                     event.dataTransfer.effectAllowed = 'move'
+                  }}
+                  onDragEnd={() => {
+                    tabFrom.current = null
+                    setTabOver(null)
                   }}
                 >
                   <GripVertical className="size-3.5" />
                 </span>
+                {tabEdge ? (
+                  <span
+                    aria-hidden
+                    className={`pointer-events-none absolute inset-y-0 z-10 w-0.5 bg-primary ${tabEdge === 'after' ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'}`}
+                  />
+                ) : null}
                 <IconButton name={table.icon} onChange={(icon) => void saveIcon('table', table.id, icon)} />
                 {current ? (
                   <QuietInput

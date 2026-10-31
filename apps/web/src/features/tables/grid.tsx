@@ -75,6 +75,7 @@ import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
 import { ConditionalDialog } from './conditional-dialog'
 import { presentFormatRow } from './format-values'
 import { CellEditor } from './cells'
+import { beforeDropEdge } from './drop-place'
 import { editFailureMessage } from './edit-error'
 import {
   cardinalityKey,
@@ -253,6 +254,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const importRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
+  const dragItem = useRef<{ kind: 'column' | 'row'; id: string } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ kind: 'column' | 'row'; id: string } | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
   const [notice, setNotice] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -1781,8 +1784,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
               onMouseDown={(event) => event.stopPropagation()}
               onDragStart={(event) => {
                 event.stopPropagation()
+                dragItem.current = { kind: 'row', id: row.original.id }
                 event.dataTransfer.setData('text/plain', `row:${row.original.id}`)
                 event.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragEnd={() => {
+                dragItem.current = null
+                setDropTarget(null)
               }}
             >
               <GripVertical className="size-3.5" />
@@ -2178,10 +2186,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       data-column-id={column.id}
                       className={`group relative h-10 overflow-visible border-b border-r border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''}`}
                       style={{ width: widths[column.id] ?? column.width }}
-                      onDragOver={(event: DragEvent) => event.preventDefault()}
+                      onDragOver={(event: DragEvent) => {
+                        const from = dragItem.current
+                        if (!from || from.kind !== 'column') return
+                        event.preventDefault()
+                        const next = beforeDropEdge(columns.map((item) => item.id), from.id, column.id) ? column.id : null
+                        setDropTarget((current) => {
+                          if (next === null) return current?.kind === 'column' ? null : current
+                          if (current?.kind === 'column' && current.id === next) return current
+                          return { kind: 'column', id: next }
+                        })
+                      }}
                       onDrop={(event: DragEvent) => {
                         event.preventDefault()
                         const payload = event.dataTransfer.getData('text/plain')
+                        dragItem.current = null
+                        setDropTarget(null)
                         if (!payload.startsWith('column:')) return
                         void reorderColumns(
                           moveIdBefore(
@@ -2210,6 +2230,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       onPointerUp={() => window.clearTimeout(pressTimer.current)}
                       onPointerCancel={() => window.clearTimeout(pressTimer.current)}
                     >
+                      {dropTarget?.kind === 'column' && dropTarget.id === column.id ? (
+                        <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
+                      ) : null}
                       <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                         <span
                           role="button"
@@ -2221,8 +2244,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           onClick={(event) => event.stopPropagation()}
                           onDragStart={(event) => {
                             event.stopPropagation()
+                            dragItem.current = { kind: 'column', id: column.id }
                             event.dataTransfer.setData('text/plain', `column:${column.id}`)
                             event.dataTransfer.effectAllowed = 'move'
+                          }}
+                          onDragEnd={() => {
+                            dragItem.current = null
+                            setDropTarget(null)
                           }}
                         >
                           <GripVertical className="size-3.5" />
@@ -2402,10 +2430,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   <tr
                     key={row.id}
                     className={`group ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : ''}`}
-                    onDragOver={(event) => event.preventDefault()}
+                    onDragOver={(event) => {
+                      const from = dragItem.current
+                      if (!from || from.kind !== 'row') return
+                      event.preventDefault()
+                      const next = beforeDropEdge(rows.map((item) => item.id), from.id, row.original.id) ? row.original.id : null
+                      setDropTarget((current) => {
+                        if (next === null) return current?.kind === 'row' ? null : current
+                        if (current?.kind === 'row' && current.id === next) return current
+                        return { kind: 'row', id: next }
+                      })
+                    }}
                     onDrop={(event) => {
                       event.preventDefault()
                       const payload = event.dataTransfer.getData('text/plain')
+                      dragItem.current = null
+                      setDropTarget(null)
                       if (!payload.startsWith('row:')) return
                       if (sort) setSort(null)
                       void reorderRow(payload.slice(4), row.original.id)
@@ -2414,8 +2454,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={`overflow-hidden border-b border-r border-border p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
+                        className={`relative overflow-hidden border-b border-r border-border p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
                       >
+                        {dropTarget?.kind === 'column' && dropTarget.id === cell.column.id ? (
+                          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
+                        ) : null}
+                        {dropTarget?.kind === 'row' && dropTarget.id === row.original.id ? (
+                          <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary" />
+                        ) : null}
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
