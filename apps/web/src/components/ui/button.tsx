@@ -10,7 +10,7 @@ const buttonVariants = cva(
       variant: {
         default: 'bg-primary text-primary-foreground hover:opacity-90',
         outline: 'border border-border bg-card hover:bg-accent',
-        ghost: 'hover:bg-accent',
+        ghost: '',
         danger: 'bg-danger text-white hover:opacity-90',
       },
     },

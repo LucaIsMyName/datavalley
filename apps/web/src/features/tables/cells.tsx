@@ -546,7 +546,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
                 key={color}
                 type="button"
                 aria-label={color}
-                className={`h-5 w-5 rounded-full border border-border ${swatch[color] ?? swatch.slate} ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
+                className={`h-5 w-5 border border-border ${swatch[color] ?? swatch.slate} ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
                 onClick={() => {
                   void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
                     onCreated('status', { ...result.status, tableId })

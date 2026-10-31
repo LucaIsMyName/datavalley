@@ -22,7 +22,7 @@ import {
   type FormulaCatalog,
 } from './formula-tokens'
 
-const fieldClass = 'h-9 w-full rounded-md border border-border bg-card px-2 text-sm'
+const fieldClass = 'h-9 w-full border border-border bg-card px-2 text-sm'
 
 type CatalogResponse = {
   columns: FormulaCatalog['columns']
@@ -194,7 +194,7 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
 
   return (
     <div
-      className="fixed z-50 flex flex-col rounded-md border border-border bg-card shadow-md"
+      className="fixed z-50 flex flex-col border border-border bg-card shadow-md"
       style={{ left: x, top: y, width, height }}
       ref={panelRef}
       role="dialog"
@@ -221,7 +221,7 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
         <div className="relative min-h-0 flex-1">
-          {draft === null ? <div className="absolute inset-0 rounded-md border border-border" /> : (
+          {draft === null ? <div className="absolute inset-0 border border-border" /> : (
             <div className="absolute inset-0">
               <FormulaEditor
                 ref={editorRef}
@@ -322,7 +322,7 @@ function BadgeMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[80] flex max-h-72 w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-md"
+      className="fixed z-[80] flex max-h-72 w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto border border-border bg-card p-2 shadow-md"
       style={{ left, top }}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -352,7 +352,7 @@ function modeLabel(mode: BracketKind) {
 
 function choiceButton(label: string, onClick: () => void) {
   return (
-    <button type="button" className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent" onClick={onClick}>
+    <button type="button" className="block w-full px-2 py-1 text-left text-sm hover:bg-accent" onClick={onClick}>
       {label}
     </button>
   )
@@ -361,7 +361,7 @@ function choiceButton(label: string, onClick: () => void) {
 function ThisRowList({ catalog, tableId, columnId, onReplace }: { catalog: FormulaCatalog; tableId: string; columnId: string; onReplace: (text: string) => void }) {
   const columns = catalog.columns.filter((column) => column.tableId === tableId && column.columnId !== columnId)
   return (
-    <ul className="overflow-y-auto rounded-md border border-border">
+    <ul className="overflow-y-auto border border-border">
       {columns.map((column) => <li key={column.columnId}>{choiceButton(column.columnName, () => onReplace(thisRowReference(column.columnName)))}</li>)}
     </ul>
   )
@@ -392,7 +392,7 @@ function RelationList({ catalog, relationName, onReplace }: { catalog: FormulaCa
   return (
     <div className="flex flex-col gap-2">
       <SelectField label={t('formulaRelation')} value={relation.name} onValueChange={setName} options={catalog.relations.map((item) => ({ value: item.name, label: item.name }))} />
-      <ul className="overflow-y-auto rounded-md border border-border">
+      <ul className="overflow-y-auto border border-border">
         {relation.columns.map((column) => <li key={column.name}>{choiceButton(column.name, () => onReplace(relationReference(relation.name, column.name)))}</li>)}
       </ul>
     </div>
@@ -409,7 +409,7 @@ function ColumnList({ catalog, tableName, onReplace }: { catalog: FormulaCatalog
     <div className="flex flex-col gap-2">
       <SelectField label={t('targetTable')} value={tableId} onValueChange={setTableId} options={tables.map((item) => ({ value: item.tableId, label: item.tableName }))} />
       {table ? (
-        <ul className="overflow-y-auto rounded-md border border-border">
+        <ul className="overflow-y-auto border border-border">
           {fields.map((column) => <li key={column.columnId}>{choiceButton(column.columnName, () => onReplace(columnReference(table.tableName, column.columnName)))}</li>)}
         </ul>
       ) : null}
@@ -440,7 +440,7 @@ function RowSearch({ tableId, onPick }: { tableId: string; onPick: (row: { rowNu
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
-      <ul className="max-h-32 overflow-y-auto rounded-md border border-border">
+      <ul className="max-h-32 overflow-y-auto border border-border">
         {rows.length === 0 ? <li className="px-2 py-1 text-sm text-muted-foreground">{t('formulaNoRows')}</li> : null}
         {rows.map((row) => <li key={row.id}>{choiceButton(row.label, () => onPick(row))}</li>)}
       </ul>

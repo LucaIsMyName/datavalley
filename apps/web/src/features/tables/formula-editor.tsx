@@ -409,7 +409,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
   }, [extensions])
 
   return (
-    <div className="h-full overflow-hidden rounded-md border border-border">
+    <div className="h-full overflow-hidden border border-border">
       <div ref={host} className="h-full" />
     </div>
   )

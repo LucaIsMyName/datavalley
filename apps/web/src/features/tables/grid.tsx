@@ -14,7 +14,35 @@ import {
   type FilterOperator,
   type FormatRule,
 } from '@datavalley/shared'
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Filter, GripVertical, Plus, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  ArrowUpDown,
+  ArrowUpToLine,
+  Bookmark,
+  ClipboardPaste,
+  Copy,
+  Download,
+  Eraser,
+  Eye,
+  Filter,
+  GripVertical,
+  ListChecks,
+  Palette,
+  Pencil,
+  Plus,
+  Redo2,
+  Save,
+  Search,
+  Sigma,
+  Star,
+  StickyNote,
+  Trash2,
+  Undo2,
+  Upload,
+  X,
+} from 'lucide-react'
 import {
   useEffect,
   useMemo,
@@ -41,6 +69,7 @@ import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
+import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
 import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
 import { fillTargets } from './fill-range'
@@ -61,23 +90,6 @@ import {
 const SWATCHES = ['#fde68a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa', '#e5e7eb']
 const GUTTER_WIDTH = 60
 const ADD_COLUMN_WIDTH = 40
-const COLUMN_TYPES = [
-  'text',
-  'long_text',
-  'mail',
-  'url',
-  'number',
-  'date',
-  'datetime',
-  'checkbox',
-  'select',
-  'tags',
-  'status',
-  'user',
-  'row_id',
-  'formula',
-  'relation',
-]
 
 type PopoverState = {
   kind:
@@ -1327,129 +1339,127 @@ export function TableScreen({ tableId }: { tableId: string }) {
   function openColumnMenu(event: ReactMouseEvent, column: Column) {
     event.stopPropagation()
     const point = anchor(event)
-    openMenu(event, [
-      { id: 'rename', label: t('rename'), onSelect: () => setRenamingColumn(column.id) },
-      ...COLUMN_TYPES.map((type) => ({
-        id: `type-${type}`,
-        label: type,
-        disabled: type === column.type,
-        onSelect: () => {
-          if (type === 'formula') {
-            setFormulaDraft('')
-            setFormulaFunction('')
-            setPopover({ kind: 'formula', columnId: column.id, ...anchor(event) })
+    openMenu(
+      event,
+      buildColumnHeaderMenu({
+        column,
+        checkedCount: checked.length,
+        label: (key) => t(key),
+        onSelect: (id) => {
+          if (id === 'rename') {
+            setRenamingColumn(column.id)
             return
           }
-          if (type === 'relation') {
-            setRelationTarget('')
-            setPopover({ kind: 'relation', columnId: column.id, ...anchor(event) })
+          if (id.startsWith('type-')) {
+            const type = id.slice('type-'.length)
+            if (type === 'formula') {
+              setFormulaDraft('')
+              setFormulaFunction('')
+              setPopover({ kind: 'formula', columnId: column.id, ...point })
+              return
+            }
+            if (type === 'relation') {
+              setRelationTarget('')
+              setPopover({ kind: 'relation', columnId: column.id, ...point })
+              return
+            }
+            void applyType(column, type)
             return
           }
-          void applyType(column, type)
+          if (id === 'sort') {
+            cycleSort(column.id)
+            return
+          }
+          if (id === 'filter') {
+            setPopover({ kind: 'filter', columnId: column.id, ...point })
+            return
+          }
+          if (id === 'left') {
+            openNewColumn(column.id, point)
+            return
+          }
+          if (id === 'right') {
+            openNewColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id, point)
+            return
+          }
+          if (id === 'duplicate') {
+            void duplicateSelectedColumns([column.id])
+            return
+          }
+          if (id === 'fill') {
+            void fillDown(column.id)
+            return
+          }
+          if (id === 'conditional') {
+            setPopover({ kind: 'conditional', columnId: column.id, ...point })
+            return
+          }
+          if (id.startsWith('variant-')) {
+            void saveConfig(column, { variant: id.slice('variant-'.length) })
+            return
+          }
+          if (id.startsWith('currency-')) {
+            void saveConfig(column, { currency: id.slice('currency-'.length) })
+            return
+          }
+          if (id.startsWith('style-')) {
+            void saveConfig(column, { style: id.slice('style-'.length) })
+            return
+          }
+          if (id.startsWith('footer-')) {
+            void setFooterCalc(column.id, id.slice('footer-'.length))
+            return
+          }
+          if (id === 'hide') {
+            void hideColumn(column, true)
+            return
+          }
+          if (id === 'delete') void deleteColumns([column.id])
         },
-      })),
-      { id: 'sort', label: t('sort'), onSelect: () => cycleSort(column.id) },
-      {
-        id: 'filter',
-        label: t('filter'),
-        onSelect: () => setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) }),
-      },
-      { id: 'left', label: t('insertLeft'), onSelect: () => openNewColumn(column.id, point) },
-      {
-        id: 'right',
-        label: t('insertRight'),
-        onSelect: () =>
-          openNewColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id, point),
-      },
-      {
-        id: 'duplicate',
-        label: t('duplicate'),
-        onSelect: () => void duplicateSelectedColumns([column.id]),
-      },
-      {
-        id: 'fill',
-        label: t('fillDown'),
-        disabled: checked.length < 2,
-        onSelect: () => void fillDown(column.id),
-      },
-      {
-        id: 'conditional',
-        label: t('conditionalColor'),
-        onSelect: () => setPopover({ kind: 'conditional', columnId: column.id, ...anchor(event) }),
-      },
-      ...(column.type === 'number'
-        ? (['float', 'integer', 'money'] as const).map((variant) => ({
-            id: `variant-${variant}`,
-            label: t(variant),
-            disabled: String(column.config.variant ?? 'float') === variant,
-            onSelect: () => void saveConfig(column, { variant }),
-          }))
-        : []),
-      ...(column.type === 'currency' || column.config.variant === 'money'
-        ? (['USD', 'EUR', 'GBP', 'CHF', 'JPY'] as const).map((currency) => ({
-            id: `currency-${currency}`,
-            label: currency,
-            disabled: String(column.config.currency ?? 'USD') === currency,
-            onSelect: () => void saveConfig(column, { currency }),
-          }))
-        : []),
-      ...(column.type === 'row_id'
-        ? (['sequence', 'uuid'] as const).map((style) => ({
-            id: `style-${style}`,
-            label: t(style),
-            disabled: String(column.config.style ?? 'sequence') === style,
-            onSelect: () => void saveConfig(column, { style }),
-          }))
-        : []),
-      ...footerChoices(column.type).map((calc) => ({
-        id: `footer-${calc}`,
-        label: t(calc),
-        onSelect: () => void setFooterCalc(column.id, calc),
-      })),
-      { id: 'hide', label: t('hideColumn'), onSelect: () => void hideColumn(column, true) },
-      {
-        id: 'delete',
-        label: t('delete'),
-        danger: true,
-        onSelect: () => void deleteColumns([column.id]),
-      },
-    ])
+      }),
+    )
   }
 
   function openRowMenu(event: ReactMouseEvent, row: RowRecord) {
     event.stopPropagation()
+    const point = anchor(event)
     const list = rowsRef.current
     const index = list.findIndex((item) => item.id === row.id)
     openMenu(event, [
-      { id: 'notes', label: t('notes'), onSelect: () => setDrawerRowId(row.id) },
-      { id: 'above', label: t('insertAbove'), onSelect: () => void insertRow(row.id) },
-      { id: 'below', label: t('insertBelow'), onSelect: () => void insertRow(list[index + 1]?.id) },
+      { id: 'notes', label: t('notes'), icon: StickyNote, onSelect: () => setDrawerRowId(row.id) },
+      { id: 'above', label: t('insertAbove'), icon: ArrowUpToLine, onSelect: () => void insertRow(row.id) },
+      { id: 'below', label: t('insertBelow'), icon: ArrowDownToLine, onSelect: () => void insertRow(list[index + 1]?.id) },
       {
         id: 'duplicate',
         label: t('duplicate'),
+        icon: Copy,
         onSelect: () => void duplicateSelectedRows([row.id]),
       },
       {
         id: 'color',
         label: t('rowColor'),
-        onSelect: () => setPopover({ kind: 'row-color', rowId: row.id, ...anchor(event) }),
+        icon: Palette,
+        onSelect: () => setPopover({ kind: 'row-color', rowId: row.id, ...point }),
       },
       {
         id: 'select',
         label: t('selectAll'),
+        icon: ListChecks,
         onSelect: () =>
           setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
       },
-      { id: 'delete', label: t('delete'), danger: true, onSelect: () => void deleteRows([row.id]) },
+      { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => void deleteRows([row.id]) },
     ])
   }
 
   function openCellMenu(event: ReactMouseEvent, row: RowRecord, column: Column) {
     event.stopPropagation()
+    const point = anchor(event)
     openMenu(event, [
       {
         id: 'edit',
         label: t('rename'),
+        icon: Pencil,
         disabled: !writable(column) && column.type !== 'formula',
         onSelect: () => {
           if (column.type === 'formula') {
@@ -1462,16 +1472,19 @@ export function TableScreen({ tableId }: { tableId: string }) {
       {
         id: 'copy',
         label: t('copy'),
+        icon: Copy,
         onSelect: () => void navigator.clipboard.writeText(showCell(row.cells[column.id])),
       },
       {
         id: 'paste',
         label: t('paste'),
+        icon: ClipboardPaste,
         onSelect: () => void navigator.clipboard.readText().then((text) => pasteTsv(text)),
       },
       {
         id: 'clear',
         label: t('clearCell'),
+        icon: Eraser,
         disabled: !writable(column),
         onSelect: () => {
           scheduleCell(row, column, '', 0)
@@ -1481,8 +1494,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
       {
         id: 'color',
         label: t('cellColor'),
+        icon: Palette,
         onSelect: () =>
-          setPopover({ kind: 'cell-color', rowId: row.id, columnId: column.id, ...anchor(event) }),
+          setPopover({ kind: 'cell-color', rowId: row.id, columnId: column.id, ...point }),
       },
     ])
   }
@@ -1491,45 +1505,52 @@ export function TableScreen({ tableId }: { tableId: string }) {
   void historyTick
 
   function openTitleMenu(event: ReactMouseEvent) {
+    const point = anchor(event)
     const hidden = columns.filter((column) => column.hidden)
     openMenu(event, [
-      { id: 'undo', label: t('undo'), disabled: !flags.canUndo, onSelect: () => void undo('undo') },
-      { id: 'redo', label: t('redo'), disabled: !flags.canRedo, onSelect: () => void undo('redo') },
+      { id: 'undo', label: t('undo'), icon: Undo2, disabled: !flags.canUndo, onSelect: () => void undo('undo') },
+      { id: 'redo', label: t('redo'), icon: Redo2, disabled: !flags.canRedo, onSelect: () => void undo('redo') },
       {
         id: 'find',
         label: t('find'),
-        onSelect: () => setPopover({ kind: 'find', ...anchor(event) }),
+        icon: Search,
+        onSelect: () => setPopover({ kind: 'find', ...point }),
       },
       {
         id: 'favorite',
         label: t('favorites'),
+        icon: Star,
         onSelect: () =>
           void api.request('/favorites', {
             method: 'POST',
             body: JSON.stringify({ resourceType: 'table', resourceId: tableId }),
           }),
       },
-      { id: 'export', label: t('export'), onSelect: () => void exportCsv() },
-      { id: 'footer', label: t('footer'), onSelect: () => void setFooter(!footerConfig.enabled) },
-      { id: 'import', label: t('import'), onSelect: () => importRef.current?.click() },
+      { id: 'export', label: t('export'), icon: Download, onSelect: () => void exportCsv() },
+      { id: 'footer', label: t('footer'), icon: Sigma, onSelect: () => void setFooter(!footerConfig.enabled) },
+      { id: 'import', label: t('import'), icon: Upload, onSelect: () => importRef.current?.click() },
       ...(views.data?.views ?? []).map((view) => ({
         id: view.id,
         label: view.name,
+        icon: Bookmark,
         onSelect: () => applyView(view),
       })),
       {
         id: 'save-view',
         label: t('saveView'),
-        onSelect: () => setPopover({ kind: 'view', ...anchor(event) }),
+        icon: Save,
+        onSelect: () => setPopover({ kind: 'view', ...point }),
       },
       ...hidden.map((column) => ({
         id: `show-${column.id}`,
         label: `${t('showColumn')}: ${column.name}`,
+        icon: Eye,
         onSelect: () => void hideColumn(column, false),
       })),
       {
         id: 'duplicate',
         label: t('duplicateTable'),
+        icon: Copy,
         onSelect: () =>
           void api.request(`/tables/${tableId}/duplicate`, {
             method: 'POST',
@@ -1539,6 +1560,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       {
         id: 'delete',
         label: t('delete'),
+        icon: Trash2,
         danger: true,
         onSelect: () =>
           setConfirm({
@@ -1827,7 +1849,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 <button
                   type="button"
                   aria-label={t('fillHandle')}
-                  className="absolute bottom-0.5 right-0.5 z-10 flex size-3.5 cursor-crosshair items-center justify-center rounded-sm border border-primary bg-card text-primary"
+                  className="absolute bottom-0.5 right-0.5 z-10 flex size-3.5 cursor-crosshair items-center justify-center border border-primary bg-card text-primary"
                   onPointerDown={(event) => beginFillRef.current(event, row.index, column)}
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -2229,7 +2251,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         type="button"
                         data-header-control
                         aria-label={t('insertColumn')}
-                        className="absolute -right-2.5 top-0 z-40 hidden h-5 w-5 items-center justify-center rounded-full border border-border bg-card max-md:flex md:group-hover:flex"
+                        className="absolute -right-1.5 -bottom-1.5 z-40 hidden h-3 w-3 items-center justify-center border border-border bg-card max-md:flex md:group-hover:flex"
                         onClick={(event) => {
                           event.stopPropagation()
                           openNewColumn(
@@ -2641,12 +2663,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
       />
     </section>
   )
-}
-
-function footerChoices(type: string) {
-  if (type === 'number' || type === 'currency')
-    return ['count', 'sum', 'avg', 'median', 'min', 'max', 'empty', 'filled']
-  return ['count', 'unique', 'empty', 'filled', 'percent_empty', 'percent_filled']
 }
 
 function footerValue(

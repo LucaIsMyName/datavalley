@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Info, Plus } from 'lucide-react'
+import { FolderOpen, Info, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -292,9 +292,9 @@ export function ProjectsPage() {
             key={project.id}
             to={`/projects/${project.id}`}
             onContextMenu={(event) => openMenu(event, [
-              { id: 'open', label: t('open'), onSelect: () => navigate(`/projects/${project.id}`) },
-              { id: 'rename', label: t('rename'), onSelect: () => setRename(project) },
-              { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(project) },
+              { id: 'open', label: t('open'), icon: FolderOpen, onSelect: () => navigate(`/projects/${project.id}`) },
+              { id: 'rename', label: t('rename'), icon: Pencil, onSelect: () => setRename(project) },
+              { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => setRemove(project) },
             ])}
           >
             <Card className="flex min-h-24 items-center gap-2 p-4 hover:bg-accent">
@@ -517,6 +517,7 @@ export function ProjectPage() {
     {
       id: 'favorite',
       label: t('favorites'),
+      icon: Star,
       onSelect: () => {
         void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'project', resourceId: projectId }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
       },
@@ -565,15 +566,16 @@ export function ProjectPage() {
           {tableRows.map((table) => {
             const current = table.id === tableId
             const items = [
-              { id: 'open', label: t('open'), onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
+              { id: 'open', label: t('open'), icon: FolderOpen, onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
               {
                 id: 'favorite',
                 label: t('favorites'),
+                icon: Star,
                 onSelect: () => {
                   void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'table', resourceId: table.id }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
                 },
               },
-              { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(table) },
+              { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => setRemove(table) },
             ]
             return (
               <div
