@@ -63,3 +63,27 @@ body {
   background: var(--primary);
   color: var(--primary-foreground);
 }
+
+.cm-tooltip {
+  z-index: 80;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  border-radius: 6px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.cm-completionDetail {
+  margin-left: 0.75rem;
+  color: var(--muted-foreground);
+  font-style: normal;
+}

@@ -40,7 +40,7 @@ import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
-import { FormulaDialog } from './formula-dialog'
+import { useFormulaWindow } from '../../stores/formula-window'
 import { FORMULA_HELP, formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
@@ -271,7 +271,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [formulaDraft, setFormulaDraft] = useState('')
   const [formulaFunction, setFormulaFunction] = useState('')
-  const [formulaCell, setFormulaCell] = useState<{ rowId: string; columnId: string; name: string } | null>(null)
+  function openFormula(rowId: string, columnId: string, columnName: string) {
+    useFormulaWindow.getState().open({ tableId, rowId, columnId, columnName })
+  }
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
@@ -1396,7 +1398,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         disabled: !writable(column) && column.type !== 'formula',
         onSelect: () => {
           if (column.type === 'formula') {
-            setFormulaCell({ rowId: row.id, columnId: column.id, name: column.name })
+            openFormula(row.id, column.id, column.name)
             return
           }
           setEditing(`${row.id}:${column.id}`)
@@ -1711,7 +1713,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   }}
                   onOpen={() => {
                     if (column.type === 'formula') {
-                      setFormulaCell({ rowId: row.original.id, columnId: column.id, name: column.name })
+                      openFormula(row.original.id, column.id, column.name)
                       return
                     }
                     setSelected({
@@ -2555,18 +2557,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
         tableId={tableId}
         row={rows.find((row) => row.id === drawerRowId) ?? null}
         onClose={() => setDrawerRowId(null)}
-      />
-      <FormulaDialog
-        open={Boolean(formulaCell)}
-        tableId={tableId}
-        rowId={formulaCell?.rowId ?? ''}
-        columnId={formulaCell?.columnId ?? ''}
-        columnName={formulaCell?.name ?? ''}
-        onClose={() => setFormulaCell(null)}
-        onSaved={() => {
-          setFormulaCell(null)
-          void refresh()
-        }}
       />
       <ConfirmDialog
         open={Boolean(confirm)}

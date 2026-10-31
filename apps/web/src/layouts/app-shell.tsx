@@ -9,6 +9,7 @@ import { ContextMenuProvider } from '../components/context-menu'
 import { HeaderSearch } from '../components/command-palette'
 import { Button } from '../components/ui/button'
 import { Toaster } from '../components/ui/sonner'
+import { FormulaWindow } from '../features/tables/formula-window'
 
 const links = [
   { to: '/', key: 'dashboard', icon: LayoutDashboard, end: true },
@@ -103,6 +104,7 @@ export function AppShell() {
       </div>
     </div>
     <Toaster />
+    <FormulaWindow />
     </ContextMenuProvider>
   )
 }

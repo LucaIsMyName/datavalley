@@ -119,6 +119,7 @@
   "formulaNoRows": "No rows",
   "formulaNoRelations": "This table has no relation",
   "formulaInsert": "Insert",
+  "formulaResize": "Resize",
   "formulaCopies": "This expression is copied onto the rows that already exist.",
   "close": "Close",
   "relation": "Relation",
