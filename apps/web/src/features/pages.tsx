@@ -741,23 +741,21 @@ export function ProjectPage() {
                     }
                   : pressMenuProps(openMenu, pressTimer, pressOrigin, items))}
               >
-                {current ? (
-                  <span
-                    role="button"
-                    tabIndex={-1}
-                    draggable
-                    aria-label={t('reorder')}
-                    className="inline-flex shrink-0 cursor-grab text-muted-foreground"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onDragStart={(event) => {
-                      event.stopPropagation()
-                      event.dataTransfer.setData('text/plain', `table:${table.id}`)
-                      event.dataTransfer.effectAllowed = 'move'
-                    }}
-                  >
-                    <GripVertical className="size-3.5" />
-                  </span>
-                ) : null}
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  draggable
+                  aria-label={t('reorder')}
+                  className="inline-flex shrink-0 cursor-grab text-muted-foreground"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onDragStart={(event) => {
+                    event.stopPropagation()
+                    event.dataTransfer.setData('text/plain', `table:${table.id}`)
+                    event.dataTransfer.effectAllowed = 'move'
+                  }}
+                >
+                  <GripVertical className="size-3.5" />
+                </span>
                 <IconButton name={table.icon} onChange={(icon) => void saveIcon('table', table.id, icon)} />
                 {current ? (
                   <QuietInput
