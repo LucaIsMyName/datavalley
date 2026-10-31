@@ -26,6 +26,7 @@ import { createdProjectPath } from './tables/grid-ux'
 import { tabDropEdge } from './tables/drop-place'
 import { moveTab, tableNameFromFile } from './tables/table-tabs'
 import { openRegisteredTableMenu } from './tables/table-menu'
+import { deleteTableInProject } from './tables/table-delete'
 import { TableToolbarProvider, TableToolbarRow } from './tables/table-toolbar'
 import { api } from '../lib/api'
 import { formatDateTime } from '../lib/format'
@@ -1081,12 +1082,17 @@ export function ProjectPage() {
         onClose={() => setRemove(null)}
         onConfirm={() => {
           if (!remove) return
-          const next = tableRows.find((table) => table.id !== remove.id)
-          void api.request(`/tables/${remove.id}`, { method: 'DELETE' }).then(async () => {
-            await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
-            if (remove.id === tableId) navigate(next ? `/projects/${projectId}/tables/${next.id}` : `/projects/${projectId}`)
-          })
+          const deletedId = remove.id
           setRemove(null)
+          void deleteTableInProject({
+            projectId,
+            tableId: deletedId,
+            tables: tableRows,
+            activeTableId: tableId,
+            queryClient,
+            navigate,
+            api,
+          })
         }}
       />
     </section>

@@ -92,6 +92,7 @@ import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
 import { Swatches } from './swatches'
 import { registerTableMenu } from './table-menu'
+import { deleteTableInProject } from './table-delete'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import {
   historyFlags,
@@ -443,7 +444,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }, [filter, sort, stateReady, t, tableId])
   const projectTables = useQuery({
     queryKey: ['tables', projectId],
-    enabled: popover?.kind === 'relation' && Boolean(projectId),
+    enabled: Boolean(projectId),
     queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
   })
   const editingColumn = visible.find((column) => editing?.endsWith(`:${column.id}`))
@@ -1677,8 +1678,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function deleteThisTable() {
-    await api.request(`/tables/${tableId}`, { method: 'DELETE' })
-    window.location.assign(`/projects/${projectId}`)
+    if (!projectId) return
+    try {
+      await deleteTableInProject({
+        projectId,
+        tableId,
+        tables: projectTables.data?.tables ?? [],
+        activeTableId: tableId,
+        queryClient,
+        navigate,
+        api,
+      })
+    } catch (caught) {
+      showEditError(caught instanceof Error ? caught.message : t('error'))
+    }
   }
 
   async function duplicateThisTable() {
