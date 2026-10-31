@@ -214,13 +214,16 @@ export function ConditionalDialog({
     <Dialog.Root open onOpenChange={(open) => { if (!open && !saving) onClose() }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(40rem,calc(100vh-2rem))] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-auto border border-border bg-card p-4 shadow-md">
-          <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
-          <Dialog.Description className="text-sm text-muted-foreground">
-            {t('firstRuleWins')} {t('conditionExamples')}
-            {rowLabel ? ` ${t('cellRulesReplace')}` : ''}
-          </Dialog.Description>
-          <div className="flex min-h-40 flex-col gap-3">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(40rem,calc(100vh-2rem))] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden border border-border bg-card shadow-md">
+          <div className="shrink-0 space-y-3 px-4 pt-4">
+            <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
+            <Dialog.Description className="text-sm text-muted-foreground">
+              {t('firstRuleWins')} {t('conditionExamples')}
+              {rowLabel ? ` ${t('cellRulesReplace')}` : ''}
+            </Dialog.Description>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4">
+            <div className="flex min-h-40 flex-col gap-3 pb-3">
             {drafts?.map((draft, index) => (
               <div key={draft.id} className="flex flex-col gap-2 border border-border p-2">
                 <div className="min-h-10">
@@ -267,9 +270,10 @@ export function ConditionalDialog({
                 </div>
               </div>
             ))}
+            </div>
+            {errors.form ? <p className="pb-3 text-sm text-danger">{errors.form}</p> : null}
           </div>
-          {errors.form ? <p className="text-sm text-danger">{errors.form}</p> : null}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-3">
             <Button
               type="button"
               variant="outline"
