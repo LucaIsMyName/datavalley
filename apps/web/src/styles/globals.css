@@ -110,10 +110,14 @@ button:disabled {
   color: var(--primary-foreground);
 }
 
-.cm-tooltip {
+body > div:has(> .cm-tooltip) {
+  z-index: 80;
+}
+
+:root .cm-tooltip.cm-tooltip {
   z-index: 80;
   border: 1px solid var(--border);
-  background: var(--card);
+  background-color: var(--card);
   color: var(--foreground);
   border-radius: 6px;
 }
@@ -123,7 +127,7 @@ button:disabled {
   font-size: 13px;
 }
 
-.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+:root .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--accent);
   color: var(--foreground);
 }
