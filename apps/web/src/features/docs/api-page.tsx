@@ -36,8 +36,6 @@ export function ApiReferencePage() {
                 <p className="text-muted-foreground">{operation.description}</p>
                 <ParamList label={t('pathParams')} params={operation.pathParams} empty={t('none')} />
                 <ParamList label={t('queryParams')} params={operation.queryParams} empty={t('none')} />
-                <TypeBlock label={t('requestType')} value={operation.requestTs} empty={t('none')} />
-                <TypeBlock label={t('responseType')} value={operation.responseTs} empty={t('none')} />
                 <div>
                   <p className="font-medium">{t('example')}</p>
                   <pre className="mt-1 overflow-x-auto bg-muted p-3 font-mono text-xs">{operation.example}</pre>
@@ -75,15 +73,6 @@ function ParamList({
           ))}
         </ul>
       )}
-    </div>
-  )
-}
-
-function TypeBlock({ label, value, empty }: { label: string; value: string | null; empty: string }) {
-  return (
-    <div>
-      <p className="font-medium">{label}</p>
-      <pre className="mt-1 overflow-x-auto bg-muted p-3 font-mono text-xs">{value ?? empty}</pre>
     </div>
   )
 }

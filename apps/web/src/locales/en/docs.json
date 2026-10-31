@@ -10,8 +10,6 @@
   "permissionsTitle": "Permissions",
   "pluginsTitle": "Plugins",
   "formulasEngineTitle": "Formula engine",
-  "requestType": "Request",
-  "responseType": "Response",
   "pathParams": "Path",
   "queryParams": "Query",
   "example": "Example",

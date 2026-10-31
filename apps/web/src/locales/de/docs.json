@@ -10,8 +10,6 @@
   "permissionsTitle": "Berechtigungen",
   "pluginsTitle": "Plugins",
   "formulasEngineTitle": "Formel-Engine",
-  "requestType": "Anfrage",
-  "responseType": "Antwort",
   "pathParams": "Pfad",
   "queryParams": "Query",
   "example": "Beispiel",

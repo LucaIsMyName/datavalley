@@ -105,7 +105,7 @@ function DocsChrome({ children }: { children: ReactNode }) {
       <div className="flex min-h-0 min-w-0 flex-1">
         <aside className="hidden w-52 shrink-0 flex-col overflow-y-auto border-r border-border bg-card p-3 md:flex">
           <GuideNav className="flex flex-col gap-1" />
-          <p className="mt-4 px-2 text-xs font-medium text-muted-foreground">{t('onThisPage')}</p>
+          <p className="mt-4 pt-4 border-t border-border px-2 text-xs opacity-70 font-medium text-muted-foreground">{t('onThisPage')}</p>
           <TocLinks items={items} className="mt-1 flex flex-col gap-1" />
         </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
