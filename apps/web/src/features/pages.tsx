@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Info, Pencil, Plus, Star, Trash2 } from 'lucide-react'
+import { FolderOpen, Info, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -19,6 +19,7 @@ import { ConfirmDialog, PromptDialog } from '../components/confirm-dialog'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states'
 import { patchCachedTable } from './tables/cache'
 import { pushCommand } from './tables/history'
+import { createdProjectPath } from './tables/grid-ux'
 import { TableScreen } from './tables/grid'
 import { openRegisteredTableMenu } from './tables/table-menu'
 import { api } from '../lib/api'
@@ -69,10 +70,10 @@ export function LoginPage() {
           {totp ? (
             <>
               <Label htmlFor="totp">{t('confirmCode')}</Label>
-              <Input id="totp" name="totp" inputMode="numeric" autoComplete="one-time-code" />
+              <Input id="totp" name="totp" inputMode="numeric" autoComplete="one-time-code" required />
             </>
           ) : null}
-          {error ? <p className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
+          {error ? <p role="alert" className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
           <Button type="submit">{t('login')}</Button>
           <Link to="/forgot-password" className="text-sm underline">{t('forgotPassword')}</Link>
         </form>
@@ -111,7 +112,7 @@ export function ChangePasswordPage() {
           <Input id="current" name="current" type="password" required />
           <Label htmlFor="next">{t('newPassword')}</Label>
           <Input id="next" name="next" type="password" minLength={12} required />
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          {error ? <p role="alert" className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
           <Button type="submit">{t('save')}</Button>
         </form>
       </Card>
@@ -147,7 +148,7 @@ export function ForgotPasswordPage() {
         >
           <Label htmlFor="reset-email">{t('email')}</Label>
           <Input id="reset-email" name="email" type="email" autoComplete="email" required />
-          {sent ? <p className="min-h-5 text-sm">{t('forgotPasswordSent')}</p> : error ? <p className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
+          {sent ? <p className="min-h-5 text-sm">{t('forgotPasswordSent')}</p> : error ? <p role="alert" className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
           <Button type="submit">{t('sendResetLink')}</Button>
           <Link to="/login" className="text-sm underline">{t('login')}</Link>
         </form>
@@ -186,7 +187,7 @@ export function ResetPasswordPage() {
         >
           <Label htmlFor="reset-next">{t('newPassword')}</Label>
           <Input id="reset-next" name="next" type="password" autoComplete="new-password" minLength={12} required />
-          {error ? <p className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
+          {error ? <p role="alert" className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}
           <Button type="submit" disabled={!token}>{t('save')}</Button>
         </form>
       </Card>
@@ -217,7 +218,6 @@ export function DashboardPage() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.request<{ projects: Project[] }>('/projects') })
   const recents = useQuery({ queryKey: ['recents'], queryFn: () => api.request<{ recents: SavedHit[] }>('/recents') })
   const favorites = useQuery({ queryKey: ['favorites'], queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites') })
-  if (projects.isLoading || recents.isLoading || favorites.isLoading) return <Page title={t('dashboard')}><LoadingBlock /></Page>
   if (projects.isError) return <Page title={t('dashboard')}><ErrorState message={(projects.error as Error).message} /></Page>
   const projectRows = projects.data?.projects ?? []
   return (
@@ -225,6 +225,7 @@ export function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="flex min-h-40 flex-col p-4">
           <h2 className="font-medium">{t('projects')}</h2>
+          {projects.isLoading ? <LoadingBlock /> : null}
           {projectRows.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">{t('emptyProjects')}</p> : (
             <div className="mt-2 max-h-80 overflow-auto">
               <table className="w-full text-sm">
@@ -246,11 +247,15 @@ export function DashboardPage() {
         </Card>
         <Card className="min-h-40 p-4">
           <h2 className="font-medium">{t('recent')}</h2>
-          <SavedRows items={recents.data?.recents ?? []} empty={t('recentEmpty')} />
+          {recents.isLoading ? <LoadingBlock /> : recents.isError ? <ErrorState message={(recents.error as Error).message} /> : (
+            <SavedRows items={recents.data?.recents ?? []} empty={t('recentEmpty')} />
+          )}
         </Card>
         <Card className="min-h-40 p-4">
           <h2 className="font-medium">{t('favorites')}</h2>
-          <SavedRows items={favorites.data?.favorites ?? []} empty={t('favoritesEmpty')} />
+          {favorites.isLoading ? <LoadingBlock /> : favorites.isError ? <ErrorState message={(favorites.error as Error).message} /> : (
+            <SavedRows items={favorites.data?.favorites ?? []} empty={t('favoritesEmpty')} />
+          )}
         </Card>
       </div>
     </Page>
@@ -268,11 +273,22 @@ export function ProjectsPage() {
   const [creating, setCreating] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [customers, setCustomers] = useState(false)
+  const [createError, setCreateError] = useState('')
   const nameInput = useRef<HTMLInputElement>(null)
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.request<{ projects: Project[] }>('/projects') })
   const create = useMutation({
-    mutationFn: (input: { name: string; template?: 'customers' }) => api.request('/projects', { method: 'POST', body: JSON.stringify(input) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
+    mutationFn: (input: { name: string; template?: 'customers' }) =>
+      api.request<{ project: Project }>('/projects', { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setCreating(false)
+      setCreateError('')
+      const path = createdProjectPath(result)
+      if (path) navigate(path)
+    },
+    onError: (error) => {
+      setCreateError(error instanceof Error ? error.message : t('error'))
+    },
   })
   useEffect(() => {
     if (!creating) return
@@ -284,47 +300,67 @@ export function ProjectsPage() {
       title={t('projects')}
       actions={user?.role === 'admin' ? <Button type="button" onClick={() => { setProjectName(t('name')); setCustomers(false); setCreating(true) }}>{t('newProject')}</Button> : null}
     >
-      {projects.isLoading ? <LoadingBlock /> : null}
+      {projects.isLoading && !projects.data ? <LoadingBlock /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
       {projects.data && projects.data.projects.length === 0 ? <EmptyState title={t('emptyProjects')} body={t('emptyProjectsBody')} /> : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {projects.data?.projects.map((project) => (
+        {projects.data?.projects.map((project) => {
+          const items = [
+            { id: 'open', label: t('open'), icon: FolderOpen, onSelect: () => navigate(`/projects/${project.id}`) },
+            ...(user?.role === 'admin'
+              ? [
+                  { id: 'rename', label: t('rename'), icon: Pencil, onSelect: () => setRename(project) },
+                  { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => setRemove(project) },
+                ]
+              : []),
+          ]
+          return (
           <Link
             key={project.id}
             to={`/projects/${project.id}`}
-            onContextMenu={(event) => openMenu(event, [
-              { id: 'open', label: t('open'), icon: FolderOpen, onSelect: () => navigate(`/projects/${project.id}`) },
-              { id: 'rename', label: t('rename'), icon: Pencil, onSelect: () => setRename(project) },
-              { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => setRemove(project) },
-            ])}
+            onContextMenu={(event) => openMenu(event, items)}
           >
             <Card className="flex min-h-24 items-center gap-2 p-4 hover:bg-accent">
               <ResourceIcon name={project.icon} />
-              <span className="truncate">{project.name}</span>
+              <span className="min-w-0 flex-1 truncate">{project.name}</span>
+              <button
+                type="button"
+                aria-label={t('menu')}
+                className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  openMenu(event, items)
+                }}
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
             </Card>
           </Link>
-        ))}
+          )
+        })}
       </div>
       <Dialog.Root open={creating} onOpenChange={(open) => { if (!open) setCreating(false) }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
             <Dialog.Title className="text-base font-semibold">{t('newProject')}</Dialog.Title>
+            <Dialog.Description className="sr-only">{t('newProject')}</Dialog.Description>
             <form
               className="mt-3 flex flex-col gap-3"
               onSubmit={(event) => {
                 event.preventDefault()
                 const name = projectName.trim()
                 if (!name) return
+                setCreateError('')
                 create.mutate({ name, template: customers ? 'customers' : undefined })
-                setCreating(false)
               }}
             >
               <input
                 ref={nameInput}
                 autoFocus
                 aria-label={t('name')}
-                className="h-9 w-full  border border-border bg-card px-2 text-sm outline-none"
+                className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
               />
@@ -332,9 +368,10 @@ export function ProjectsPage() {
                 <input type="checkbox" checked={customers} onChange={(event) => setCustomers(event.target.checked)} />
                 {t('customersTemplate')}
               </label>
+              {createError ? <p role="alert" className="text-sm text-danger">{createError}</p> : null}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setCreating(false)}>{t('cancel')}</Button>
-                <Button type="submit">{t('confirm')}</Button>
+                <Button type="submit" disabled={create.isPending}>{t('confirm')}</Button>
               </div>
             </form>
           </Dialog.Content>
@@ -345,6 +382,8 @@ export function ProjectsPage() {
         title={t('rename')}
         label={t('name')}
         value={rename?.name ?? ''}
+        confirmLabel={t('save')}
+        cancelLabel={t('cancel')}
         onClose={() => setRename(null)}
         onSubmit={(next) => {
           if (!rename) return
@@ -461,6 +500,7 @@ export function ProjectPage() {
 
   if (project.isLoading || tables.isLoading) return <Page title={t('projects')}><LoadingBlock /></Page>
   if (project.isError) return <Page title={t('projects')}><ErrorState message={(project.error as Error).message} /></Page>
+  if (tables.isError) return <Page title={t('projects')}><ErrorState message={(tables.error as Error).message} /></Page>
   if (!tableId && tableRows.length > 0) return <Navigate to={`/projects/${projectId}/tables/${tableRows[0].id}`} replace />
 
   function scheduleProjectName(next: string) {
@@ -523,7 +563,7 @@ export function ProjectPage() {
   const favoriteProject = [
     {
       id: 'favorite',
-      label: t('favorites'),
+      label: t('addToFavorites'),
       icon: Star,
       onSelect: () => {
         void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'project', resourceId: projectId }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
@@ -576,7 +616,7 @@ export function ProjectPage() {
               { id: 'open', label: t('open'), icon: FolderOpen, onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
               {
                 id: 'favorite',
-                label: t('favorites'),
+                label: t('addToFavorites'),
                 icon: Star,
                 onSelect: () => {
                   void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'table', resourceId: table.id }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
@@ -666,7 +706,7 @@ export function ProjectPage() {
             <Dialog.Title className="text-lg font-semibold">{t('description')}</Dialog.Title>
             <Dialog.Description className="sr-only">{t('description')}</Dialog.Description>
             <ProjectDescription projectId={projectId} value={record?.description ?? ''} />
-            <Dialog.Close className="self-end  border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
+            <Dialog.Close className="self-end border border-border px-3 py-1.5 text-sm">{t('close')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -684,8 +724,14 @@ export function ProjectPage() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(32rem,calc(100vh-2rem))] w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto  border border-border bg-card p-4 shadow-md">
-            <Dialog.Title className="text-base font-semibold">{t('members')}</Dialog.Title>
+            <div className="flex items-start justify-between gap-2">
+              <Dialog.Title className="text-base font-semibold">{t('members')}</Dialog.Title>
+              <Dialog.Close className="border border-border px-3 py-1.5 text-sm">{t('close')}</Dialog.Close>
+            </div>
+            <Dialog.Description className="sr-only">{t('members')}</Dialog.Description>
             <ul className="mt-3 min-h-8 text-sm">
+              {members.isLoading ? <li><LoadingBlock /></li> : null}
+              {members.data && members.data.members.length === 0 ? <li className="text-muted-foreground">{t('emptyMembers')}</li> : null}
               {members.data?.members.map((member) => {
                 const roster = members.data?.members ?? []
                 const activeAdmins = roster.filter((item) => item.role === 'admin' && !item.disabled).length
@@ -696,7 +742,7 @@ export function ProjectPage() {
                       <span className="block truncate font-medium">{member.username}</span>
                       <span className="block truncate text-muted-foreground">{member.email}</span>
                     </span>
-                    <span className="shrink-0 text-muted-foreground">{member.role}</span>
+                    <span className="shrink-0 text-muted-foreground">{member.role === 'admin' ? t('roleAdmin') : t('roleUser')}</span>
                     {member.disabled ? <span className="shrink-0 text-muted-foreground">{t('disabled')}</span> : null}
                     {members.data?.canManage ? (
                       <>
@@ -705,6 +751,7 @@ export function ProjectPage() {
                           variant="outline"
                           className="shrink-0 whitespace-nowrap"
                           disabled={lastAdmin}
+                          title={lastAdmin ? t('lastAdminHint') : undefined}
                           onClick={() => {
                             setMemberError('')
                             void api.request(`/projects/${projectId}/members/${member.userId}`, { method: 'PATCH', body: JSON.stringify({ disabled: !member.disabled }) })
@@ -719,6 +766,7 @@ export function ProjectPage() {
                           variant="outline"
                           className="shrink-0 whitespace-nowrap"
                           disabled={lastAdmin || roster.length <= 1}
+                          title={lastAdmin ? t('lastAdminHint') : undefined}
                           onClick={() => setDropMember(member)}
                         >
                           {t('removeMember')}
@@ -729,17 +777,22 @@ export function ProjectPage() {
                 )
               })}
             </ul>
-            {memberError ? <p className="mt-2 text-sm text-danger">{memberError}</p> : null}
+            {memberError ? <p role="alert" className="mt-2 text-sm text-danger">{memberError}</p> : null}
             <form
               className="mt-3"
               onSubmit={async (event) => {
                 event.preventDefault()
                 const username = memberName.trim()
                 if (!username) return
-                await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username }) })
-                setMemberName('')
-                await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
-                await queryClient.invalidateQueries({ queryKey: ['directory', projectId] })
+                setMemberError('')
+                try {
+                  await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username }) })
+                  setMemberName('')
+                  await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
+                  await queryClient.invalidateQueries({ queryKey: ['directory', projectId] })
+                } catch (error) {
+                  setMemberError(error instanceof ApiClientError ? error.message : t('error'))
+                }
               }}
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -754,7 +807,8 @@ export function ProjectPage() {
                 />
                 <Button type="submit" variant="outline" className="shrink-0 whitespace-nowrap">{t('addMember')}</Button>
               </div>
-              <ul className="mt-2 max-h-60 overflow-auto">
+              <p className="mt-2 text-xs text-muted-foreground">{t('directoryHint')}</p>
+              <ul className="mt-1 max-h-60 overflow-auto">
                 {directory.data?.users.map((user) => (
                   <li key={user.id}>
                     <button
@@ -822,7 +876,8 @@ export function RecentPage() {
   return (
     <Page title={t('recent')}>
       {recents.isLoading ? <LoadingBlock /> : null}
-      {(recents.data?.recents.length ?? 0) === 0 && !recents.isLoading ? <EmptyState title={t('recentEmpty')} body={t('recentEmpty')} /> : null}
+      {recents.isError ? <ErrorState message={(recents.error as Error).message} /> : null}
+      {(recents.data?.recents.length ?? 0) === 0 && !recents.isLoading ? <EmptyState title={t('recentEmpty')} body={t('recentEmptyBody')} /> : null}
       <ul className="flex flex-col gap-2">
         {recents.data?.recents.map((item) => (
           <li key={`${item.resourceType}:${item.resourceId}`}>
@@ -845,7 +900,8 @@ export function FavoritesPage() {
   return (
     <Page title={t('favorites')}>
       {favorites.isLoading ? <LoadingBlock /> : null}
-      {(favorites.data?.favorites.length ?? 0) === 0 && !favorites.isLoading ? <EmptyState title={t('favoritesEmpty')} body={t('favoritesEmpty')} /> : null}
+      {favorites.isError ? <ErrorState message={(favorites.error as Error).message} /> : null}
+      {(favorites.data?.favorites.length ?? 0) === 0 && !favorites.isLoading ? <EmptyState title={t('favoritesEmpty')} body={t('favoritesEmptyBody')} /> : null}
       <ul className="flex flex-col gap-2">
         {favorites.data?.favorites.map((item) => (
           <li key={`${item.resourceType}:${item.resourceId}`}>
@@ -865,10 +921,12 @@ export function FavoritesPage() {
 export function IntegrationsPage() {
   const { t } = useTranslation()
   const plugins = useQuery({ queryKey: ['plugins'], queryFn: () => api.request<{ plugins: { id: string; name: string; enabled: boolean }[] }>('/plugins') })
+  const [pending, setPending] = useState<string | null>(null)
   return (
     <Page title={t('integrations')}>
       {plugins.isLoading ? <LoadingBlock /> : null}
       {plugins.isError ? <ErrorState message={(plugins.error as Error).message} /> : null}
+      {plugins.data && plugins.data.plugins.length === 0 ? <EmptyState title={t('emptyIntegrations')} body={t('emptyIntegrations')} /> : null}
       <div className="grid gap-3 md:grid-cols-2">
         {plugins.data?.plugins.map((plugin) => (
           <Card key={plugin.id} className="flex min-h-24 flex-col items-start justify-between gap-3 p-4 sm:flex-row sm:items-center">
@@ -878,7 +936,13 @@ export function IntegrationsPage() {
             </div>
             <Button
               variant="outline"
-              onClick={() => api.request(`/plugins/${plugin.id}/${plugin.enabled ? 'disable' : 'enable'}`, { method: 'POST' }).then(() => plugins.refetch())}
+              disabled={pending === plugin.id}
+              onClick={() => {
+                setPending(plugin.id)
+                void api.request(`/plugins/${plugin.id}/${plugin.enabled ? 'disable' : 'enable'}`, { method: 'POST' })
+                  .then(() => plugins.refetch())
+                  .finally(() => setPending(null))
+              }}
             >
               {plugin.enabled ? t('disable') : t('enable')}
             </Button>
@@ -889,6 +953,34 @@ export function IntegrationsPage() {
   )
 }
 
+function SettingsNav() {
+  const { t } = useTranslation()
+  const user = useSession((state) => state.user)
+  const links = [
+    { to: '/settings/profile', key: 'profile' },
+    ...(user?.role === 'admin'
+      ? [
+          { to: '/settings/users', key: 'users' },
+          { to: '/settings/api-keys', key: 'apiKeys' },
+          { to: '/settings/audit', key: 'audit' },
+        ]
+      : []),
+  ]
+  return (
+    <nav className="flex min-h-9 flex-wrap gap-2 text-sm">
+      {links.map((link) => (
+        <NavLink
+          key={link.to}
+          to={link.to}
+          className={({ isActive }) => `px-2 py-1 ${isActive ? 'bg-accent font-medium' : 'hover:bg-accent'}`}
+        >
+          {t(link.key)}
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+
 export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -896,8 +988,9 @@ export function UsersPage() {
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.request<{ users: User[] }>('/users') })
   return (
     <Page title={t('users')}>
+      <SettingsNav />
       <form
-        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
         onSubmit={async (event) => {
           event.preventDefault()
           const form = event.currentTarget
@@ -916,26 +1009,39 @@ export function UsersPage() {
           setRole('user')
         }}
       >
-        <Input name="username" required placeholder={t('username')} className="sm:w-32" />
-        <Input name="email" type="email" required placeholder={t('email')} className="sm:w-44" />
-        <Input name="password" type="password" required minLength={12} placeholder={t('password')} className="sm:w-40" />
-        <Select value={role} onValueChange={setRole}>
-          <SelectTrigger aria-label={t('role')} className="sm:w-32">
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="user">user</SelectItem>
-            <SelectItem value="admin">admin</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="grid gap-1">
+          <Label htmlFor="new-username">{t('username')}</Label>
+          <Input id="new-username" name="username" required className="sm:w-32" />
+        </div>
+        <div className="grid gap-1">
+          <Label htmlFor="new-email">{t('email')}</Label>
+          <Input id="new-email" name="email" type="email" required className="sm:w-44" />
+        </div>
+        <div className="grid gap-1">
+          <Label htmlFor="new-password">{t('password')}</Label>
+          <Input id="new-password" name="password" type="password" required minLength={12} className="sm:w-40" />
+        </div>
+        <div className="grid gap-1">
+          <Label htmlFor="new-role">{t('role')}</Label>
+          <Select value={role} onValueChange={setRole}>
+            <SelectTrigger id="new-role" aria-label={t('role')} className="sm:w-32">
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="user">{t('roleUser')}</SelectItem>
+              <SelectItem value="admin">{t('roleAdmin')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Button type="submit">{t('create')}</Button>
       </form>
       {users.isLoading ? <LoadingBlock /> : null}
       {users.isError ? <ErrorState message={(users.error as Error).message} /> : null}
-      <div className="overflow-hidden  border border-border">
+      {users.data && users.data.users.length === 0 ? <EmptyState title={t('emptyUsers')} body={t('emptyUsers')} /> : null}
+      <div className="overflow-hidden border border-border">
         {users.data?.users.map((user) => (
           <div key={user.id} className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3 text-sm last:border-b-0">
             <span className="min-w-0 truncate">{user.username} · {user.email}</span>
-            <span className="shrink-0 text-muted-foreground">{user.role}</span>
+            <span className="shrink-0 text-muted-foreground">{user.role === 'admin' ? t('roleAdmin') : t('roleUser')}</span>
           </div>
         ))}
       </div>
@@ -946,9 +1052,11 @@ export function UsersPage() {
 export function ApiKeysPage() {
   const { t } = useTranslation()
   const [created, setCreated] = useState('')
+  const [revoke, setRevoke] = useState<{ id: string; name: string } | null>(null)
   const keys = useQuery({ queryKey: ['api-keys'], queryFn: () => api.request<{ apiKeys: { id: string; name: string; prefix: string; revokedAt: string | null }[] }>('/api-keys') })
   return (
     <Page title={t('apiKeys')}>
+      <SettingsNav />
       <form
         className="flex flex-col gap-2 sm:flex-row"
         onSubmit={async (event) => {
@@ -962,14 +1070,29 @@ export function ApiKeysPage() {
         <Input name="name" required placeholder={t('name')} className="max-w-xs" />
         <Button type="submit">{t('createKey')}</Button>
       </form>
-      {created ? <Card className="p-3 text-sm">{t('keyOnce')}<p className="mt-2 font-mono break-all">{created}</p></Card> : null}
+      {created ? <Card className="min-h-20 p-3 text-sm">{t('keyOnce')}<p className="mt-2 font-mono break-all">{created}</p></Card> : <div className="min-h-0" />}
       {keys.isLoading ? <LoadingBlock /> : null}
+      {keys.data && keys.data.apiKeys.length === 0 ? <EmptyState title={t('emptyApiKeys')} body={t('emptyApiKeys')} /> : null}
       {keys.data?.apiKeys.map((key) => (
         <Card key={key.id} className="flex flex-col items-start justify-between gap-2 p-3 text-sm sm:flex-row sm:items-center">
           <span>{key.name} · {key.prefix}</span>
-          <Button variant="outline" onClick={() => api.request(`/api-keys/${key.id}`, { method: 'DELETE' }).then(() => keys.refetch())}>{t('revoke')}</Button>
+          <Button variant="outline" onClick={() => setRevoke({ id: key.id, name: key.name })}>{t('revoke')}</Button>
         </Card>
       ))}
+      <ConfirmDialog
+        open={Boolean(revoke)}
+        title={t('revokeKeyTitle')}
+        body={t('revokeKeyWarning', { name: revoke?.name ?? '' })}
+        confirmLabel={t('revoke')}
+        cancelLabel={t('cancel')}
+        onClose={() => setRevoke(null)}
+        onConfirm={() => {
+          if (!revoke) return
+          const id = revoke.id
+          setRevoke(null)
+          void api.request(`/api-keys/${id}`, { method: 'DELETE' }).then(() => keys.refetch())
+        }}
+      />
     </Page>
   )
 }
@@ -979,9 +1102,11 @@ export function AuditPage() {
   const audit = useQuery({ queryKey: ['audit'], queryFn: () => api.request<{ entries: { id: string; action: string; createdAt: string }[] }>('/audit') })
   return (
     <Page title={t('audit')}>
+      <SettingsNav />
       {audit.isLoading ? <LoadingBlock /> : null}
       {audit.isError ? <ErrorState message={(audit.error as Error).message} /> : null}
-      <div className=" border border-border">
+      {audit.data && audit.data.entries.length === 0 ? <EmptyState title={t('emptyAudit')} body={t('emptyAudit')} /> : null}
+      <div className="border border-border">
         {audit.data?.entries.map((entry) => (
           <div key={entry.id} className="flex min-h-10 flex-col gap-1 border-b border-border px-3 py-2 text-sm last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
             <span>{entry.action}</span>
@@ -999,6 +1124,7 @@ function ProfileForm({ user }: { user: User }) {
   const [locale, setLocale] = useState(user.locale)
   const [theme, setTheme] = useState(user.theme)
   const [timezone, setTimezone] = useState(user.timezone)
+  const [totpEnroll, setTotpEnroll] = useState<{ secret: string; url: string } | null>(null)
 
   async function save(next: { locale: string; theme: 'light' | 'dark' | 'system'; timezone: string }) {
     const result = await api.request<{ user: User }>(`/users/${user.id}`, {
@@ -1013,11 +1139,7 @@ function ProfileForm({ user }: { user: User }) {
 
   return (
     <Page title={t('profile')}>
-      <nav className="flex min-h-9 flex-wrap gap-2 text-sm">
-        <NavLink to="/settings/users" className=" px-2 py-1 hover:bg-accent">{t('users')}</NavLink>
-        <NavLink to="/settings/api-keys" className=" px-2 py-1 hover:bg-accent">{t('apiKeys')}</NavLink>
-        <NavLink to="/settings/audit" className=" px-2 py-1 hover:bg-accent">{t('audit')}</NavLink>
-      </nav>
+      <SettingsNav />
       <div className="grid max-w-md gap-3">
         <Label htmlFor="locale">{t('language')}</Label>
         <Select
@@ -1051,7 +1173,7 @@ function ProfileForm({ user }: { user: User }) {
             <SelectItem value="dark">{t('dark')}</SelectItem>
           </SelectContent>
         </Select>
-        <Label htmlFor="timezone">Timezone</Label>
+        <Label htmlFor="timezone">{t('timezone')}</Label>
         <Input
           id="timezone"
           value={timezone}
@@ -1080,12 +1202,54 @@ function ProfileForm({ user }: { user: User }) {
           variant="outline"
           onClick={async () => {
             const enrolled = await api.request<{ secret: string; url: string }>('/totp/enroll', { method: 'POST' })
-            window.alert(`${enrolled.secret}\n${enrolled.url}`)
+            setTotpEnroll(enrolled)
           }}
         >
           {t('enroll')}
         </Button>
       </Card>
+      <Dialog.Root open={Boolean(totpEnroll)} onOpenChange={(open) => { if (!open) setTotpEnroll(null) }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-border bg-card p-4 shadow-md">
+            <Dialog.Title className="text-base font-semibold">{t('totp')}</Dialog.Title>
+            <Dialog.Description className="sr-only">{t('totp')}</Dialog.Description>
+            <div className="mt-3 grid gap-3 text-sm">
+              <div>
+                <p className="font-medium">{t('totpSecret')}</p>
+                <p className="mt-1 break-all font-mono">{totpEnroll?.secret}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-2"
+                  onClick={() => {
+                    if (totpEnroll) void navigator.clipboard.writeText(totpEnroll.secret)
+                  }}
+                >
+                  {t('copy')}
+                </Button>
+              </div>
+              <div>
+                <p className="font-medium">{t('totpUrl')}</p>
+                <p className="mt-1 break-all font-mono">{totpEnroll?.url}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-2"
+                  onClick={() => {
+                    if (totpEnroll) void navigator.clipboard.writeText(totpEnroll.url)
+                  }}
+                >
+                  {t('copy')}
+                </Button>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <Dialog.Close className="inline-flex h-9 items-center border border-border px-3 text-sm hover:bg-accent">{t('close')}</Dialog.Close>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </Page>
   )
 }

@@ -20,7 +20,7 @@ export function Swatches({
         <button
           key={name}
           type="button"
-          aria-label={label ? `${label} ${name}` : name}
+          aria-label={label ? `${label} ${t(`color_${name}`)}` : t(`color_${name}`)}
           aria-pressed={selected === name}
           className={`grid h-6 w-6 place-items-center border border-border text-xs font-semibold ${selected === name ? 'ring-2 ring-foreground' : ''}`}
           style={

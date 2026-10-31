@@ -30,7 +30,7 @@ export function useCrumbs(): Crumb[] {
 
   if (projectId) {
     const projectName = project.data?.project.name || '…'
-    const projectCrumb: Crumb = { label: projectName, to: tableId ? `/projects/${projectId}` : undefined }
+    const projectCrumb: Crumb = { label: projectName }
     const crumbs: Crumb[] = [{ label: t('projects'), to: '/projects' }, projectCrumb]
     if (tableId) {
       const tableName = tables.data?.tables.find((table) => table.id === tableId)?.name || '…'

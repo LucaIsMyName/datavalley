@@ -64,9 +64,9 @@ export function NotesDrawer({
         <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col gap-3 border-l border-border bg-card p-4 shadow-lg">
           <Dialog.Title className="text-lg font-semibold">{t('notes')}</Dialog.Title>
           <Dialog.Description className="sr-only">{t('notes')}</Dialog.Description>
-          <div className="flex gap-2">
-            <button type="button" className={`px-2 py-1 text-sm ${preview ? '' : 'bg-accent'}`} onClick={() => setPreview(false)}>{t('notes')}</button>
-            <button type="button" className={`px-2 py-1 text-sm ${preview ? 'bg-accent' : ''}`} onClick={() => setPreview(true)}>{t('preview')}</button>
+          <div role="tablist" className="flex gap-2">
+            <button type="button" role="tab" aria-selected={!preview} className={`px-2 py-1 text-sm ${preview ? '' : 'bg-accent'}`} onClick={() => setPreview(false)}>{t('notes')}</button>
+            <button type="button" role="tab" aria-selected={preview} className={`px-2 py-1 text-sm ${preview ? 'bg-accent' : ''}`} onClick={() => setPreview(true)}>{t('preview')}</button>
           </div>
           {preview ? (
             <div className="min-h-40 flex-1 overflow-auto text-sm leading-6">
@@ -92,7 +92,7 @@ export function NotesDrawer({
               }}
             />
           )}
-          <Dialog.Close className="self-end border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
+          <Dialog.Close className="self-end border border-border px-3 py-1.5 text-sm">{t('close')}</Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

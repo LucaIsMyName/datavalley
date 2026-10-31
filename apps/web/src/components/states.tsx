@@ -14,7 +14,12 @@ export function Page({ title, actions, children }: { title: ReactNode; actions?:
 }
 
 export function LoadingBlock() {
-  return <div className="h-40 animate-pulse bg-muted" aria-hidden />
+  const { t } = useTranslation()
+  return (
+    <div className="h-40 animate-pulse bg-muted" role="status" aria-live="polite">
+      <span className="sr-only">{t('loading')}</span>
+    </div>
+  )
 }
 
 export function EmptyState({ title, body }: { title: string; body: string }) {

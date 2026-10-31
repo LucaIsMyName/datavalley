@@ -181,7 +181,7 @@ function SearchMenu({
           }
           onMouseDown={(event) => event.preventDefault()}
         >
-          {loading ? <div className="min-h-16" /> : null}
+          {loading ? <p className="px-2 py-3 text-sm text-muted-foreground">{t('loading')}</p> : null}
           {error ? <p className="px-2 py-3 text-sm text-muted-foreground">{t('error')}</p> : null}
           {!loading && !error && groups.length === 0 ? (
             <Command.Empty className="px-2 py-3 text-sm text-muted-foreground">{t('searchEmpty')}</Command.Empty>

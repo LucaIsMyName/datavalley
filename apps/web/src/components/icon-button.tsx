@@ -55,7 +55,7 @@ export function IconButton({
             <button
               key={icon}
               type="button"
-              aria-label={icon}
+              aria-label={`${t('icon')} ${icon}`}
               className={`flex h-8 items-center justify-center hover:bg-accent ${icon === name ? 'bg-accent' : ''}`}
               onClick={() => {
                 onChange(icon)

@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/badge'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
+import { beginRename, colorLabelKey, composeDateValue, finishRename } from './grid-ux'
 
 const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
@@ -84,6 +85,8 @@ export function CellEditor({
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
   hint?: string | null
 }) {
+  const { t } = useTranslation()
+  const editLabel = t('editColumn', { name: column.name })
   if (column.type === 'row_id') {
     const shown = column.config.style === 'uuid' ? row.id : String(row.rowNumber || '')
     return <span className="block h-full truncate leading-9 text-muted-foreground">{shown}</span>
@@ -101,15 +104,27 @@ export function CellEditor({
     if (column.type === 'user') {
       const items = names(row.cells[column.id], members.map((member) => ({ id: member.userId, name: member.username, color: 'blue', tableId: '' })))
       return (
-        <button type="button" className="flex h-full w-full items-center gap-1 overflow-hidden text-left" aria-label={`Edit ${column.name}`} onClick={onOpen}>
+        <button type="button" className="flex h-full w-full items-center gap-1 overflow-hidden text-left" aria-label={editLabel} onClick={onOpen}>
           {items.map((item) => <Badge key={item.id} color="blue">{item.name}</Badge>)}
         </button>
       )
     }
-    const shown = hint ? text : column.type === 'number' || column.type === 'currency' || column.type === 'datetime' ? formatCell(column, row.cells[column.id]) : text
+    const optionLabel = column.options.find((option) => option.id === String(row.cells[column.id] ?? ''))?.label
+    const multiLabels = Array.isArray(row.cells[column.id])
+      ? (row.cells[column.id] as string[]).map((id) => column.options.find((option) => option.id === id)?.label ?? id).join(', ')
+      : ''
+    const shown = hint
+      ? text
+      : column.type === 'select' || column.type === 'radio'
+        ? optionLabel ?? text
+        : column.type === 'multi_select'
+          ? multiLabels
+          : column.type === 'number' || column.type === 'currency' || column.type === 'datetime'
+            ? formatCell(column, row.cells[column.id])
+            : text
     return (
       <div className="flex h-full min-w-0 flex-1 items-center gap-1">
-        <button type="button" className="h-9 min-w-0 flex-1 truncate text-left leading-9" aria-label={`Edit ${column.name}`} onClick={onOpen}>
+        <button type="button" className="h-9 min-w-0 flex-1 truncate text-left leading-9" aria-label={editLabel} onClick={onOpen}>
           {shown}
         </button>
         {hint ? <FormatHint message={hint} /> : null}
@@ -118,9 +133,15 @@ export function CellEditor({
   }
   if (column.type === 'date' || column.type === 'datetime') return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
+  if (column.type === 'select' || column.type === 'radio') {
+    return <OptionEditor column={column} value={typeof row.cells[column.id] === 'string' ? String(row.cells[column.id]) : ''} onEdit={onEdit} onFlush={onFlush} />
+  }
+  if (column.type === 'multi_select') {
+    return <MultiOptionEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
+  }
   return (
     <div className="flex h-full min-w-0 flex-1 items-center gap-1">
-      <TextEditor label={`Edit ${column.name}`} value={text} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
+      <TextEditor label={editLabel} value={text} multiline={column.type === 'long_text'} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
       {hint ? <FormatHint message={hint} /> : null}
     </div>
   )
@@ -154,29 +175,77 @@ function FormatHint({ message }: { message: string }) {
   )
 }
 
-function TextEditor({ label, value, onEdit, onFlush, onCancel }: { label: string; value: string; onEdit: (value: string) => void; onFlush: () => void; onCancel: () => void }) {
+function TextEditor({
+  label,
+  value,
+  multiline = false,
+  onEdit,
+  onFlush,
+  onCancel,
+}: {
+  label: string
+  value: string
+  multiline?: boolean
+  onEdit: (value: string) => void
+  onFlush: () => void
+  onCancel: () => void
+}) {
   const [draft, setDraft] = useState(value)
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setDraft(value)
+  }, [value])
+  const shared = {
+    autoFocus: true,
+    'aria-label': label,
+    value: draft,
+    onFocus: () => {
+      focused.current = true
+    },
+    onChange: (event: { target: { value: string } }) => {
+      setDraft(event.target.value)
+      onEdit(event.target.value)
+    },
+    onBlur: () => {
+      focused.current = false
+      onFlush()
+    },
+  }
+  if (multiline) {
+    return (
+      <textarea
+        {...shared}
+        className="min-h-16 w-full flex-1 resize-none bg-transparent py-1 leading-5 outline-none"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            onCancel()
+          }
+        }}
+      />
+    )
+  }
   return (
     <input
-      autoFocus
-      aria-label={label}
+      {...shared}
       className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
-      value={draft}
-      onChange={(event) => { setDraft(event.target.value); onEdit(event.target.value) }}
-      onBlur={onFlush}
       onKeyDown={(event) => {
         if (event.key === 'Enter') event.currentTarget.blur()
-        if (event.key === 'Escape') { event.preventDefault(); onCancel() }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          onCancel()
+        }
       }}
     />
   )
 }
 
 function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: boolean, delay?: number) => void; onFlush: () => void }) {
+  const { t } = useTranslation()
   return (
     <input
       type="checkbox"
-      aria-label={`Edit ${column.name}`}
+      aria-label={t('editColumn', { name: column.name })}
       className="size-4"
       checked={checkedValue(value)}
       onChange={(event) => {
@@ -192,6 +261,9 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
   const raw = typeof value === 'string' ? value : ''
   const [date, setDate] = useState(raw.includes('T') ? raw.slice(0, 10) : raw)
   const [time, setTime] = useState(raw.includes('T') ? raw.slice(11, 16) : '')
+  function commit(nextDate: string, nextTime: string) {
+    onEdit(composeDateValue(column.type, nextDate, nextTime), 0)
+  }
   function clear() {
     setDate('')
     setTime('')
@@ -199,9 +271,36 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
     onFlush()
   }
   return (
-    <div className="flex h-full min-w-0 items-center gap-1">
-      <input aria-label={`Edit ${column.name}`} type="date" className="h-9 min-w-0 bg-transparent outline-none" value={date} onChange={(event) => { const nextDate = event.target.value; setDate(nextDate); const next = column.type === 'datetime' && time ? `${nextDate}T${time}` : nextDate; onEdit(next, 0); onFlush() }} />
-      {column.type === 'datetime' ? <input aria-label={`${column.name} time`} type="time" className="h-9 bg-transparent outline-none" value={time} onChange={(event) => { const nextTime = event.target.value; setTime(nextTime); onEdit(nextTime ? `${date}T${nextTime}` : date, 0); onFlush() }} /> : null}
+    <div
+      className="flex h-full min-w-0 items-center gap-1"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush()
+      }}
+    >
+      <input
+        aria-label={t('editColumn', { name: column.name })}
+        type="date"
+        className="h-9 min-w-0 bg-transparent outline-none"
+        value={date}
+        onChange={(event) => {
+          const nextDate = event.target.value
+          setDate(nextDate)
+          commit(nextDate, time)
+        }}
+      />
+      {column.type === 'datetime' ? (
+        <input
+          aria-label={t('timeField', { name: column.name })}
+          type="time"
+          className="h-9 bg-transparent outline-none"
+          value={time}
+          onChange={(event) => {
+            const nextTime = event.target.value
+            setTime(nextTime)
+            commit(date, nextTime)
+          }}
+        />
+      ) : null}
       {date || time ? (
         <button type="button" aria-label={t('clearCell')} className="shrink-0 text-muted-foreground" onClick={clear}>
           <X className="size-3.5" />
@@ -250,15 +349,16 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
       setRenameError(null)
       return
     }
-    pending.current = true
+    if (!beginRename(pending)) return
     try {
       const result = await api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags/${tag.id}`, { method: 'PATCH', body: JSON.stringify({ name: trimmed }) })
       onCreated('tag', { ...result.tag, tableId })
       setRenameError(null)
       setRenamingId(null)
     } catch (error) {
-      pending.current = false
       setRenameError(error instanceof ApiClientError ? error.message : t('error'))
+    } finally {
+      finishRename(pending)
     }
   }
   const menuTag = menu ? names([menu.tagId], tags)[0] : null
@@ -333,10 +433,10 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
       {active ? (
         <input
           autoFocus={renamingId == null}
-          aria-label={`Edit ${column.name}`}
+          aria-label={t('editColumn', { name: column.name })}
           className="h-7 min-w-16 flex-1 bg-transparent outline-none"
           value={name}
-          placeholder="Tag"
+          placeholder={t('newTag')}
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
@@ -383,13 +483,13 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
           <button
             key={color}
             type="button"
-            aria-label={color}
+            aria-label={t(colorLabelKey(color))}
             className={`h-5 w-5 border border-border ${swatch[color] ?? swatch.slate} ${color === current ? 'ring-2 ring-foreground' : ''}`}
             onClick={() => onColor(color)}
           />
         ))}
       </div>
-      <button type="button" className="mt-2 w-full text-left text-sm" onClick={onRemove}>{t('clearCell')}</button>
+      <button type="button" className="mt-2 w-full text-left text-sm" onClick={onRemove}>{t('removeTag')}</button>
     </AnchoredLayer>
   )
 }
@@ -433,16 +533,16 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
       setRenameError(null)
       return
     }
-    pending.current = true
+    if (!beginRename(pending)) return
     try {
       const result = await api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ name: trimmed }) })
       onCreated('status', { ...result.status, tableId })
       setDraft(result.status.name)
       setRenameError(null)
-      pending.current = false
     } catch (error) {
-      pending.current = false
       setRenameError(error instanceof ApiClientError ? error.message : t('error'))
+    } finally {
+      finishRename(pending)
     }
   }
   const currentColor = current && palette.includes(current.color) ? current.color : 'slate'
@@ -476,10 +576,10 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
       {active ? (
         <input
           autoFocus
-          aria-label="New status"
+          aria-label={t('newStatus')}
           className="h-7 min-w-16 flex-1 bg-transparent outline-none"
           value={name}
-          placeholder="New"
+          placeholder={t('newStatus')}
           onClick={(event) => event.stopPropagation()}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
@@ -545,7 +645,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
               <button
                 key={color}
                 type="button"
-                aria-label={color}
+                aria-label={t(colorLabelKey(color))}
                 className={`h-5 w-5 border border-border ${swatch[color] ?? swatch.slate} ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
                 onClick={() => {
                   void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
@@ -564,10 +664,11 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
 }
 
 function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column; row: RowRecord; members: { userId: string; username: string }[]; onEdit: (value: string[], delay?: number) => void; onFlush: () => void }) {
+  const { t } = useTranslation()
   const selected = Array.isArray(row.cells[column.id]) ? (row.cells[column.id] as string[]) : []
   return (
     <SelectField
-      label={`Edit ${column.name}`}
+      label={t('editColumn', { name: column.name })}
       className="h-7 border-0 bg-transparent px-0"
       value=""
       onValueChange={(value) => {
@@ -576,12 +677,90 @@ function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column;
         onFlush()
       }}
       options={[
-        { value: '', label: 'Add' },
+        { value: '', label: t('add') },
         ...members.map((member) => ({
           value: member.userId,
           label: selected.includes(member.userId) ? `− ${member.username}` : member.username,
         })),
       ]}
     />
+  )
+}
+
+function OptionEditor({
+  column,
+  value,
+  onEdit,
+  onFlush,
+}: {
+  column: Column
+  value: string
+  onEdit: (value: string, delay?: number) => void
+  onFlush: () => void
+}) {
+  const { t } = useTranslation()
+  const options = column.options ?? []
+  return (
+    <SelectField
+      label={t('editColumn', { name: column.name })}
+      className="h-9 border-0 bg-transparent px-0"
+      value={value}
+      onValueChange={(next) => {
+        onEdit(next, 0)
+        onFlush()
+      }}
+      options={[
+        { value: '', label: options.length === 0 ? t('noOptions') : t('none') },
+        ...options.map((option) => ({ value: option.id, label: option.label })),
+      ]}
+    />
+  )
+}
+
+function MultiOptionEditor({
+  column,
+  value,
+  onEdit,
+  onFlush,
+}: {
+  column: Column
+  value: unknown
+  onEdit: (value: string[], delay?: number) => void
+  onFlush: () => void
+}) {
+  const { t } = useTranslation()
+  const selected = Array.isArray(value) ? value.map(String) : []
+  const options = column.options ?? []
+  function choose(next: string[]) {
+    onEdit(next, 0)
+    onFlush()
+  }
+  return (
+    <div className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden">
+      {selected.map((id) => {
+        const option = options.find((item) => item.id === id)
+        return (
+          <Badge key={id} color={option?.color ?? 'slate'}>
+            {option?.label ?? id}
+          </Badge>
+        )
+      })}
+      <SelectField
+        label={t('editColumn', { name: column.name })}
+        className="h-7 min-w-16 border-0 bg-transparent px-0"
+        value=""
+        onValueChange={(next) => {
+          if (!next) return
+          choose(selected.includes(next) ? selected.filter((id) => id !== next) : [...selected, next])
+        }}
+        options={[
+          { value: '', label: options.length === 0 ? t('noOptions') : t('add') },
+          ...options.map((option) => ({
+            value: option.id,
+            label: selected.includes(option.id) ? `− ${option.label}` : option.label,
+          })),
+        ]}
+      />
+    </div>
   )
 }

@@ -33,8 +33,33 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!menu) return
+    const items = () =>
+      Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])
+    items()[0]?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenu(null)
+      if (event.key === 'Escape') {
+        setMenu(null)
+        return
+      }
+      const list = items()
+      if (list.length === 0) return
+      const current = list.indexOf(document.activeElement as HTMLButtonElement)
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const next =
+          event.key === 'ArrowDown'
+            ? (current + 1) % list.length
+            : (current - 1 + list.length) % list.length
+        list[next]?.focus()
+      }
+      if (event.key === 'Home') {
+        event.preventDefault()
+        list[0]?.focus()
+      }
+      if (event.key === 'End') {
+        event.preventDefault()
+        list[list.length - 1]?.focus()
+      }
     }
     const onPointer = (event: PointerEvent) => {
       if (menuRef.current?.contains(event.target as Node)) return

@@ -1,8 +1,8 @@
 import { Bell, BookOpen, FolderKanban, LayoutDashboard, LogOut, Menu, Plug, Settings, Star, Clock3, type LucideIcon } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { applyTheme, useSession } from '../stores/session'
 import { Breadcrumbs } from '../components/breadcrumbs'
@@ -25,6 +25,7 @@ const links: { to: string; key: string; icon: LucideIcon; end: boolean }[] = [
 function SideNav({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   return (
     <>
       <div className="px-2 py-3 text-sm font-semibold tracking-tight">{t('appName')}</div>
@@ -35,9 +36,10 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
             to={link.to}
             end={link.end}
             onClick={onNavigate}
-            className={({ isActive }) =>
-              `flex h-11 items-center gap-2 px-2 text-sm md:h-9 ${isActive ? 'bg-accent font-medium' : 'hover:bg-accent'}`
-            }
+            className={({ isActive }) => {
+              const active = link.to.startsWith('/settings') ? pathname.startsWith('/settings') : isActive
+              return `flex h-11 items-center gap-2 px-2 text-sm md:h-9 ${active ? 'bg-accent font-medium' : 'hover:bg-accent'}`
+            }}
           >
             <link.icon className="size-4" />
             {t(link.key)}
@@ -58,6 +60,68 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
         {t('logout')}
       </Button>
     </>
+  )
+}
+
+function NotificationsBell({
+  open,
+  onOpen,
+  items,
+  loading,
+  onRead,
+}: {
+  open: boolean
+  onOpen: (open: boolean) => void
+  items: { id: string; title: string; readAt: string | null }[]
+  loading: boolean
+  onRead: (id: string) => void
+}) {
+  const { t } = useTranslation()
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent) => {
+      if (root.current?.contains(event.target as Node)) return
+      onOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointer)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onOpen])
+  return (
+    <div ref={root} className="relative shrink-0">
+      <Button variant="ghost" aria-label={t('notifications')} aria-expanded={open} onClick={() => onOpen(!open)}>
+        <Bell className="size-4" />
+      </Button>
+      {open ? (
+        <div className="absolute right-0 z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-sm">
+          <p className="px-2 py-1 text-sm font-medium">{t('notifications')}</p>
+          <div className="min-h-16">
+            {loading ? <p className="px-2 py-3 text-sm text-muted-foreground">{t('loading')}</p> : null}
+            {!loading && items.length === 0 ? (
+              <p className="px-2 py-3 text-sm text-muted-foreground">{t('noNotifications')}</p>
+            ) : null}
+            {!loading
+              ? items.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`block min-h-11 w-full px-2 py-2 text-left text-sm hover:bg-accent ${item.readAt ? 'text-muted-foreground' : 'font-medium'}`}
+                    onClick={() => onRead(item.id)}
+                  >
+                    {item.title}
+                  </button>
+                ))
+              : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -99,33 +163,15 @@ export function AppShell() {
             </Button>
             <Breadcrumbs />
             <HeaderSearch />
-            <div className="relative shrink-0">
-              <Button variant="ghost" aria-label={t('notifications')} onClick={() => setOpen((value) => !value)}>
-                <Bell className="size-4" />
-              </Button>
-              {open ? (
-                <div className="absolute right-0 z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-sm">
-                  <p className="px-2 py-1 text-sm font-medium">{t('notifications')}</p>
-                  <div className="min-h-16">
-                    {(notifications.data?.notifications ?? []).length === 0 ? (
-                      <p className="px-2 py-3 text-sm text-muted-foreground">{t('noNotifications')}</p>
-                    ) : (
-                      notifications.data?.notifications.map((item) => (
-                        <button
-                          key={item.id}
-                          className="block min-h-11 w-full px-2 py-2 text-left text-sm hover:bg-accent"
-                          onClick={() => {
-                            void api.request(`/notifications/${item.id}/read`, { method: 'POST' }).then(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }))
-                          }}
-                        >
-                          {item.title}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <NotificationsBell
+              open={open}
+              onOpen={setOpen}
+              items={notifications.data?.notifications ?? []}
+              loading={notifications.isLoading}
+              onRead={(id) => {
+                void api.request(`/notifications/${id}/read`, { method: 'POST' }).then(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }))
+              }}
+            />
           </header>
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
             <Outlet />

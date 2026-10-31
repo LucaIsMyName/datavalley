@@ -65,7 +65,7 @@ import { SelectField } from '../../components/ui/select'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { ErrorState, LoadingBlock } from '../../components/states'
+import { EmptyState, ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
@@ -76,6 +76,13 @@ import { ConditionalDialog } from './conditional-dialog'
 import { presentFormatRow } from './format-values'
 import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
+import {
+  cardinalityKey,
+  emptyGridKind,
+  filterOperatorKey,
+  rowTint,
+  selectionKind,
+} from './grid-ux'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
 import { formatFormulaValue } from './formula-help'
@@ -282,6 +289,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [historyTick, setHistoryTick] = useState(0)
   const [widths, setWidths] = useState<Record<string, number>>({})
   const [drawerRowId, setDrawerRowId] = useState<string | null>(null)
+  const [selectingAll, setSelectingAll] = useState(false)
   const filter = useMemo(() => activeFilter(filters), [filters])
   const filterKey = JSON.stringify(filter)
 
@@ -295,6 +303,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const rules = (table?.formatRules ?? []) as FormatRule[]
   const projectId = table?.projectId ?? ''
   function openFormula(rowId: string, columnId: string, columnName: string) {
+    setEditing(null)
     useFormulaWindow.getState().open({
       tableId,
       projectId,
@@ -501,8 +510,17 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const boundsRef = useRef({ rows: rows.length, columns: visible.length })
   const activateRef = useRef<() => void>(() => {})
   const beginFillRef = useRef<(event: ReactPointerEvent, rowIndex: number, column: Column) => void>(() => {})
+  const selectedRef = useRef(selected)
+  const visibleRef = useRef(visible)
+  const editingRef = useRef(editing)
+  const copyCellRef = useRef<() => void>(() => {})
+  const clearCellRef = useRef<() => void>(() => {})
+  const pasteCellRef = useRef<(text: string) => void>(() => {})
   undoRef.current = undo
   boundsRef.current = { rows: rows.length, columns: visible.length }
+  selectedRef.current = selected
+  visibleRef.current = visible
+  editingRef.current = editing
   activateRef.current = () => {
     const column = visible[selected.column]
     const row = rows[selected.row]
@@ -527,20 +545,33 @@ export function TableScreen({ tableId }: { tableId: string }) {
         void undoRef.current(event.shiftKey ? 'redo' : 'undo')
         return
       }
-      if (
-        !typing &&
-        parentRef.current?.contains(document.activeElement) &&
-        event.key === 'Enter'
-      ) {
+      const inGrid = Boolean(parentRef.current?.contains(document.activeElement))
+      if (!typing && inGrid && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+        event.preventDefault()
+        copyCellRef.current()
+        return
+      }
+      if (!typing && inGrid && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
+        event.preventDefault()
+        void navigator.clipboard.readText().then((text) => pasteCellRef.current(text))
+        return
+      }
+      if (!typing && inGrid && (event.key === 'Delete' || event.key === 'Backspace')) {
+        event.preventDefault()
+        clearCellRef.current()
+        return
+      }
+      if (!typing && inGrid && event.key === 'Enter') {
         event.preventDefault()
         activateRef.current()
         return
       }
       if (
         !typing &&
-        parentRef.current?.contains(document.activeElement) &&
+        inGrid &&
         ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)
       ) {
+        event.preventDefault()
         const bounds = boundsRef.current
         setSelected((current) =>
           moveSelection(current, event.key, {
@@ -570,7 +601,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       body: JSON.stringify({
         name: nextLabel(
           columns.map((column) => column.name),
-          'Column',
+          t('columnName'),
         ),
         type,
         ...(beforeId ? { beforeId } : {}),
@@ -1209,6 +1240,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await refresh()
   }
 
+  copyCellRef.current = () => {
+    const column = visible[selected.column]
+    const row = rows[selected.row]
+    if (!column || !row) return
+    void navigator.clipboard.writeText(showCell(row.cells[column.id]))
+  }
+  clearCellRef.current = () => {
+    const column = visible[selected.column]
+    const row = rows[selected.row]
+    if (!column || !row || !writable(column)) return
+    scheduleCell(row, column, '', 0)
+    void sync.flush(`cell:${row.id}:${column.id}`)
+  }
+  pasteCellRef.current = (text: string) => {
+    void pasteTsv(text)
+  }
+
   async function commitFormulaFill(column: Column, sourceRowId: string, rowIds: string[]) {
     const result = await api.request<{ expression: string; previous: { rowId: string; source: string }[] }>(
       `/tables/${tableId}/formulas/fill`,
@@ -1461,7 +1509,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       },
       {
         id: 'select',
-        label: t('selectAll'),
+        label: t('selectRow'),
         icon: ListChecks,
         onSelect: () =>
           setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
@@ -1476,7 +1524,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     openMenu(event, [
       {
         id: 'edit',
-        label: t('rename'),
+        label: t('edit'),
         icon: Pencil,
         disabled: !writable(column) && column.type !== 'formula',
         onSelect: () => {
@@ -1542,7 +1590,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       },
       {
         id: 'favorite',
-        label: t('favorites'),
+        label: t('addToFavorites'),
         icon: Star,
         onSelect: () =>
           void api.request('/favorites', {
@@ -1682,14 +1730,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
             <input
               ref={selectAllRef}
               type="checkbox"
-              aria-label={t('selectAll')}
+              aria-label={selectingAll ? t('selectingAll') : t('selectAll')}
+              disabled={selectingAll}
               checked={allChecked}
               onChange={() => {
                 if (allChecked) {
                   setChecked([])
                   return
                 }
-                void loadEveryRow().then((loaded) => setChecked(loaded.map((row) => row.id)))
+                setSelectingAll(true)
+                void loadEveryRow()
+                  .then((loaded) => setChecked(loaded.map((row) => row.id)))
+                  .finally(() => setSelectingAll(false))
               }}
             />
           </div>
@@ -1719,7 +1771,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           >
             <span
               role="button"
-              tabIndex={0}
+              tabIndex={-1}
               draggable
               aria-label={t('reorder')}
               className="inline-flex shrink-0 cursor-grab text-muted-foreground"
@@ -1734,7 +1786,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             </span>
             <input
               type="checkbox"
-              aria-label={row.original.id}
+              aria-label={t('selectRowNumber', { number: row.original.rowNumber })}
               checked={checked.includes(row.original.id)}
               onChange={(event) => {
                 setChecked((current) =>
@@ -1747,7 +1799,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             <button
               type="button"
               aria-label={t('insertRow')}
-              className="text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100"
+              className="hidden text-muted-foreground md:inline-flex md:opacity-0 md:group-hover:opacity-100"
               onClick={() => void insertRow(rowsRef.current[row.index + 1]?.id)}
             >
               <Plus className="size-3.5" />
@@ -1774,8 +1826,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
             column.id,
             (expression) => matchesCondition(expression, presented[column.id] ?? null, presented),
           )
-          const background =
-            row.original.backgrounds?.[column.id] || row.original.color || ruleStyle.background
+          const cellPaint = row.original.backgrounds?.[column.id] || ruleStyle.background
+          const rowColor = row.original.color
+          const painted = paintSwatch(cellPaint, 'background') ?? rowTint(rowColor, paintSwatch(rowColor, 'background'))
+          const stripe = !cellPaint && rowColor ? paintSwatch(rowColor, 'background') : undefined
           const active = editing === `${row.original.id}:${column.id}`
           const invalid = invalidCells[`cell:${row.original.id}:${column.id}`]
           const text = invalid?.text ?? showCell(value)
@@ -1798,16 +1852,31 @@ export function TableScreen({ tableId }: { tableId: string }) {
           return (
             <div
               className={`relative flex h-9 min-w-0 items-center overflow-hidden px-2 ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
-              style={{ color: paintSwatch(ruleStyle.color, 'text'), background: inFill && !picked ? undefined : paintSwatch(background, 'background'), fontWeight: ruleStyle.bold ? 700 : 400 }}
+              style={{
+                color: paintSwatch(ruleStyle.color, 'text'),
+                background: inFill && !picked ? undefined : painted,
+                boxShadow: stripe ? `inset 3px 0 0 ${stripe}` : undefined,
+                fontWeight: ruleStyle.bold ? 700 : 400,
+              }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
               onClick={() => {
-                if (column.type !== 'row_id' && column.type !== 'checkbox') return
                 setSelected({ row: row.index, column: columnIndex })
+                parentRef.current?.focus({ preventScroll: true })
+              }}
+              onDoubleClick={() => {
+                setSelected({ row: row.index, column: columnIndex })
+                parentRef.current?.focus({ preventScroll: true })
+                if (column.type === 'formula') {
+                  openFormula(row.original.id, column.id, column.name)
+                  return
+                }
+                if (!fillable(column) || column.type === 'checkbox') return
+                setEditing(`${row.original.id}:${column.id}`)
               }}
             >
               {active && column.type === 'relation' ? (
                 <SelectField
-                  label={`Edit ${column.name}`}
+                  label={t('editColumn', { name: column.name })}
                   className="h-9 border-0 bg-transparent px-0"
                   value={typeof value === 'string' ? value : ''}
                   onValueChange={(next) => {
@@ -1853,15 +1922,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     setEditing(null)
                   }}
                   onOpen={() => {
-                    const already = selected.row === row.index && selected.column === columnIndex
                     setSelected({ row: row.index, column: columnIndex })
-                    if (!already) return
-                    if (column.type === 'formula') {
-                      openFormula(row.original.id, column.id, column.name)
-                      return
-                    }
-                    if (!fillable(column) || column.type === 'checkbox') return
-                    setEditing(`${row.original.id}:${column.id}`)
+                    parentRef.current?.focus({ preventScroll: true })
                   }}
                   onCreated={(kind, item) =>
                     patchCachedTable(queryClient, tableId, (current) => ({
@@ -2053,11 +2115,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
               { method: 'POST', body },
             )
             .then(async (result) => {
-              setNotice(
-                result.errors[0]?.error
-                  ? `${t('imported', { count: result.created })} ${result.errors[0].error}`
-                  : t('imported', { count: result.created }),
-              )
+              const summary = t('imported', { count: result.created })
+              if (result.errors[0]?.error) {
+                toast.warning(`${summary} ${result.errors[0].error}`)
+                setNotice(`${summary} ${result.errors[0].error}`)
+              } else {
+                setNotice(summary)
+              }
               await refresh()
             })
         }}
@@ -2158,7 +2222,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                         <span
                           role="button"
-                          tabIndex={0}
+                          tabIndex={-1}
                           draggable
                           aria-label={t('reorder')}
                           className="inline-flex shrink-0 cursor-grab text-muted-foreground"
@@ -2311,6 +2375,34 @@ export function TableScreen({ tableId }: { tableId: string }) {
               </tr>
             </thead>
             <tbody>
+              {emptyGridKind(rows.length, Boolean(filter || search)) === 'empty' ? (
+                <tr>
+                  <td colSpan={visible.length + 2} className="p-0">
+                    <EmptyState title={t('emptyRows')} body={t('emptyRowsBody')} />
+                  </td>
+                </tr>
+              ) : null}
+              {emptyGridKind(rows.length, Boolean(filter || search)) === 'filtered' ? (
+                <tr>
+                  <td colSpan={visible.length + 2} className="p-0">
+                    <div className="flex flex-col items-center gap-2 py-8">
+                      <EmptyState title={t('noResults')} body={t('noResultsBody')} />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setFilterInput({})
+                          setFilters({})
+                          setSearchInput('')
+                          setSearch('')
+                        }}
+                      >
+                        {t('clearFilter')}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
               {paddingTop > 0 ? <tr style={{ height: paddingTop }} /> : null}
               {virtualItems.map((virtualRow) => {
                 const row = grid.getRowModel().rows[virtualRow.index]
@@ -2355,7 +2447,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         key={column.id}
                         className="h-9 border-r border-t border-border px-2 text-xs text-muted-foreground"
                       >
-                        {calc && stats ? `${t(calc)} ${footerValue(calc, stats)}` : ''}
+                        {calc && stats
+                          ? `${t(calc)} ${footerValue(calc, stats)}`
+                          : calc && footerQuery.isLoading
+                            ? t('footerLoading')
+                            : ''}
                       </td>
                     )
                   })}
@@ -2374,10 +2470,36 @@ export function TableScreen({ tableId }: { tableId: string }) {
             <Plus className="size-3.5" />
             {t('insertRow')}
           </button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="shrink-0"
+            disabled={!flags.canUndo}
+            aria-label={t('undo')}
+            title={t('undo')}
+            onClick={() => void undo('undo')}
+          >
+            <Undo2 className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="shrink-0"
+            disabled={!flags.canRedo}
+            aria-label={t('redo')}
+            title={t('redo')}
+            onClick={() => void undo('redo')}
+          >
+            <Redo2 className="size-3.5" />
+          </Button>
           {checked.length > 0 || selectedColumns.length > 0 ? (
             <div className="ml-auto flex shrink-0 items-center gap-2">
               <span className="whitespace-nowrap text-sm">
-                {t('selectedCount', { count: checked.length + selectedColumns.length })}
+                {selectionKind(checked.length, selectedColumns.length) === 'both'
+                  ? t('selectedRowsAndColumns', { rows: checked.length, columns: selectedColumns.length })
+                  : selectionKind(checked.length, selectedColumns.length) === 'columns'
+                    ? t('selectedColumns', { count: selectedColumns.length })
+                    : t('selectedRows', { count: checked.length })}
               </span>
               {checked.length > 0 ? (
                 <Button
@@ -2498,7 +2620,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   setFilterInput(next)
                   sync.watch(`filter:${tableId}`, 300, () => setFilters(next))
                 }}
-                options={operatorsFor(popoverColumn.type).map((op) => ({ value: op, label: op }))}
+                options={operatorsFor(popoverColumn.type).map((op) => ({
+                  value: op,
+                  label: t(filterOperatorKey(op)),
+                }))}
               />
               <Input
                 aria-label={t('value')}
@@ -2554,9 +2679,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 value={relationCardinality}
                 onValueChange={setRelationCardinality}
                 options={[
-                  { value: 'many_to_one', label: 'many_to_one' },
-                  { value: 'one_to_one', label: 'one_to_one' },
-                  { value: 'one_to_many', label: 'one_to_many' },
+                  { value: 'many_to_one', label: t(cardinalityKey('many_to_one')) },
+                  { value: 'one_to_one', label: t(cardinalityKey('one_to_one')) },
+                  { value: 'one_to_many', label: t(cardinalityKey('one_to_many')) },
                 ]}
               />
               <SelectField
@@ -2581,7 +2706,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 <button
                   key={name}
                   type="button"
-                  aria-label={name}
+                  aria-label={`${t('icon')} ${name}`}
                   className="flex h-8 items-center justify-center hover:bg-accent"
                   onClick={() => {
                     void saveConfig(popoverColumn, { icon: name })
@@ -2603,8 +2728,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   if (event.key === 'Enter') void saveView()
                 }}
               />
-              <label className="flex items-center gap-2 text-sm">
+              <label htmlFor="shared-view" className="flex items-center gap-2 text-sm">
                 <input
+                  id="shared-view"
                   type="checkbox"
                   checked={sharedView}
                   onChange={(event) => setSharedView(event.target.checked)}

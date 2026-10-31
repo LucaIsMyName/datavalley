@@ -116,6 +116,23 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
   }, [draft, cell, t])
 
   useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      if (menu) {
+        setMenu(null)
+        return
+      }
+      useFormulaWindow.getState().close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
     const panel = panelRef.current
     const bar = panel?.querySelector<HTMLElement>('[data-formula-drag]')
     const grip = panel?.querySelector<HTMLElement>('[data-formula-resize]')
@@ -199,6 +216,7 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
       ref={panelRef}
       role="dialog"
       aria-label={title}
+      tabIndex={-1}
       data-formula-window=""
     >
       <div data-formula-drag="" className="flex shrink-0 cursor-grab items-center justify-between gap-2 border-b border-border px-3 py-2 select-none">
@@ -221,7 +239,11 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
         <div className="relative min-h-0 flex-1">
-          {draft === null ? <div className="absolute inset-0 border border-border" /> : (
+          {draft === null ? (
+            <div className="absolute inset-0 animate-pulse bg-muted" role="status" aria-live="polite">
+              <span className="sr-only">{t('loading')}</span>
+            </div>
+          ) : (
             <div className="absolute inset-0">
               <FormulaEditor
                 ref={editorRef}
@@ -239,9 +261,15 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
             </div>
           )}
         </div>
-        <p className={`min-h-5 truncate font-mono text-sm ${error ? 'text-danger' : 'text-muted-foreground'}`} aria-live="polite" title={error || preview}>
-          {error || preview}
-        </p>
+        {error ? (
+          <p className="min-h-5 truncate font-mono text-sm text-danger" role="alert" title={error}>
+            {error}
+          </p>
+        ) : (
+          <p className="min-h-5 truncate font-mono text-sm text-muted-foreground" role="status" aria-live="polite" title={preview}>
+            {preview}
+          </p>
+        )}
         <div className="flex shrink-0 items-center justify-between gap-2">
           <Link className="text-sm underline" to="/doc#formulas">{t('formulaDocs')}</Link>
           <Button type="button" onClick={() => void save()} disabled={saving || draft === null}>{t('save')}</Button>

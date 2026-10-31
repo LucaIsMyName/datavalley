@@ -57,6 +57,7 @@ export function QuietInput({
         if (event.key === 'Enter') event.currentTarget.blur()
         if (event.key === 'Escape') {
           event.preventDefault()
+          setText(value)
           onCancel?.()
         }
       }}

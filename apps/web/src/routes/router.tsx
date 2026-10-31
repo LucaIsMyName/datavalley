@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router'
+import { Navigate, Outlet, createBrowserRouter } from 'react-router'
+import { LoadingBlock } from '../components/states'
 import { api } from '../lib/api'
 import { DocsPage } from '../features/docs'
 import { AppShell } from '../layouts/app-shell'
@@ -25,14 +25,15 @@ import {
 function RequireAuth() {
   const user = useSession((state) => state.user)
   const ready = useSession((state) => state.ready)
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (!ready) return
-    if (!user) navigate('/login')
-    else if (user.mustChangePassword) navigate('/change-password')
-  }, [navigate, ready, user])
-  if (!ready) return <div className="h-screen bg-background" />
+  if (!ready) return <div className="grid h-screen place-items-center bg-background"><LoadingBlock /></div>
   if (!user) return <Navigate to="/login" replace />
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />
+  return <Outlet />
+}
+
+function RequireAdmin() {
+  const user = useSession((state) => state.user)
+  if (user?.role !== 'admin') return <Navigate to="/settings/profile" replace />
   return <Outlet />
 }
 
@@ -59,9 +60,14 @@ export const router = createBrowserRouter([
           { path: '/doc', element: <DocsPage /> },
           { path: '/integrations', element: <IntegrationsPage /> },
           { path: '/settings/profile', element: <ProfilePage /> },
-          { path: '/settings/users', element: <UsersPage /> },
-          { path: '/settings/api-keys', element: <ApiKeysPage /> },
-          { path: '/settings/audit', element: <AuditPage /> },
+          {
+            element: <RequireAdmin />,
+            children: [
+              { path: '/settings/users', element: <UsersPage /> },
+              { path: '/settings/api-keys', element: <ApiKeysPage /> },
+              { path: '/settings/audit', element: <AuditPage /> },
+            ],
+          },
         ],
       },
     ],

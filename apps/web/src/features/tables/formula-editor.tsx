@@ -163,6 +163,7 @@ class BadgeWidget extends WidgetType {
     el.dataset.from = String(this.span.from)
     el.dataset.to = String(this.span.to)
     el.setAttribute('role', 'button')
+    el.tabIndex = 0
     return el
   }
 
@@ -324,6 +325,16 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
           if (!badgeElement(event)) return false
           event.preventDefault()
           event.stopPropagation()
+          return true
+        },
+        keydown(event, view) {
+          const badge = badgeElement(event)
+          if (!badge || (event.key !== 'Enter' && event.key !== ' ')) return false
+          event.preventDefault()
+          const from = Number(badge.dataset.from)
+          const to = Number(badge.dataset.to)
+          const span = bracketSpans(view.state.doc.toString()).find((item) => item.from === from && item.to === to)
+          if (span) onBadgeRef.current(span, badge.getBoundingClientRect())
           return true
         },
       },
