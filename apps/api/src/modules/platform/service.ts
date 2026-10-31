@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { and, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import * as OTPAuth from 'otpauth'
 import type { Action } from '@datavalley/shared'
@@ -14,6 +14,7 @@ import {
   integrationSyncJobs,
   mediaFiles,
   projects,
+  tables,
   notifications,
   pluginConfigurations,
   pluginConnections,
@@ -31,7 +32,8 @@ import type { RateLimiter } from '../../security/rate-limit.js'
 import { writeAudit } from '../../security/audit.js'
 import { decryptString, encryptString, randomToken, safeEqual, sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
-import { assertMediaReadable, canReadMedia } from './media-access.js'
+import { assertMediaReadable, canReadMedia, loadMediaFile } from './media-access.js'
+import { findMediaUsages, usageCountFor } from './media-usages.js'
 import { requireEditableTable, requireTable } from '../tables/service.js'
 
 export async function subjectFromApiKey(
@@ -321,7 +323,25 @@ export function createMediaStorage(env: Env): MediaStorage {
 
 void DeleteObjectCommand
 
-function presentMediaFile(file: typeof mediaFiles.$inferSelect) {
+type UploadLabels = { projectNames: Map<string, string>; tableNames: Map<string, string> }
+
+async function loadUploadLabels(db: AppDatabase, files: (typeof mediaFiles.$inferSelect)[]): Promise<UploadLabels> {
+  const projectIds = [...new Set(files.map((file) => file.projectId).filter((id): id is string => Boolean(id)))]
+  const tableIds = [...new Set(files.map((file) => file.tableId).filter((id): id is string => Boolean(id)))]
+  const projectNames = new Map<string, string>()
+  const tableNames = new Map<string, string>()
+  if (projectIds.length) {
+    const rows = await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, projectIds))
+    for (const row of rows) projectNames.set(row.id, row.name)
+  }
+  if (tableIds.length) {
+    const rows = await db.select({ id: tables.id, name: tables.name }).from(tables).where(inArray(tables.id, tableIds))
+    for (const row of rows) tableNames.set(row.id, row.name)
+  }
+  return { projectNames, tableNames }
+}
+
+function presentMediaFile(file: typeof mediaFiles.$inferSelect, labels?: UploadLabels, usageCount?: number) {
   return {
     id: file.id,
     name: file.originalName,
@@ -330,6 +350,9 @@ function presentMediaFile(file: typeof mediaFiles.$inferSelect) {
     createdAt: file.createdAt.toISOString(),
     tableId: file.tableId,
     projectId: file.projectId,
+    uploadProjectName: file.projectId ? (labels?.projectNames.get(file.projectId) ?? null) : null,
+    uploadTableName: file.tableId ? (labels?.tableNames.get(file.tableId) ?? null) : null,
+    usageCount,
   }
 }
 
@@ -414,7 +437,26 @@ export async function listMedia(
   }
   const page = accessible.slice(0, limit)
   const nextCursor = accessible.length > limit ? (page.at(-1)?.id ?? null) : null
-  return { files: page.map(presentMediaFile), nextCursor }
+  const labels = await loadUploadLabels(db, page)
+  const usageMap = await findMediaUsages(
+    db,
+    actor,
+    page.map((file) => file.id),
+  )
+  return {
+    files: page.map((file) => presentMediaFile(file, labels, usageCountFor(usageMap, file.id))),
+    nextCursor,
+  }
+}
+
+export async function getMediaDetails(db: AppDatabase, actor: Subject, id: string) {
+  const file = await loadMediaFile(db, id)
+  if (!file) throw notFound()
+  await assertMediaReadable(db, actor, file)
+  const labels = await loadUploadLabels(db, [file])
+  const usageMap = await findMediaUsages(db, actor, [id])
+  const usages = usageMap.get(id) ?? []
+  return { file: presentMediaFile(file, labels, usages.length), usages }
 }
 
 export async function notify(db: AppDatabase, userId: string, input: { type: string; title: string; body?: string; metadata?: Record<string, unknown> }) {

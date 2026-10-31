@@ -111,6 +111,17 @@ export type TableRecord = {
   statuses?: CatalogItem[]
 }
 
+export type MediaFileUsage = {
+  projectId: string
+  projectName: string
+  tableId: string
+  tableName: string
+  columnId: string
+  columnName: string
+  rowId: string
+  rowNumber: number
+}
+
 export type MediaFile = {
   id: string
   name: string
@@ -119,11 +130,19 @@ export type MediaFile = {
   createdAt: string
   tableId: string | null
   projectId: string | null
+  uploadProjectName?: string | null
+  uploadTableName?: string | null
+  usageCount?: number
 }
 
 export type MediaListResponse = {
   files: MediaFile[]
   nextCursor: string | null
+}
+
+export type MediaDetailsResponse = {
+  file: MediaFile
+  usages: MediaFileUsage[]
 }
 
 export type RowRecord = {

@@ -25,3 +25,12 @@ export function parseMediaCellInput(input: unknown): MediaCellValue | null {
   if (normalized.fileIds.length > MAX_MEDIA_FILES_PER_CELL) throw new Error('too_many_media_files')
   return normalized
 }
+
+export function mergeMediaFileIds(existing: string[], toAdd: string[]) {
+  const merged = new Set(existing)
+  for (const id of toAdd) {
+    if (merged.size >= MAX_MEDIA_FILES_PER_CELL) break
+    merged.add(id)
+  }
+  return [...merged]
+}

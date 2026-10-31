@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_MEDIA_FILES_PER_CELL, normalizeMediaCellValue, parseMediaCellInput } from './media.js'
+import { MAX_MEDIA_FILES_PER_CELL, mergeMediaFileIds, normalizeMediaCellValue, parseMediaCellInput } from './media.js'
 
 describe('media cell helpers', () => {
   it('normalizes legacy fileId', () => {
@@ -12,6 +12,14 @@ describe('media cell helpers', () => {
 
   it('returns null for empty lists', () => {
     expect(normalizeMediaCellValue({ fileIds: [] })).toBeNull()
+  })
+
+  it('merges selections without exceeding max', () => {
+    const existing = ['a', 'b']
+    const added = ['b', 'c', 'd']
+    expect(mergeMediaFileIds(existing, added)).toEqual(['a', 'b', 'c', 'd'])
+    const many = Array.from({ length: MAX_MEDIA_FILES_PER_CELL }, (_, index) => `f${index}`)
+    expect(mergeMediaFileIds(many, ['new']).length).toBe(MAX_MEDIA_FILES_PER_CELL)
   })
 
   it('enforces max files', () => {

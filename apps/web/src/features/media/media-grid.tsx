@@ -59,6 +59,19 @@ export function MediaGrid({
         cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.mime}</span>,
       },
       {
+        id: 'usedIn',
+        header: t('mediaColumnUsedIn'),
+        size: 140,
+        cell: ({ row }) => {
+          const count = row.original.usageCount ?? 0
+          return (
+            <span className="truncate text-muted-foreground">
+              {count === 0 ? t('mediaNotUsed') : t('mediaUsedCount', { count })}
+            </span>
+          )
+        },
+      },
+      {
         id: 'createdAt',
         header: t('mediaColumnUploaded'),
         size: 168,

@@ -2649,6 +2649,27 @@
         }
       }
     },
+    "/media/{id}/details": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/media/{id}": {
       "get": {
         "parameters": [

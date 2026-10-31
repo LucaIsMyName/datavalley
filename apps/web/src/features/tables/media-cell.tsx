@@ -1,134 +1,178 @@
-import { normalizeMediaCellValue } from '@datavalley/shared'
+import { mergeMediaFileIds, normalizeMediaCellValue } from '@datavalley/shared'
 import type { MediaFile } from '@datavalley/api-client'
-import { FileText, Paperclip, Plus, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Library, Paperclip, Upload, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
-import { isRasterImageMime, listMedia, mediaDownloadUrl, uploadMedia } from '../../lib/media'
+import { useMediaCatalog } from '../../lib/media'
 
 function readFileIds(value: unknown) {
   return normalizeMediaCellValue(value)?.fileIds ?? []
 }
 
-export function MediaCellView({ value }: { value: unknown }) {
-  const ids = readFileIds(value)
-  if (ids.length === 0) return <Paperclip className="size-4 text-muted-foreground" />
+function fileLabel(file: MediaFile | undefined, id: string) {
+  return file?.name ?? id.slice(0, 8)
+}
+
+export function MediaCellBadges({
+  fileIds,
+  onOpenFile,
+  onRemoveFile,
+}: {
+  fileIds: string[]
+  onOpenFile: (file: MediaFile) => void
+  onRemoveFile: (fileId: string) => void
+}) {
+  const { t } = useTranslation()
+  const catalog = useMediaCatalog()
+  const byId = useMemo(() => new Map((catalog.data?.files ?? []).map((file) => [file.id, file])), [catalog.data])
+
+  if (fileIds.length === 0) return null
+
   return (
-    <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-      {ids.slice(0, 3).map((id) => (
-        <span key={id} className="inline-flex size-6 shrink-0 items-center justify-center border border-border bg-muted">
-          <FileText className="size-3.5 text-muted-foreground" />
-        </span>
-      ))}
-      {ids.length > 3 ? <span className="text-xs text-muted-foreground">+{ids.length - 3}</span> : null}
+    <div className="flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden">
+      {fileIds.map((id) => {
+        const file = byId.get(id)
+        const label = fileLabel(file, id)
+        return (
+          <Badge key={id} color="slate" className="max-w-none shrink-0 gap-1 whitespace-nowrap py-0.5 pl-2 pr-0.5">
+            <button
+              type="button"
+              className="whitespace-nowrap hover:underline"
+              onClick={(event) => {
+                event.stopPropagation()
+                event.preventDefault()
+                if (file) onOpenFile(file)
+                else
+                  onOpenFile({
+                    id,
+                    name: label,
+                    mime: 'application/octet-stream',
+                    size: 0,
+                    createdAt: '',
+                    tableId: null,
+                    projectId: null,
+                  })
+              }}
+            >
+              {label}
+            </button>
+            <button
+              type="button"
+              className="inline-flex shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-black/10 hover:text-foreground"
+              aria-label={t('mediaRemove')}
+              onClick={(event) => {
+                event.stopPropagation()
+                event.preventDefault()
+                onRemoveFile(id)
+              }}
+            >
+              <X className="size-3" />
+            </button>
+          </Badge>
+        )
+      })}
     </div>
   )
 }
 
 export function MediaEditor({
-  tableId,
   value,
   active,
   onEdit,
   onFlush,
   onOpen,
   onActivate,
+  onOpenLibrary,
+  onPreviewFile,
+  onUpload,
 }: {
-  tableId: string
   value: unknown
   active: boolean
-  onEdit: (value: { fileIds: string[] }) => void
+  onEdit: (value: { fileIds: string[] } | null) => void
   onFlush: () => void
   onOpen: () => void
   onActivate: () => void
+  onOpenLibrary: (existingIds: string[]) => void
+  onPreviewFile: (file: MediaFile) => void
+  onUpload: (file: File) => Promise<void>
 }) {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState<string[]>(() => readFileIds(value))
-  const [library, setLibrary] = useState<MediaFile[]>([])
-  const [loadingLibrary, setLoadingLibrary] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (active) setDraft(readFileIds(value))
   }, [active, value])
 
+  function removeFromCell(id: string) {
+    const current = active ? draft : readFileIds(value)
+    const next = current.filter((item) => item !== id)
+    if (active) setDraft(next)
+    onEdit(next.length ? { fileIds: next } : null)
+    onFlush()
+  }
+
   if (!active) {
+    const ids = readFileIds(value)
     return (
-      <button
-        type="button"
-        className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden text-left"
-        aria-label={t('mediaAttach')}
+      <div
+        className="flex h-full w-full min-w-0 items-center gap-1"
         onClick={onOpen}
         onDoubleClick={(event) => {
           event.preventDefault()
           onActivate()
         }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            onActivate()
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={t('mediaAttach')}
       >
-        <MediaCellView value={value} />
-      </button>
+        <MediaCellBadges fileIds={ids} onOpenFile={onPreviewFile} onRemoveFile={removeFromCell} />
+      </div>
     )
   }
 
-  async function loadLibrary() {
-    setLoadingLibrary(true)
-    setError('')
-    try {
-      const result = await listMedia({ limit: 50 })
-      setLibrary(result.files)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('error'))
-    } finally {
-      setLoadingLibrary(false)
-    }
-  }
-
-  function commit(next: string[]) {
-    setDraft(next)
-    onEdit({ fileIds: next })
-  }
-
-  async function attachUpload(file: File) {
-    setError('')
-    try {
-      const saved = await uploadMedia(file, { tableId })
-      commit([...draft, saved.id])
-      onFlush()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('error'))
-    }
-  }
-
-  function attachExisting(id: string) {
-    if (draft.includes(id)) return
-    commit([...draft, id])
-    onFlush()
-  }
-
-  function remove(id: string) {
-    commit(draft.filter((item) => item !== id))
-    onFlush()
-  }
-
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col gap-2 py-1">
-      <div className="flex flex-wrap gap-1">
-        {draft.map((id) => (
-          <span key={id} className="inline-flex max-w-full items-center gap-1 border border-border px-1 text-xs">
-            <a href={mediaDownloadUrl(id)} className="truncate underline" onClick={(event) => event.stopPropagation()}>
-              {id.slice(0, 8)}
-            </a>
-            <button type="button" aria-label={t('mediaRemove')} onClick={() => remove(id)}>
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-        <Button type="button" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => inputRef.current?.click()}>
-          <Plus className="size-3.5" />
-          {t('mediaUpload')}
+    <div
+      className="flex h-full min-w-0 flex-1 items-center gap-1 py-0.5"
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        {draft.length === 0 ? <Paperclip className="size-4 shrink-0 text-muted-foreground" /> : null}
+        <MediaCellBadges fileIds={draft} onOpenFile={onPreviewFile} onRemoveFile={removeFromCell} />
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          type="button"
+          variant="outline"
+          className="size-7 shrink-0 p-0"
+          aria-label={t('mediaUpload')}
+          onClick={(event) => {
+            event.stopPropagation()
+            inputRef.current?.click()
+          }}
+        >
+          <Upload className="size-3.5" />
         </Button>
-        <Button type="button" variant="outline" className="h-7 px-2 text-xs" onClick={() => void loadLibrary()}>
-          {t('mediaPickExisting')}
+        <Button
+          type="button"
+          variant="outline"
+          className="size-7 shrink-0 p-0"
+          aria-label={t('mediaLibrary')}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenLibrary(draft)
+          }}
+        >
+          <Library className="size-3.5" />
         </Button>
       </div>
       <input
@@ -138,31 +182,24 @@ export function MediaEditor({
         onChange={(event) => {
           const file = event.target.files?.[0]
           event.target.value = ''
-          if (file) void attachUpload(file)
+          if (!file) return
+          void (async () => {
+            setError('')
+            try {
+              await onUpload(file)
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : t('error'))
+            }
+          })()
         }}
       />
-      {error ? <p className="text-xs text-danger">{error}</p> : null}
-      {loadingLibrary ? <p className="text-xs text-muted-foreground">{t('loading')}</p> : null}
-      {library.length > 0 ? (
-        <ul className="max-h-28 overflow-auto border border-border">
-          {library.map((file) => (
-            <li key={file.id}>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs hover:bg-accent"
-                onClick={() => attachExisting(file.id)}
-              >
-                {isRasterImageMime(file.mime) ? (
-                  <img src={mediaDownloadUrl(file.id)} alt="" className="size-6 object-cover" />
-                ) : (
-                  <FileText className="size-4 shrink-0" />
-                )}
-                <span className="truncate">{file.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {error ? <span className="sr-only" role="alert">{error}</span> : null}
     </div>
   )
+}
+
+export function mergeMediaIntoCell(existing: unknown, added: string[]) {
+  const current = readFileIds(existing)
+  const next = mergeMediaFileIds(current, added)
+  return next.length ? { fileIds: next } : null
 }

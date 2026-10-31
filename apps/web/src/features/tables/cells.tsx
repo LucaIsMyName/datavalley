@@ -1,6 +1,6 @@
 import { paintSwatch } from '@datavalley/shared'
 import { useEffect, useRef, useState } from 'react'
-import { ApiClientError, type CatalogItem, type Column, type RowRecord } from '@datavalley/api-client'
+import { ApiClientError, type CatalogItem, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
 import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnchoredLayer } from '../../components/anchored-layer'
@@ -61,6 +61,10 @@ export function CellEditor({
   onActivate,
   onCreated,
   hint,
+  onMediaLibrary,
+  onMediaPreview,
+  onMediaUpload,
+  onMediaFlush,
 }: {
   column: Column
   row: RowRecord
@@ -70,13 +74,17 @@ export function CellEditor({
   tags: CatalogItem[]
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
-  onEdit: (value: string | string[] | boolean | { fileIds: string[] }, delay?: number) => void
+  onEdit: (value: string | string[] | boolean | { fileIds: string[] } | null, delay?: number) => void
   onFlush: () => void
   onCancel: () => void
   onOpen: () => void
   onActivate: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
   hint?: string | null
+  onMediaLibrary?: (existingIds: string[]) => void
+  onMediaPreview?: (file: MediaFile) => void
+  onMediaUpload?: (file: File) => Promise<void>
+  onMediaFlush?: () => void
 }) {
   const { t } = useTranslation()
   const editLabel = t('editColumn', { name: column.name })
@@ -90,13 +98,17 @@ export function CellEditor({
   if (column.type === 'media') {
     return (
       <MediaEditor
-        tableId={tableId}
         value={row.cells[column.id]}
         active={active}
         onEdit={(value) => onEdit(value, 0)}
-        onFlush={onFlush}
+        onFlush={onMediaFlush ?? onFlush}
         onOpen={onOpen}
         onActivate={onActivate}
+        onOpenLibrary={(existingIds) => onMediaLibrary?.(existingIds)}
+        onPreviewFile={(file) => onMediaPreview?.(file)}
+        onUpload={async (file) => {
+          if (onMediaUpload) await onMediaUpload(file)
+        }}
       />
     )
   }

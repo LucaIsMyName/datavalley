@@ -1,4 +1,5 @@
-import type { MediaFile, MediaListResponse } from '@datavalley/api-client'
+import { useQuery } from '@tanstack/react-query'
+import type { MediaDetailsResponse, MediaFile, MediaListResponse } from '@datavalley/api-client'
 import { api } from './api'
 
 export function mediaDownloadUrl(id: string) {
@@ -25,6 +26,18 @@ export async function uploadMedia(file: File, options?: { tableId?: string }) {
   body.append('file', file)
   const result = await api.request<{ file: MediaFile }>(`/media${params}`, { method: 'POST', body })
   return result.file
+}
+
+export async function fetchMediaDetails(id: string) {
+  return api.request<MediaDetailsResponse>(`/media/${id}/details`)
+}
+
+export function useMediaCatalog() {
+  return useQuery({
+    queryKey: ['media', 'catalog'],
+    queryFn: () => listMedia({ limit: 100 }),
+    staleTime: 60_000,
+  })
 }
 
 export async function listMedia(query: { limit?: number; cursor?: string | null; q?: string; mime?: 'image' | 'pdf' | null }) {

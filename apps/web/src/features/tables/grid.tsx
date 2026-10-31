@@ -5,12 +5,15 @@ import {
   ApiClientError,
   type Column,
   type RowRecord,
+  type MediaFile,
   type TableRecord,
 } from '@datavalley/api-client'
 import { matchesCondition } from '@datavalley/formula-engine'
 import {
   conditionalStyle,
+  mergeMediaFileIds,
   moveSelection,
+  normalizeMediaCellValue,
   paintSwatch,
   type FilterNode,
   type FilterOperator,
@@ -90,7 +93,11 @@ import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
 import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
+import { MediaLibraryDialog } from '../media/media-library-dialog'
+import { MediaPreviewDrawer } from '../media/media-preview-drawer'
+import { mergeMediaIntoCell } from './media-cell'
 import { NotesDrawer } from './notes'
+import { fetchMediaDetails, uploadMedia } from '../../lib/media'
 import { Swatches } from './swatches'
 import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
@@ -298,6 +305,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [historyTick, setHistoryTick] = useState(0)
   const [widths, setWidths] = useState<Record<string, number>>({})
   const [drawerRowId, setDrawerRowId] = useState<string | null>(null)
+  const [mediaLibrary, setMediaLibrary] = useState<{
+    rowId: string
+    columnId: string
+    existingIds: string[]
+  } | null>(null)
+  const [mediaPreview, setMediaPreview] = useState<{
+    file: MediaFile
+    rowId: string
+    columnId: string
+  } | null>(null)
   const [selectingAll, setSelectingAll] = useState(false)
   const filter = useMemo(() => activeFilter(filters), [filters])
   const filterKey = JSON.stringify(filter)
@@ -763,6 +780,34 @@ export function TableScreen({ tableId }: { tableId: string }) {
         showEditError(t('error'))
       },
     })
+  }
+
+  function flushMediaCell(row: RowRecord, column: Column) {
+    void sync
+      .flush(`cell:${row.id}:${column.id}`)
+      .catch((error: unknown) => {
+        const message = editFailureMessage(error, t('error'), { cell: true })
+        if (message) showEditError(message)
+      })
+  }
+
+  function applyMediaCell(row: RowRecord, column: Column, value: { fileIds: string[] } | null) {
+    scheduleCell(row, column, value, 0)
+    flushMediaCell(row, column)
+    void queryClient.invalidateQueries({ queryKey: ['media', 'catalog'] })
+  }
+
+  async function uploadMediaToCell(row: RowRecord, column: Column, file: File, existing: unknown) {
+    const saved = await uploadMedia(file)
+    applyMediaCell(row, column, mergeMediaIntoCell(existing, [saved.id]))
+  }
+
+  async function openMediaPreview(file: MediaFile, rowId: string, columnId: string) {
+    let resolved = file
+    if (!file.name || file.mime === 'application/octet-stream') {
+      resolved = (await fetchMediaDetails(file.id)).file
+    }
+    setMediaPreview({ file: resolved, rowId, columnId })
   }
 
   function scheduleColumnName(column: Column, next: string) {
@@ -1959,7 +2004,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           )
           return (
             <div
-              className={`relative flex h-9 min-w-0 items-center overflow-hidden px-2 ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
+              className={`relative flex h-9 min-w-0 items-center px-2 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden'} ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
               style={{
                 color: paintSwatch(ruleStyle.color, 'text'),
                 background: inFill && !picked ? undefined : painted,
@@ -2037,6 +2082,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           : current.statuses,
                     }))
                   }
+                  onMediaLibrary={(existingIds) =>
+                    setMediaLibrary({ rowId: row.original.id, columnId: column.id, existingIds })
+                  }
+                  onMediaPreview={(file) => void openMediaPreview(file, row.original.id, column.id)}
+                  onMediaUpload={(file) => uploadMediaToCell(row.original, column, file, value)}
+                  onMediaFlush={() => flushMediaCell(row.original, column)}
                 />
               )}
               {picked && !active && fillable(column) ? (
@@ -2897,6 +2948,37 @@ export function TableScreen({ tableId }: { tableId: string }) {
         tableId={tableId}
         row={rows.find((row) => row.id === drawerRowId) ?? null}
         onClose={() => setDrawerRowId(null)}
+      />
+      <MediaLibraryDialog
+        open={Boolean(mediaLibrary)}
+        onClose={() => setMediaLibrary(null)}
+        existingIds={mediaLibrary?.existingIds ?? []}
+        onInsert={(added) => {
+          if (!mediaLibrary) return
+          const row = rows.find((item) => item.id === mediaLibrary.rowId)
+          const column = columns.find((item) => item.id === mediaLibrary.columnId)
+          if (!row || !column) return
+          const merged = mergeMediaFileIds(mediaLibrary.existingIds, added)
+          applyMediaCell(row, column, merged.length ? { fileIds: merged } : null)
+          setMediaLibrary(null)
+        }}
+      />
+      <MediaPreviewDrawer
+        file={mediaPreview?.file ?? null}
+        onClose={() => setMediaPreview(null)}
+        onDisconnect={
+          mediaPreview
+            ? () => {
+                const row = rows.find((item) => item.id === mediaPreview.rowId)
+                const column = columns.find((item) => item.id === mediaPreview.columnId)
+                if (!row || !column) return
+                const ids = normalizeMediaCellValue(row.cells[column.id])?.fileIds ?? []
+                const next = ids.filter((id) => id !== mediaPreview.file.id)
+                applyMediaCell(row, column, next.length ? { fileIds: next } : null)
+                setMediaPreview(null)
+              }
+            : undefined
+        }
       />
       {formatTarget ? (
         <ConditionalDialog

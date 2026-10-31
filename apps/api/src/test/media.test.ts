@@ -149,6 +149,21 @@ describe('media access', () => {
     expect(patched.statusCode).toBe(200)
     expect(patched.json().row.cells[columnId]).toEqual({ fileIds: [libraryId, tableFileId] })
 
+    const listedAfter = await ada.inject({ method: 'GET', url: '/api/v1/media' })
+    const libraryListed = listedAfter.json().files.find((file: { id: string }) => file.id === libraryId)
+    expect(libraryListed?.usageCount).toBe(1)
+
+    const details = await ada.inject({ method: 'GET', url: `/api/v1/media/${libraryId}/details` })
+    expect(details.statusCode).toBe(200)
+    expect(details.json().usages).toHaveLength(1)
+    expect(details.json().usages[0]).toMatchObject({
+      projectId,
+      tableId,
+      columnId,
+      rowId,
+      columnName: 'Attachments',
+    })
+
     await harness.close()
   })
 })
