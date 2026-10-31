@@ -9,6 +9,7 @@ import { ApiClientError, type Project, type TableRecord, type User } from '@data
 import { IconButton } from '../components/icon-button'
 import { QuietInput } from '../components/quiet-input'
 import { ResourceIcon } from '../components/resource-icon'
+import { SavedRowTitle } from '../components/saved-row-title'
 import { pressMenuProps, useContextMenu } from '../components/context-menu'
 import { Button } from '../components/ui/button'
 import { Checkbox } from '../components/ui/checkbox'
@@ -27,7 +28,7 @@ import { moveTab, tableNameFromFile } from './tables/table-tabs'
 import { openRegisteredTableMenu } from './tables/table-menu'
 import { TableToolbarProvider, TableToolbarRow } from './tables/table-toolbar'
 import { api } from '../lib/api'
-import { formatDateTime, formatRecentTitle } from '../lib/format'
+import { formatDateTime } from '../lib/format'
 import { sync } from '../lib/sync'
 import { toast } from 'sonner'
 import { applyTheme, useSession } from '../stores/session'
@@ -209,9 +210,9 @@ function SavedRows({ items, empty }: { items: SavedHit[]; empty: string }) {
     <ul className="mt-2 max-h-80 overflow-auto">
       {items.map((item) => (
         <li key={`${item.resourceType}:${item.resourceId}`} className="border-t border-border">
-          <Link to={item.href} className="flex min-h-11 items-center gap-2 text-sm">
+          <Link to={item.href} className="flex min-h-11 min-w-0 items-center gap-2 text-sm">
             <ResourceIcon name={item.icon} />
-            <span className="min-w-0 truncate">{formatRecentTitle(item)}</span>
+            <SavedRowTitle hit={item} />
           </Link>
         </li>
       ))}
@@ -1105,9 +1106,9 @@ export function RecentPage() {
         {recents.data?.recents.map((item) => (
           <li key={`${item.resourceType}:${item.resourceId}`}>
             <Link to={item.href}>
-              <Card className="flex min-h-11 items-center gap-2 p-3 text-sm">
+              <Card className="flex min-h-11 min-w-0 items-center gap-2 p-3 text-sm">
                 <ResourceIcon name={item.icon} />
-                <span className="min-w-0 truncate">{formatRecentTitle(item)}</span>
+                <SavedRowTitle hit={item} />
               </Card>
             </Link>
           </li>

@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { formatRecentTitle } from './format'
+import { recentTitleParts } from './format'
 
-describe('formatRecentTitle', () => {
-  it('joins project and table names for table recents', () => {
+describe('recentTitleParts', () => {
+  it('splits project and table names for table recents', () => {
     expect(
-      formatRecentTitle({
+      recentTitleParts({
         resourceType: 'table',
         title: 'Invoices',
         subtitle: 'Library',
       }),
-    ).toBe('Library > Invoices')
+    ).toEqual({ prefix: 'Library', title: 'Invoices' })
   })
 
   it('keeps the project title alone', () => {
     expect(
-      formatRecentTitle({
+      recentTitleParts({
         resourceType: 'project',
         title: 'Library',
       }),
-    ).toBe('Library')
+    ).toEqual({ title: 'Library' })
   })
 })
