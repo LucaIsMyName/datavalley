@@ -1,3 +1,4 @@
+import { paintSwatch } from '@datavalley/shared'
 import { useEffect, useRef, useState } from 'react'
 import { ApiClientError, type CatalogItem, type Column, type RowRecord } from '@datavalley/api-client'
 import { ChevronDown, CircleAlert, X } from 'lucide-react'
@@ -11,18 +12,6 @@ import { beginRename, colorLabelKey, composeDateValue, finishRename } from './gr
 
 const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
-const swatch: Record<string, string> = {
-  amber: 'bg-amber-200 dark:bg-amber-900',
-  green: 'bg-green-200 dark:bg-green-900',
-  blue: 'bg-blue-200 dark:bg-blue-900',
-  red: 'bg-red-200 dark:bg-red-900',
-  violet: 'bg-violet-200 dark:bg-violet-900',
-  orange: 'bg-orange-200 dark:bg-orange-900',
-  pink: 'bg-pink-200 dark:bg-pink-900',
-  teal: 'bg-teal-200 dark:bg-teal-900',
-  slate: 'bg-slate-200 dark:bg-slate-700',
-  yellow: 'bg-yellow-200 dark:bg-yellow-900',
-}
 
 export function formatCell(column: Column, value: unknown) {
   if (value == null || value === '') return ''
@@ -537,7 +526,8 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
             key={color}
             type="button"
             aria-label={t(colorLabelKey(color))}
-            className={`h-5 w-5 border border-border ${swatch[color] ?? swatch.slate} ${color === current ? 'ring-2 ring-foreground' : ''}`}
+            className={`h-5 w-5 border border-border ${color === current ? 'ring-2 ring-foreground' : ''}`}
+            style={{ background: paintSwatch(color, 'background') }}
             onClick={() => onColor(color)}
           />
         ))}
@@ -706,7 +696,8 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
                 key={color}
                 type="button"
                 aria-label={t(colorLabelKey(color))}
-                className={`h-5 w-5 border border-border ${swatch[color] ?? swatch.slate} ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
+                className={`h-5 w-5 border border-border ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
+                style={{ background: paintSwatch(color, 'background') }}
                 onClick={() => {
                   void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
                     onCreated('status', { ...result.status, tableId })

@@ -28,3 +28,11 @@ export function paintSwatch(value: string | null | undefined, role: SwatchRole):
   if (!name) return value
   return `var(--swatch-${name}-${role === 'text' ? 'fg' : 'bg'})`
 }
+
+export function swatchStyle(value: string | null | undefined): { backgroundColor: string; color: string } {
+  const name = swatchName(value) ?? 'slate'
+  return {
+    backgroundColor: paintSwatch(name, 'background')!,
+    color: paintSwatch(name, 'text')!,
+  }
+}

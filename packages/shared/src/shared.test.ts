@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintSwatch, swatchName } from './colors.js'
+import { paintSwatch, swatchName, swatchStyle } from './colors.js'
 import { csvTable, parseCsv, toCsv, uniqueColumnNames } from './csv.js'
 import { compareOp } from './filters.js'
 import { conditionalStyle, expressionFromOperator, stylesForCell } from './formatting.js'
@@ -103,6 +103,14 @@ describe('formatting and filters', () => {
     expect(paintSwatch('#fecaca', 'text')).toBe('var(--swatch-red-fg)')
     expect(paintSwatch('#112233', 'background')).toBe('#112233')
     expect(paintSwatch(null, 'background')).toBeUndefined()
+    expect(swatchStyle('green')).toEqual({
+      backgroundColor: 'var(--swatch-green-bg)',
+      color: 'var(--swatch-green-fg)',
+    })
+    expect(swatchStyle('not-a-color')).toEqual({
+      backgroundColor: 'var(--swatch-slate-bg)',
+      color: 'var(--swatch-slate-fg)',
+    })
   })
 
   it('turns an operator rule into a formula condition', () => {
