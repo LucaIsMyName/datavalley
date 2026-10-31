@@ -65,8 +65,8 @@ export function NotesDrawer({
           <Dialog.Title className="text-lg font-semibold">{t('notes')}</Dialog.Title>
           <Dialog.Description className="sr-only">{t('notes')}</Dialog.Description>
           <div className="flex gap-2">
-            <button type="button" className={`rounded px-2 py-1 text-sm ${preview ? '' : 'bg-accent'}`} onClick={() => setPreview(false)}>{t('notes')}</button>
-            <button type="button" className={`rounded px-2 py-1 text-sm ${preview ? 'bg-accent' : ''}`} onClick={() => setPreview(true)}>{t('preview')}</button>
+            <button type="button" className={`px-2 py-1 text-sm ${preview ? '' : 'bg-accent'}`} onClick={() => setPreview(false)}>{t('notes')}</button>
+            <button type="button" className={`px-2 py-1 text-sm ${preview ? 'bg-accent' : ''}`} onClick={() => setPreview(true)}>{t('preview')}</button>
           </div>
           {preview ? (
             <div className="min-h-40 flex-1 overflow-auto text-sm leading-6">
@@ -75,7 +75,7 @@ export function NotesDrawer({
           ) : (
             <textarea
               aria-label={t('notes')}
-              className="min-h-40 flex-1 resize-none rounded-md border border-border bg-transparent p-2 text-sm outline-none"
+              className="min-h-40 flex-1 resize-none border border-border bg-transparent p-2 text-sm outline-none"
               value={text}
               onFocus={() => { focused.current = true }}
               onChange={(event) => { setText(event.target.value); schedule(event.target.value) }}
@@ -92,7 +92,7 @@ export function NotesDrawer({
               }}
             />
           )}
-          <Dialog.Close className="self-end rounded-md border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
+          <Dialog.Close className="self-end border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

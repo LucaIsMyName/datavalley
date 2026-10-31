@@ -54,7 +54,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useSearchParams } from 'react-router'
+import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
@@ -74,7 +74,7 @@ import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
-import { FORMULA_HELP, formatFormulaValue } from './formula-help'
+import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
 import { registerTableMenu } from './table-menu'
@@ -97,7 +97,6 @@ type PopoverState = {
     | 'conditional'
     | 'row-color'
     | 'cell-color'
-    | 'formula'
     | 'relation'
     | 'find'
     | 'view'
@@ -233,8 +232,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [renamingColumn, setRenamingColumn] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
-  const [formulaDraft, setFormulaDraft] = useState('')
-  const [formulaFunction, setFormulaFunction] = useState('')
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
@@ -554,12 +551,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
     pushCommand(tableId, { kind: 'columns-created', columns: [snap] })
     await refresh()
-    if (type === 'formula') {
-      setFormulaDraft('')
-      setFormulaFunction('')
-      setPopover({ kind: 'formula', columnId: created.column.id, ...point })
-      return
-    }
     if (type === 'relation') {
       setRelationTarget('')
       setPopover({ kind: 'relation', columnId: created.column.id, ...point })
@@ -880,37 +871,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
       return
     }
     await run()
-  }
-
-  async function persistFormula(column: Column, expression: string) {
-    await api.request('/formulas/validate', {
-      method: 'POST',
-      body: JSON.stringify({ tableId, expression }),
-    })
-    if (column.type === 'formula') {
-      await api.request(`/columns/${column.id}/formula`, {
-        method: 'POST',
-        body: JSON.stringify({ expression }),
-      })
-      await refresh()
-      return
-    }
-    await applyType(column, 'formula', async () => {
-      await api.request(`/columns/${column.id}/formula`, {
-        method: 'POST',
-        body: JSON.stringify({ expression }),
-      })
-    })
-  }
-
-  async function saveFormula(column: Column) {
-    try {
-      await persistFormula(column, formulaDraft)
-      setPopover(null)
-    } catch (error) {
-      const message = editFailureMessage(error, t('error'))
-      if (message) showEditError(message)
-    }
   }
 
   async function saveRelation(column: Column, toTableId = relationTarget) {
@@ -1352,12 +1312,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
           }
           if (id.startsWith('type-')) {
             const type = id.slice('type-'.length)
-            if (type === 'formula') {
-              setFormulaDraft('')
-              setFormulaFunction('')
-              setPopover({ kind: 'formula', columnId: column.id, ...point })
-              return
-            }
             if (type === 'relation') {
               setRelationTarget('')
               setPopover({ kind: 'relation', columnId: column.id, ...point })
@@ -1995,7 +1949,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const popoverRow = rows.find((row) => row.id === popover?.rowId)
   const columnsWidth = columns.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0)
   const filler = Math.max(ADD_COLUMN_WIDTH, viewportWidth - GUTTER_WIDTH - columnsWidth)
-  const formulaHelp = FORMULA_HELP.find((item) => item.name === formulaFunction)
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6" style={{ WebkitTouchCallout: 'none' }}>
@@ -2269,7 +2222,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   <button
                     type="button"
                     aria-label={t('insertColumn')}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
+                    className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
                     onClick={(event) => openNewColumn(undefined, anchor(event))}
                   >
                     <Plus className="size-4" />
@@ -2423,7 +2376,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           prefer="below"
           align="start"
           anchor={popover}
-          className={`rounded-md border border-border bg-card p-3 shadow-md ${popover.kind === 'formula' ? 'w-[min(24rem,calc(100vw-2rem))]' : 'w-[min(20rem,calc(100vw-2rem))]'}`}
+          className="w-[min(20rem,calc(100vw-2rem))] border border-border bg-card p-3 shadow-md"
         >
           {popover.kind === 'find' ? (
             <Input
@@ -2533,48 +2486,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
           {popover.kind === 'cell-color' && popoverRow && popover.columnId ? (
             <Swatches onPick={(color) => void paintCell(popoverRow, popover.columnId!, color)} />
           ) : null}
-          {popover.kind === 'formula' && popoverColumn ? (
-            <form
-              className="flex flex-col gap-2"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void saveFormula(popoverColumn)
-              }}
-            >
-              <SelectField
-                label={t('formulaFunction')}
-                value=""
-                onValueChange={(name) => {
-                  const item = FORMULA_HELP.find((entry) => entry.name === name)
-                  if (!item) return
-                  setFormulaFunction(item.name)
-                  setFormulaDraft((current) => (current.trim() ? `${current.trim()} ${item.insert}` : item.insert))
-                }}
-                options={[
-                  { value: '', label: t('formulaFunction') },
-                  ...FORMULA_HELP.map((item) => ({ value: item.name, label: item.name })),
-                ]}
-              />
-              <Input
-                aria-label={t('formulaExpression')}
-                value={formulaDraft}
-                onChange={(event) => setFormulaDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    void saveFormula(popoverColumn)
-                  }
-                }}
-              />
-              {formulaHelp ? (
-                <p className="font-mono text-xs text-muted-foreground">{formulaHelp.example}</p>
-              ) : null}
-              <p className="text-xs text-muted-foreground">{t('formulaCopies')}</p>
-              <Link className="text-sm underline" to="/doc#formulas">
-                {t('formulaDocs')}
-              </Link>
-            </form>
-          ) : null}
           {popover.kind === 'relation' && popoverColumn ? (
             <div className="flex flex-col gap-2">
               <SelectField
@@ -2610,7 +2521,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   key={name}
                   type="button"
                   aria-label={name}
-                  className="flex h-8 items-center justify-center rounded hover:bg-accent"
+                  className="flex h-8 items-center justify-center hover:bg-accent"
                   onClick={() => {
                     void saveConfig(popoverColumn, { icon: name })
                     setPopover(null)
@@ -2699,7 +2610,7 @@ function Swatches({ onPick }: { onPick: (color: string | null) => void }) {
           key={color}
           type="button"
           aria-label={color}
-          className="h-6 w-6 rounded-full border border-border"
+          className="h-6 w-6 border border-border"
           style={{ background: color }}
           onClick={() => onPick(color)}
         />

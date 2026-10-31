@@ -8,7 +8,7 @@ Signed-in documentation for projects, tables, and formulas is at `/doc`. A new p
 
 ## Formulas
 
-A formula column stores one expression on each cell. A row created later starts empty until someone writes a formula there. Choosing the formula type copies the first expression onto the rows that already exist. There is no `=` in front.
+A formula column stores one expression on each cell. Changing a column to formula leaves the existing cells empty, and a row created later starts empty until someone writes a formula there. There is no `=` in front.
 
 A result is a number, text, a boolean, or a list of those. The cell shows a number as a number, text as text, `TRUE` or `FALSE`, and a list joined with `, `. An empty cell is empty. Errors are `#CYCLE`, `#REF`, `#VALUE`, `#DIV/0`, `#LIM`, and `#N/A`.
 

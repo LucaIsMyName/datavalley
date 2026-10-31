@@ -36,7 +36,7 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
             end={link.end}
             onClick={onNavigate}
             className={({ isActive }) =>
-              `flex h-11 items-center gap-2 rounded-md px-2 text-sm md:h-9 ${isActive ? 'bg-accent font-medium' : 'hover:bg-accent'}`
+              `flex h-11 items-center gap-2 px-2 text-sm md:h-9 ${isActive ? 'bg-accent font-medium' : 'hover:bg-accent'}`
             }
           >
             <link.icon className="size-4" />
@@ -104,7 +104,7 @@ export function AppShell() {
                 <Bell className="size-4" />
               </Button>
               {open ? (
-                <div className="absolute right-0 z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] rounded-md border border-border bg-card p-2 shadow-sm">
+                <div className="absolute right-0 z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-sm">
                   <p className="px-2 py-1 text-sm font-medium">{t('notifications')}</p>
                   <div className="min-h-16">
                     {(notifications.data?.notifications ?? []).length === 0 ? (
@@ -113,7 +113,7 @@ export function AppShell() {
                       notifications.data?.notifications.map((item) => (
                         <button
                           key={item.id}
-                          className="block min-h-11 w-full rounded px-2 py-2 text-left text-sm hover:bg-accent"
+                          className="block min-h-11 w-full px-2 py-2 text-left text-sm hover:bg-accent"
                           onClick={() => {
                             void api.request(`/notifications/${item.id}/read`, { method: 'POST' }).then(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }))
                           }}

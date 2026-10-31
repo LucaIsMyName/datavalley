@@ -625,7 +625,7 @@ export function ProjectPage() {
           })}
           <button
             type="button"
-            className="flex h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-t-md border border-transparent text-sm font-medium"
+            className="flex h-10 shrink-0 items-center gap-1 whitespace-nowrap border border-transparent text-sm font-medium"
             onClick={async () => {
               const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
               await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
