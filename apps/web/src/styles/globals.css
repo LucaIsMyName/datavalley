@@ -82,6 +82,24 @@ body {
   color: var(--foreground);
 }
 
+.cm-tooltip .cm-formula-help {
+  max-width: 16rem;
+  padding: 0.4rem 0.55rem;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.cm-tooltip .cm-formula-help p {
+  margin: 0.2rem 0 0.15rem;
+  color: var(--muted-foreground);
+}
+
+.cm-tooltip .cm-formula-help code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .cm-completionDetail {
   margin-left: 0.75rem;
   color: var(--muted-foreground);

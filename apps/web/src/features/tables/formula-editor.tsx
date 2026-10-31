@@ -2,11 +2,12 @@ import { autocompletion, pickedCompletion, type Completion, type CompletionConte
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, Prec } from '@codemirror/state'
-import { Decoration, EditorView, keymap, tooltips, ViewPlugin, WidgetType, drawSelection, type DecorationSet, type ViewUpdate } from '@codemirror/view'
+import { Decoration, EditorView, hoverTooltip, keymap, tooltips, ViewPlugin, WidgetType, drawSelection, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 import { ApiClientError, type RowRecord } from '@datavalley/api-client'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { api } from '../../lib/api'
+import { i18n } from '../../lib/i18n'
 import { FORMULA_HELP } from './formula-help'
 import { cellReference } from './formula-insert'
 import {
@@ -16,6 +17,7 @@ import {
   bracketSpans,
   changeBreaksBracket,
   completionAt,
+  functionAt,
   rowText,
   type BracketSpan,
   type CompletionDecision,
@@ -197,12 +199,27 @@ function deleteBracket(key: 'Backspace' | 'Delete') {
   }
 }
 
+function functionHelpElement(name: string) {
+  const item = FORMULA_HELP.find((entry) => entry.name === name)
+  const root = document.createElement('div')
+  root.className = 'cm-formula-help'
+  const heading = document.createElement('strong')
+  heading.textContent = name
+  const explanation = document.createElement('p')
+  explanation.textContent = String(i18n.t(`functions.${name}`, { ns: 'docs', defaultValue: '' }))
+  const example = document.createElement('code')
+  example.textContent = item?.example ?? ''
+  root.append(heading, explanation, example)
+  return root
+}
+
 function toCompletion(item: FormulaOption): Completion {
   const completion: Completion & { applyText: string } = {
     label: item.label,
     detail: item.detail,
     type: item.apply.endsWith('()') ? 'function' : 'variable',
     applyText: item.apply,
+    info: item.apply.endsWith('()') ? () => functionHelpElement(item.label) : undefined,
     apply(view, picked, from, to) {
       const next = applyCompletion(view.state.doc.toString(), from, to, item)
       view.dispatch({
@@ -336,6 +353,18 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       history(),
       EditorView.contentAttributes.of({ 'aria-label': labelRef.current, spellcheck: 'false' }),
       tooltips({ parent: document.body }),
+      hoverTooltip((view, pos, side) => {
+        const hit = functionAt(view.state.doc.toString(), pos, side)
+        if (!hit) return null
+        return {
+          pos: hit.from,
+          end: hit.to,
+          above: true,
+          create() {
+            return { dom: functionHelpElement(hit.name) }
+          },
+        }
+      }),
       autocompletion({
         override: [complete],
         activateOnCompletion: (completion) => {

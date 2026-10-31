@@ -76,6 +76,38 @@ export function bracketSpans(source: string): BracketSpan[] {
   return spans
 }
 
+export function functionAt(source: string, pos: number, side: -1 | 1 = -1) {
+  const anchor = side < 0 ? pos - 1 : pos
+  if (anchor < 0 || anchor >= source.length) return null
+  if (!/[A-Za-z0-9]/.test(source[anchor] ?? '')) return null
+  const hidden = maskedRanges(source)
+  if (hidden.some((range) => anchor >= range.from && anchor < range.to)) return null
+  let from = anchor
+  let to = anchor + 1
+  while (from > 0 && /[A-Za-z0-9]/.test(source[from - 1] ?? '') && !hidden.some((range) => from - 1 >= range.from && from - 1 < range.to)) from -= 1
+  while (to < source.length && /[A-Za-z0-9]/.test(source[to] ?? '') && !hidden.some((range) => to >= range.from && to < range.to)) to += 1
+  const word = source.slice(from, to)
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(word)) return null
+  const name = word.toUpperCase()
+  if (!FORMULA_HELP.some((item) => item.name === name)) return null
+  return { name, from, to }
+}
+
+function maskedRanges(source: string) {
+  const ranges: { from: number; to: number }[] = []
+  let i = 0
+  while (i < source.length) {
+    if (source[i] === '"') {
+      const end = skipString(source, i)
+      ranges.push({ from: i, to: end })
+      i = end
+      continue
+    }
+    i += 1
+  }
+  return [...ranges, ...bracketSpans(source)]
+}
+
 export function adjacentBracket(source: string, cursor: number, key: 'Backspace' | 'Delete') {
   const spans = bracketSpans(source)
   if (key === 'Backspace') return spans.find((span) => span.to === cursor) ?? null

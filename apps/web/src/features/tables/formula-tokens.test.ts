@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyCompletion, bracketSpans, changeBreaksBracket, completionAt, deleteAdjacentBracket, type FormulaCatalog } from './formula-tokens'
+import { applyCompletion, bracketSpans, changeBreaksBracket, completionAt, deleteAdjacentBracket, functionAt, type FormulaCatalog } from './formula-tokens'
 
 const catalog: FormulaCatalog = {
   tableId: 'people',
@@ -96,5 +96,15 @@ describe('formula tokens', () => {
     expect(item?.detail).toBe('LOOKUP([People -> Mail], [Email], [People -> Name])')
     expect(applyCompletion('LOOK', lookup.from, 4, item!).value).toBe('LOOKUP()')
     expect(completionAt('"[Name]"', 6, catalog, false, 'formula')).toBeNull()
+  })
+
+  it('names the function under the cursor and skips strings and brackets', () => {
+    expect(functionAt('SUM(1)', 1)).toEqual({ name: 'SUM', from: 0, to: 3 })
+    expect(functionAt('SUM(AVERAGE(1))', 'SUM(AVERAGE'.length)).toEqual({ name: 'AVERAGE', from: 4, to: 11 })
+    expect(functionAt('SUMIF(1)', 2)?.name).toBe('SUMIF')
+    expect(functionAt('"SUM"', 2)).toBeNull()
+    const bracket = '1 + [Amount]'
+    expect(functionAt(bracket, bracket.indexOf('Amount') + 1)).toBeNull()
+    expect(functionAt('notafunction(1)', 3)).toBeNull()
   })
 })

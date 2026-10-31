@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, max, sum } from 'drizzle-orm'
 import {
   bracketRowAsks,
   canonicalize,
@@ -531,10 +531,20 @@ async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
   const rowStamp = rows.map((row) => `${row.id}:${row.version}`).sort().join(',')
   const tablesStamp: string[] = []
   for (const tableId of tableIds) {
-    const [latest] = await db.select().from(tableRows).where(eq(tableRows.tableId, tableId)).orderBy(desc(tableRows.version)).limit(1)
-    tablesStamp.push(`${tableId}:${latest?.version ?? 0}`)
+    const [summary] = await db
+      .select({ total: count(), latest: max(tableRows.updatedAt), versions: sum(tableRows.version) })
+      .from(tableRows)
+      .where(eq(tableRows.tableId, tableId))
+    tablesStamp.push(`${tableId}:${Number(summary?.total ?? 0)}:${stampTime(summary?.latest)}:${summary?.versions ?? 0}`)
   }
   return `${rowStamp}|${tablesStamp.sort().join(',')}`
+}
+
+function stampTime(value: Date | string | null | undefined) {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toISOString()
 }
 
 export async function evaluateStored(db: AppDatabase, subject: Subject, formulaId: string, rowId: string, stack = new Set<string>()) {

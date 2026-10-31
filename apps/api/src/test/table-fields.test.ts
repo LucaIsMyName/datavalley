@@ -471,6 +471,76 @@ describe('table fields', () => {
     expect(opened.json().source).toBe('[Customer -> Name]')
   })
 
+  it('recomputes a formula after the referenced cell changes', async () => {
+    const { tableId } = await blankTable('Refresh')
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const total = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Total', type: 'formula' } })
+    const amountId = amount.json().column.id as string
+    const totalId = total.json().column.id as string
+    const created = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 2 } } })
+    const rowId = created.json().row.id as string
+    const saved = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${rowId}/columns/${totalId}/formula`,
+      payload: { expression: '[Amount] * 2' },
+    })
+    expect(saved.statusCode).toBe(200)
+    const before = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const current = (before.json().rows as { id: string; version: number; cells: Record<string, unknown> }[]).find((row) => row.id === rowId)
+    expect(current?.cells[totalId]).toBe(4)
+    const patched = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${rowId}`,
+      payload: { version: current?.version, cells: { [amountId]: 7 } },
+    })
+    expect(patched.statusCode).toBe(200)
+    const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    expect((after.json().rows as { id: string; cells: Record<string, unknown> }[]).find((row) => row.id === rowId)?.cells[totalId]).toBe(14)
+  })
+
+  it('recomputes a whole-column formula when an older row changes', async () => {
+    const { tableId } = await blankTable('Rollup')
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const total = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Total', type: 'formula' } })
+    const amountId = amount.json().column.id as string
+    const totalId = total.json().column.id as string
+    const early = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 1 } } })
+    await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 10 } } })
+    const latest = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 100 } } })
+    const earlyId = early.json().row.id as string
+    const latestId = latest.json().row.id as string
+    const saved = await session.inject({
+      method: 'POST',
+      url: `/api/v1/columns/${totalId}/formula`,
+      payload: { expression: 'SUM([Rollup -> Amount])' },
+    })
+    expect(saved.statusCode).toBe(200)
+    let version = latest.json().row.version as number
+    for (let step = 0; step < 3; step += 1) {
+      const bumped = await session.inject({
+        method: 'PATCH',
+        url: `/api/v1/rows/${latestId}`,
+        payload: { version, cells: { [amountId]: 100 } },
+      })
+      expect(bumped.statusCode).toBe(200)
+      version = bumped.json().row.version as number
+    }
+    const before = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const rows = before.json().rows as { id: string; version: number; cells: Record<string, unknown> }[]
+    expect(rows.find((row) => row.id === latestId)?.cells[totalId]).toBe(111)
+    const older = rows.find((row) => row.id === earlyId)
+    const patched = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${earlyId}`,
+      payload: { version: older?.version, cells: { [amountId]: 4 } },
+    })
+    expect(patched.statusCode).toBe(200)
+    const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const fresh = after.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(fresh.find((row) => row.id === latestId)?.cells[totalId]).toBe(114)
+    expect(fresh.find((row) => row.id === earlyId)?.cells[totalId]).toBe(114)
+  })
+
   async function blankTable(name: string) {
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name } })
     const projectId = project.json().project.id as string

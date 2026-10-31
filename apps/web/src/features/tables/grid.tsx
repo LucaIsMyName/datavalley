@@ -216,9 +216,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [formulaDraft, setFormulaDraft] = useState('')
   const [formulaFunction, setFormulaFunction] = useState('')
-  function openFormula(rowId: string, columnId: string, columnName: string) {
-    useFormulaWindow.getState().open({ tableId, rowId, columnId, columnName })
-  }
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
@@ -242,6 +239,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const visible = columns.filter((column) => !column.hidden)
   const rules = (table?.formatRules ?? []) as FormatRule[]
   const projectId = table?.projectId ?? ''
+  function openFormula(rowId: string, columnId: string, columnName: string) {
+    useFormulaWindow.getState().open({
+      tableId,
+      projectId,
+      tableName: table?.name ?? '',
+      rowId,
+      columnId,
+      columnName,
+    })
+  }
 
   const rowsQuery = useInfiniteQuery({
     queryKey: ['rows', tableId, search, sort, filterKey],
@@ -611,6 +618,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
             redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
           })
+          void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
         }
         setNotice('')
       },

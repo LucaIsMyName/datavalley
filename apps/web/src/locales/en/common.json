@@ -101,6 +101,7 @@
   "formulaFunction": "Function",
   "formulaDocs": "Function documentation",
   "formulaTitle": "Formula for {{name}}",
+  "formulaIn": "in",
   "formulaPreview": "Preview",
   "formulaFunctions": "Functions",
   "formulaValues": "Values",

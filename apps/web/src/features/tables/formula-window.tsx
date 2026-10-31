@@ -69,7 +69,8 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [menu, setMenu] = useState<{ span: BracketSpan; rect: DOMRect } | null>(null)
-  const title = t('formulaTitle', { name: cell.columnName })
+  const columnTitle = t('formulaTitle', { name: cell.columnName })
+  const title = cell.tableName ? `${columnTitle} ${t('formulaIn')} ${cell.tableName}` : columnTitle
 
   useEffect(() => {
     let cancelled = false
@@ -122,7 +123,7 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
     function onBarDown(event: PointerEvent) {
       if (event.button !== 0) return
       const target = event.target
-      if (target instanceof Element && target.closest('button')) return
+      if (target instanceof Element && target.closest('button, a')) return
       event.preventDefault()
       setMenu(null)
       const startX = event.clientX
@@ -201,7 +202,19 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
       data-formula-window=""
     >
       <div data-formula-drag="" className="flex shrink-0 cursor-grab items-center justify-between gap-2 border-b border-border px-3 py-2 select-none">
-        <h2 className="truncate text-sm font-semibold" title={cell.columnName}>{title}</h2>
+        <h2 className="min-w-0 truncate text-sm font-semibold" title={title}>
+          {columnTitle}
+          {cell.tableName ? (
+            <>
+              {' '}
+              {t('formulaIn')}
+              {' '}
+              {cell.projectId ? (
+                <Link className="underline" to={`/projects/${cell.projectId}/tables/${cell.tableId}`}>{cell.tableName}</Link>
+              ) : cell.tableName}
+            </>
+          ) : null}
+        </h2>
         <Button type="button" variant="ghost" className="h-7 px-2" aria-label={t('close')} onClick={() => useFormulaWindow.getState().close()}>
           <X className="size-4" />
         </Button>

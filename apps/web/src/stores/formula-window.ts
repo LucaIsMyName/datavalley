@@ -2,6 +2,8 @@ import { create } from 'zustand'
 
 export type FormulaCell = {
   tableId: string
+  projectId: string
+  tableName: string
   rowId: string
   columnId: string
   columnName: string
