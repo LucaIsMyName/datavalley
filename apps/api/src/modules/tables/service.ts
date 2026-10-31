@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
-import type { Action } from '@datavalley/shared'
+import { isResourceIcon, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
@@ -72,6 +72,7 @@ export function presentTable(table: typeof tables.$inferSelect) {
     projectId: table.projectId,
     name: table.name,
     description: table.description,
+    icon: table.icon,
     headerConfig: table.headerConfig,
     footerConfig: table.footerConfig,
     formatRules: table.formatRules ?? [],
@@ -187,15 +188,17 @@ export async function updateTable(
   db: AppDatabase,
   subject: Subject,
   tableId: string,
-  input: { name?: string; description?: string; headerConfig?: unknown; footerConfig?: unknown; formatRules?: unknown },
+  input: { name?: string; description?: string; icon?: string; headerConfig?: unknown; footerConfig?: unknown; formatRules?: unknown },
 ) {
   await requireTable(db, subject, tableId, 'manage_structure')
+  if (input.icon !== undefined && !isResourceIcon(input.icon)) throw badRequest('Unknown icon')
   try {
     const [table] = await db
       .update(tables)
       .set({
         name: input.name?.trim(),
         description: input.description,
+        icon: input.icon,
         headerConfig: input.headerConfig as never,
         footerConfig: input.footerConfig as never,
         formatRules: input.formatRules as never,
@@ -431,6 +434,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       projectId: table.projectId,
       name: `${table.name} copy`,
       description: table.description,
+      icon: table.icon,
       headerConfig: table.headerConfig,
       footerConfig: table.footerConfig,
       formatRules: table.formatRules,

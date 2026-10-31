@@ -55,6 +55,7 @@ export type Project = {
   id: string
   name: string
   description: string
+  icon: string
   archivedAt: string | null
   organizationId: string
 }
@@ -86,6 +87,7 @@ export type TableRecord = {
   projectId: string
   name: string
   description: string
+  icon: string
   headerConfig: Record<string, unknown>
   footerConfig: Record<string, unknown>
   formatRules: FormatRule[]

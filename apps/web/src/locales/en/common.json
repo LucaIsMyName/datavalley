@@ -166,6 +166,8 @@
   "scopeCell": "Cell",
   "scopeRow": "Row",
   "icon": "Icon",
+  "menu": "Menu",
+  "breadcrumbs": "Breadcrumbs",
   "resize": "Resize column",
   "footer": "Footer",
   "notes": "Notes",

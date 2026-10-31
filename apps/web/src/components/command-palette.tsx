@@ -164,7 +164,7 @@ function SearchMenu({
             onOpen(false)
             event.currentTarget.blur()
           }}
-          className="h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="h-9 w-full rounded-md border border-border bg-card px-3 text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:text-sm"
         />
         {variant === 'drawer' ? (
           <Button type="button" variant="ghost" onClick={() => onOpen(false)}>
@@ -193,7 +193,7 @@ function SearchMenu({
                   key={hit.id}
                   value={hit.id}
                   onSelect={() => onPick(hit.href)}
-                  className="flex cursor-pointer flex-col rounded px-2 py-2 text-left data-[selected=true]:bg-accent"
+                  className="flex min-h-11 cursor-pointer flex-col justify-center rounded px-2 py-2 text-left data-[selected=true]:bg-accent"
                 >
                   <span className="truncate text-sm">{hit.title}</span>
                   {hit.subtitle ? <span className="truncate text-xs text-muted-foreground">{hit.subtitle}</span> : null}

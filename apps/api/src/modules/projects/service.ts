@@ -1,5 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm'
-import { projectOwnerActions, type Action } from '@datavalley/shared'
+import { isResourceIcon, projectOwnerActions, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { permissionGrants, projectMembers, projects, users } from '../../database/schema.js'
 import { badRequest, notFound } from '../../errors.js'
@@ -13,6 +13,7 @@ function present(project: typeof projects.$inferSelect) {
     id: project.id,
     name: project.name,
     description: project.description,
+    icon: project.icon,
     organizationId: project.organizationId,
     archivedAt: project.archivedAt?.toISOString() ?? null,
     settings: project.settings,
@@ -73,15 +74,17 @@ export async function getProject(db: AppDatabase, subject: Subject, id: string) 
   return present(project)
 }
 
-export async function updateProject(db: AppDatabase, subject: Subject, id: string, input: { name?: string; description?: string; settings?: Record<string, unknown> }) {
+export async function updateProject(db: AppDatabase, subject: Subject, id: string, input: { name?: string; description?: string; settings?: Record<string, unknown>; icon?: string }) {
   await getProject(db, subject, id)
   await assertCan(db, subject, 'edit', { type: 'project', id })
+  if (input.icon !== undefined && !isResourceIcon(input.icon)) throw badRequest('Unknown icon')
   const [project] = await db
     .update(projects)
     .set({
       name: input.name?.trim() || undefined,
       description: input.description,
       settings: input.settings,
+      icon: input.icon,
       updatedAt: new Date(),
     })
     .where(eq(projects.id, id))

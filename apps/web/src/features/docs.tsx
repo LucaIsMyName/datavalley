@@ -6,7 +6,7 @@ export function DocsPage() {
   const { t } = useTranslation('docs')
   return (
     <Page title={t('title')}>
-      <article className="max-w-3xl space-y-8 pb-6 text-sm leading-6">
+      <article className="max-w-3xl space-y-8 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
         <section>
           <h2 className="text-lg font-semibold">{t('projectsTitle')}</h2>
           <p className="mt-2 text-muted-foreground">{t('projectsBody')}</p>

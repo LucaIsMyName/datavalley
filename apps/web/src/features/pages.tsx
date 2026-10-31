@@ -1,18 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import type { FormEvent } from 'react'
+import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, NavLink, Navigate, Outlet, useLocation, useMatch, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiClientError, type Project, type TableRecord, type User } from '@datavalley/api-client'
+import { IconButton } from '../components/icon-button'
+import { QuietInput } from '../components/quiet-input'
+import { ResourceIcon } from '../components/resource-icon'
+import { pressMenuProps, useContextMenu } from '../components/context-menu'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '../components/ui/select'
 import { ConfirmDialog, PromptDialog } from '../components/confirm-dialog'
-import { useContextMenu } from '../components/context-menu'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states'
+import { patchCachedTable } from './tables/cache'
+import { pushCommand } from './tables/history'
 import { TableScreen } from './tables/grid'
+import { openRegisteredTableMenu } from './tables/table-menu'
 import { api } from '../lib/api'
 import { sync } from '../lib/sync'
 import { applyTheme, useSession } from '../stores/session'
@@ -50,7 +57,7 @@ export function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center p-6">
+    <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('login')}</h1>
         <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
@@ -78,7 +85,7 @@ export function ChangePasswordPage() {
   const navigate = useNavigate()
   const [error, setError] = useState('')
   return (
-    <main className="grid min-h-screen place-items-center p-6">
+    <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('changePassword')}</h1>
         <form
@@ -116,7 +123,7 @@ export function ForgotPasswordPage() {
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
   return (
-    <main className="grid min-h-screen place-items-center p-6">
+    <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('forgotPassword')}</h1>
         <form
@@ -155,7 +162,7 @@ export function ResetPasswordPage() {
   const token = params.get('token') ?? ''
   const [error, setError] = useState(token ? '' : t('invalidResetLink'))
   return (
-    <main className="grid min-h-screen place-items-center p-6">
+    <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('resetPassword')}</h1>
         <form
@@ -186,29 +193,63 @@ export function ResetPasswordPage() {
   )
 }
 
+type SavedHit = { resourceType: string; resourceId: string; title: string; icon: string; href: string }
+
+function SavedRows({ items, empty }: { items: SavedHit[]; empty: string }) {
+  if (items.length === 0) return <p className="mt-2 text-sm text-muted-foreground">{empty}</p>
+  return (
+    <ul className="mt-2 max-h-80 overflow-auto">
+      {items.map((item) => (
+        <li key={`${item.resourceType}:${item.resourceId}`} className="border-t border-border">
+          <Link to={item.href} className="flex min-h-11 items-center gap-2 text-sm">
+            <ResourceIcon name={item.icon} />
+            <span className="truncate">{item.title}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function DashboardPage() {
   const { t } = useTranslation()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.request<{ projects: Project[] }>('/projects') })
-  const recents = useQuery({ queryKey: ['recents'], queryFn: () => api.request<{ recents: { resourceId: string; resourceType: string }[] }>('/recents') })
-  const favorites = useQuery({ queryKey: ['favorites'], queryFn: () => api.request<{ favorites: { resourceId: string; resourceType: string }[] }>('/favorites') })
+  const recents = useQuery({ queryKey: ['recents'], queryFn: () => api.request<{ recents: SavedHit[] }>('/recents') })
+  const favorites = useQuery({ queryKey: ['favorites'], queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites') })
   if (projects.isLoading || recents.isLoading || favorites.isLoading) return <Page title={t('dashboard')}><LoadingBlock /></Page>
   if (projects.isError) return <Page title={t('dashboard')}><ErrorState message={(projects.error as Error).message} /></Page>
+  const projectRows = projects.data?.projects ?? []
   return (
     <Page title={t('dashboard')}>
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="min-h-40 p-4">
+        <Card className="flex min-h-40 flex-col p-4">
           <h2 className="font-medium">{t('projects')}</h2>
-          {(projects.data?.projects ?? []).slice(0, 5).map((project) => (
-            <Link key={project.id} className="mt-2 block text-sm hover:underline" to={`/projects/${project.id}`}>{project.name}</Link>
-          ))}
+          {projectRows.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">{t('emptyProjects')}</p> : (
+            <div className="mt-2 max-h-80 overflow-auto">
+              <table className="w-full text-sm">
+                <tbody>
+                  {projectRows.map((project) => (
+                    <tr key={project.id} className="border-t border-border">
+                      <td>
+                        <Link to={`/projects/${project.id}`} className="flex min-h-11 items-center gap-2">
+                          <ResourceIcon name={project.icon} />
+                          <span className="truncate">{project.name}</span>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
         <Card className="min-h-40 p-4">
           <h2 className="font-medium">{t('recent')}</h2>
-          {(recents.data?.recents ?? []).length === 0 ? <p className="mt-2 text-sm text-muted-foreground">{t('recentEmpty')}</p> : recents.data?.recents.map((item) => <p key={item.resourceId} className="mt-2 text-sm">{item.resourceType}</p>)}
+          <SavedRows items={recents.data?.recents ?? []} empty={t('recentEmpty')} />
         </Card>
         <Card className="min-h-40 p-4">
           <h2 className="font-medium">{t('favorites')}</h2>
-          {(favorites.data?.favorites ?? []).length === 0 ? <p className="mt-2 text-sm text-muted-foreground">{t('favoritesEmpty')}</p> : favorites.data?.favorites.map((item) => <p key={item.resourceId} className="mt-2 text-sm">{item.resourceType}</p>)}
+          <SavedRows items={favorites.data?.favorites ?? []} empty={t('favoritesEmpty')} />
         </Card>
       </div>
     </Page>
@@ -255,7 +296,10 @@ export function ProjectsPage() {
               { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(project) },
             ])}
           >
-            <Card className="min-h-24 p-4 hover:bg-accent">{project.name}</Card>
+            <Card className="flex min-h-24 items-center gap-2 p-4 hover:bg-accent">
+              <ResourceIcon name={project.icon} />
+              <span className="truncate">{project.name}</span>
+            </Card>
           </Link>
         ))}
       </div>
@@ -376,64 +420,243 @@ function ProjectDescription({ projectId, value }: { projectId: string; value: st
   )
 }
 
+function rememberTableName(queryClient: ReturnType<typeof useQueryClient>, projectId: string, tableId: string, name: string) {
+  queryClient.setQueryData(['tables', projectId], (current: { tables: TableRecord[] } | undefined) => {
+    if (!current) return current
+    return { tables: current.tables.map((table) => (table.id === tableId ? { ...table, name } : table)) }
+  })
+  patchCachedTable(queryClient, tableId, (current) => ({ ...current, name }))
+}
+
 export function ProjectPage() {
   const { projectId = '' } = useParams()
+  const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
+  const tableId = tableMatch?.params.tableId ?? ''
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const openMenu = useContextMenu()
   const queryClient = useQueryClient()
-  const [rename, setRename] = useState<TableRecord | null>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const pressTimer = useRef(0)
+  const pressOrigin = useRef({ x: 0, y: 0 })
+  const [membersOpen, setMembersOpen] = useState(false)
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
   const tables = useQuery({ queryKey: ['tables', projectId], queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`) })
-  const members = useQuery({ queryKey: ['members', projectId], queryFn: () => api.request<{ members: { userId: string; username: string }[] }>(`/projects/${projectId}/members`) })
+  const members = useQuery({ queryKey: ['members', projectId], enabled: membersOpen, queryFn: () => api.request<{ members: { userId: string; username: string }[] }>(`/projects/${projectId}/members`) })
+  const record = project.data?.project
+  const tableRows = tables.data?.tables ?? []
+  const active = tableRows.find((table) => table.id === tableId)
+
+  useEffect(() => {
+    const state = location.state as { focusName?: boolean } | null
+    if (!state?.focusName || !active) return
+    nameRef.current?.select()
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [active, location.pathname, location.search, location.state, navigate])
+
   if (project.isLoading || tables.isLoading) return <Page title={t('projects')}><LoadingBlock /></Page>
   if (project.isError) return <Page title={t('projects')}><ErrorState message={(project.error as Error).message} /></Page>
+  if (!tableId && tableRows.length > 0) return <Navigate to={`/projects/${projectId}/tables/${tableRows[0].id}`} replace />
+
+  function scheduleProjectName(next: string) {
+    const before = record?.name ?? ''
+    sync.edit(`project:${projectId}:name`, {
+      draft: next,
+      delay: 300,
+      apply: () => undefined,
+      commit: async (draft) => {
+        const trimmed = draft.trim()
+        if (!trimmed || trimmed === before) return record ?? { id: projectId, name: before, description: '', icon: 'FolderKanban', archivedAt: null, organizationId: '' }
+        const result = await api.request<{ project: Project }>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify({ name: trimmed }) })
+        return result.project
+      },
+      accept: (saved) => {
+        queryClient.setQueryData(['project', projectId], { project: saved })
+        void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      },
+      rollback: () => {
+        queryClient.setQueryData(['project', projectId], project.data)
+      },
+    })
+  }
+
+  function scheduleTableName(table: TableRecord, next: string) {
+    const before = table.name
+    sync.edit(`table:${table.id}:name`, {
+      draft: next,
+      delay: 300,
+      apply: () => undefined,
+      commit: async (draft) => {
+        const trimmed = draft.trim()
+        if (!trimmed || trimmed === before) return { name: before }
+        await api.request(`/tables/${table.id}`, { method: 'PATCH', body: JSON.stringify({ name: trimmed }) })
+        return { name: trimmed }
+      },
+      accept: (saved) => {
+        rememberTableName(queryClient, projectId, table.id, saved.name)
+        if (saved.name !== before) pushCommand(table.id, { kind: 'table-renamed', before, after: saved.name })
+      },
+      rollback: () => rememberTableName(queryClient, projectId, table.id, before),
+    })
+  }
+
+  async function saveIcon(kind: 'project' | 'table', id: string, icon: string) {
+    if (kind === 'project') {
+      const result = await api.request<{ project: Project }>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ icon }) })
+      queryClient.setQueryData(['project', projectId], result)
+      void queryClient.invalidateQueries({ queryKey: ['projects'] })
+      return
+    }
+    const result = await api.request<{ table: TableRecord }>(`/tables/${id}`, { method: 'PATCH', body: JSON.stringify({ icon }) })
+    queryClient.setQueryData(['tables', projectId], (current: { tables: TableRecord[] } | undefined) => {
+      if (!current) return current
+      return { tables: current.tables.map((table) => (table.id === id ? { ...table, icon: result.table.icon } : table)) }
+    })
+    patchCachedTable(queryClient, id, (current) => ({ ...current, icon: result.table.icon }))
+  }
+
+  const favoriteProject = [
+    {
+      id: 'favorite',
+      label: t('favorites'),
+      onSelect: () => {
+        void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'project', resourceId: projectId }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
+      },
+    },
+  ]
+
   return (
-    <Page
-      title={project.data?.project.name ?? t('projects')}
-      actions={
-        <Button
-          type="button"
-          onClick={async () => {
-            const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
-            await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
-            navigate(`/projects/${projectId}/tables/${created.table.id}`, { state: { focusName: true } })
-          }}
-        >
-          {t('newTable')}
-        </Button>
-      }
-    >
-      <ProjectDescription projectId={projectId} value={project.data?.project.description ?? ''} />
-      {tables.data?.tables.length === 0 ? <EmptyState title={t('emptyTables')} body={t('emptyTablesBody')} /> : null}
-      <div className="grid gap-3 md:grid-cols-2">
-        {tables.data?.tables.map((table) => (
-          <Link
-            key={table.id}
-            to={`/projects/${projectId}/tables/${table.id}`}
-            onContextMenu={(event) => openMenu(event, [
-              { id: 'open', label: t('open'), onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
-              { id: 'rename', label: t('rename'), onSelect: () => setRename(table) },
-              { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(table) },
-            ])}
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-col gap-3 px-4 pt-4 md:px-6 md:pt-6">
+        <div className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            className="flex min-w-0 flex-1 items-center gap-2"
+            {...pressMenuProps(openMenu, pressTimer, pressOrigin, favoriteProject)}
           >
-            <Card className="min-h-20 p-4 hover:bg-accent">{table.name}</Card>
-          </Link>
-        ))}
+            <IconButton name={record?.icon ?? 'FolderKanban'} onChange={(icon) => void saveIcon('project', projectId, icon)} />
+            <h1 aria-label={record?.name ?? t('projects')} className="min-w-0 flex-1">
+              <QuietInput
+                label={t('name')}
+                className="h-8 w-full min-w-0 bg-transparent text-xl font-semibold outline-none"
+                value={record?.name ?? ''}
+                onDraft={scheduleProjectName}
+                onFlush={() => void sync.flush(`project:${projectId}:name`)}
+                onCancel={() => sync.cancel(`project:${projectId}:name`)}
+              />
+            </h1>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => setMembersOpen(true)}>{t('members')}</Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
+                await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
+                navigate(`/projects/${projectId}/tables/${created.table.id}`, { state: { focusName: true } })
+              }}
+            >
+              {t('newTable')}
+            </Button>
+          </div>
+        </div>
+        <ProjectDescription projectId={projectId} value={record?.description ?? ''} />
+        <div className="flex h-11 items-end gap-1 overflow-x-auto">
+          {tableRows.map((table) => {
+            const current = table.id === tableId
+            const items = [
+              { id: 'open', label: t('open'), onSelect: () => navigate(`/projects/${projectId}/tables/${table.id}`) },
+              {
+                id: 'favorite',
+                label: t('favorites'),
+                onSelect: () => {
+                  void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'table', resourceId: table.id }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
+                },
+              },
+              { id: 'delete', label: t('delete'), danger: true, onSelect: () => setRemove(table) },
+            ]
+            return (
+              <div
+                key={table.id}
+                className={`flex h-10 shrink-0 items-center gap-1 rounded-t-md border border-b-0 px-2 ${current ? 'border-border bg-card' : 'border-transparent'}`}
+                {...(current
+                  ? {
+                      onContextMenu: (event: ReactMouseEvent) => openRegisteredTableMenu(event),
+                      onPointerDown: (event: ReactPointerEvent) => {
+                        if (event.pointerType === 'mouse') return
+                        const point = { x: event.clientX, y: event.clientY }
+                        pressOrigin.current = point
+                        window.clearTimeout(pressTimer.current)
+                        pressTimer.current = window.setTimeout(() => {
+                          openRegisteredTableMenu({ preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent)
+                        }, 500)
+                      },
+                      onPointerMove: (event: ReactPointerEvent) => {
+                        if (Math.hypot(event.clientX - pressOrigin.current.x, event.clientY - pressOrigin.current.y) > 10) {
+                          window.clearTimeout(pressTimer.current)
+                        }
+                      },
+                      onPointerUp: () => window.clearTimeout(pressTimer.current),
+                      onPointerCancel: () => window.clearTimeout(pressTimer.current),
+                    }
+                  : pressMenuProps(openMenu, pressTimer, pressOrigin, items))}
+              >
+                <IconButton name={table.icon} onChange={(icon) => void saveIcon('table', table.id, icon)} />
+                {current ? (
+                  <QuietInput
+                    inputRef={nameRef}
+                    label={t('tableName')}
+                    className="h-8 w-36 max-w-48 bg-transparent text-sm font-medium outline-none"
+                    value={table.name}
+                    onDraft={(next) => scheduleTableName(table, next)}
+                    onFlush={() => void sync.flush(`table:${table.id}:name`)}
+                    onCancel={() => sync.cancel(`table:${table.id}:name`)}
+                  />
+                ) : (
+                  <Link to={`/projects/${projectId}/tables/${table.id}`} className="max-w-48 truncate text-sm">
+                    {table.name}
+                  </Link>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {tableRows.length === 0 ? (
+          <div className="p-4 md:p-6">
+            <EmptyState title={t('emptyTables')} body={t('emptyTablesBody')} />
+          </div>
+        ) : (
+          <Outlet />
+        )}
       </div>
-      <PromptDialog
-        open={Boolean(rename)}
-        title={t('rename')}
-        label={t('name')}
-        value={rename?.name ?? ''}
-        onClose={() => setRename(null)}
-        onSubmit={(next) => {
-          if (!rename) return
-          void api.request(`/tables/${rename.id}`, { method: 'PATCH', body: JSON.stringify({ name: next }) }).then(() => queryClient.invalidateQueries({ queryKey: ['tables', projectId] }))
-          setRename(null)
-        }}
-      />
+      <Dialog.Root open={membersOpen} onOpenChange={setMembersOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-card p-4 shadow-md">
+            <Dialog.Title className="text-base font-semibold">{t('members')}</Dialog.Title>
+            <ul className="mt-3 min-h-8 text-sm">
+              {members.data?.members.map((member) => <li key={member.userId} className="min-h-9 py-1">{member.username}</li>)}
+            </ul>
+            <form
+              className="mt-3 flex flex-col gap-2 sm:flex-row"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                const form = event.currentTarget
+                const data = new FormData(form)
+                await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username: data.get('username') }) })
+                await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
+                form.reset()
+              }}
+            >
+              <Input name="username" placeholder={t('username')} required />
+              <Button type="submit" variant="outline">{t('addMember')}</Button>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <ConfirmDialog
         open={Boolean(remove)}
         title={t('deleteTableTitle')}
@@ -443,31 +666,15 @@ export function ProjectPage() {
         onClose={() => setRemove(null)}
         onConfirm={() => {
           if (!remove) return
-          void api.request(`/tables/${remove.id}`, { method: 'DELETE' }).then(() => queryClient.invalidateQueries({ queryKey: ['tables', projectId] }))
+          const next = tableRows.find((table) => table.id !== remove.id)
+          void api.request(`/tables/${remove.id}`, { method: 'DELETE' }).then(async () => {
+            await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
+            if (remove.id === tableId) navigate(next ? `/projects/${projectId}/tables/${next.id}` : `/projects/${projectId}`)
+          })
           setRemove(null)
         }}
       />
-      <Card className="p-4">
-        <h2 className="font-medium">{t('members')}</h2>
-        <ul className="mt-2 min-h-8 text-sm">
-          {members.data?.members.map((member) => <li key={member.userId}>{member.username}</li>)}
-        </ul>
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            const form = event.currentTarget
-            const data = new FormData(form)
-            await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username: data.get('username') }) })
-            await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
-            form.reset()
-          }}
-        >
-          <Input name="username" placeholder={t('username')} className="max-w-xs" required />
-          <Button type="submit" variant="outline">{t('addMember')}</Button>
-        </form>
-      </Card>
-    </Page>
+    </section>
   )
 }
 
@@ -478,14 +685,21 @@ export function TablePage() {
 
 export function RecentPage() {
   const { t } = useTranslation()
-  const recents = useQuery({ queryKey: ['recents'], queryFn: () => api.request<{ recents: { id: string; resourceType: string; resourceId: string }[] }>('/recents') })
+  const recents = useQuery({ queryKey: ['recents'], queryFn: () => api.request<{ recents: SavedHit[] }>('/recents') })
   return (
     <Page title={t('recent')}>
       {recents.isLoading ? <LoadingBlock /> : null}
-      {recents.data?.recents.length === 0 ? <EmptyState title={t('recentEmpty')} body={t('recentEmpty')} /> : null}
+      {(recents.data?.recents.length ?? 0) === 0 && !recents.isLoading ? <EmptyState title={t('recentEmpty')} body={t('recentEmpty')} /> : null}
       <ul className="flex flex-col gap-2">
         {recents.data?.recents.map((item) => (
-          <li key={item.id}><Card className="p-3 text-sm">{item.resourceType}</Card></li>
+          <li key={`${item.resourceType}:${item.resourceId}`}>
+            <Link to={item.href}>
+              <Card className="flex min-h-11 items-center gap-2 p-3 text-sm">
+                <ResourceIcon name={item.icon} />
+                <span className="truncate">{item.title}</span>
+              </Card>
+            </Link>
+          </li>
         ))}
       </ul>
     </Page>
@@ -494,14 +708,21 @@ export function RecentPage() {
 
 export function FavoritesPage() {
   const { t } = useTranslation()
-  const favorites = useQuery({ queryKey: ['favorites'], queryFn: () => api.request<{ favorites: { resourceType: string; resourceId: string }[] }>('/favorites') })
+  const favorites = useQuery({ queryKey: ['favorites'], queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites') })
   return (
     <Page title={t('favorites')}>
       {favorites.isLoading ? <LoadingBlock /> : null}
-      {favorites.data?.favorites.length === 0 ? <EmptyState title={t('favoritesEmpty')} body={t('favoritesEmpty')} /> : null}
+      {(favorites.data?.favorites.length ?? 0) === 0 && !favorites.isLoading ? <EmptyState title={t('favoritesEmpty')} body={t('favoritesEmpty')} /> : null}
       <ul className="flex flex-col gap-2">
         {favorites.data?.favorites.map((item) => (
-          <li key={item.resourceId}><Card className="p-3 text-sm">{item.resourceType}</Card></li>
+          <li key={`${item.resourceType}:${item.resourceId}`}>
+            <Link to={item.href}>
+              <Card className="flex min-h-11 items-center gap-2 p-3 text-sm">
+                <ResourceIcon name={item.icon} />
+                <span className="truncate">{item.title}</span>
+              </Card>
+            </Link>
+          </li>
         ))}
       </ul>
     </Page>
@@ -517,7 +738,7 @@ export function IntegrationsPage() {
       {plugins.isError ? <ErrorState message={(plugins.error as Error).message} /> : null}
       <div className="grid gap-3 md:grid-cols-2">
         {plugins.data?.plugins.map((plugin) => (
-          <Card key={plugin.id} className="flex min-h-24 items-center justify-between p-4">
+          <Card key={plugin.id} className="flex min-h-24 flex-col items-start justify-between gap-3 p-4 sm:flex-row sm:items-center">
             <div>
               <p className="font-medium">{plugin.name}</p>
               <p className="text-sm text-muted-foreground">{plugin.enabled ? t('enabled') : t('disabled')}</p>
@@ -538,48 +759,50 @@ export function IntegrationsPage() {
 export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [role, setRole] = useState('user')
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.request<{ users: User[] }>('/users') })
   return (
-    <Page
-      title={t('users')}
-      actions={
-        <form
-          className="flex flex-wrap gap-2"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            const form = event.currentTarget
-            const data = new FormData(form)
-            await api.request('/users', {
-              method: 'POST',
-              body: JSON.stringify({
-                username: data.get('username'),
-                email: data.get('email'),
-                password: data.get('password'),
-                role: data.get('role'),
-              }),
-            })
-            await queryClient.invalidateQueries({ queryKey: ['users'] })
-            form.reset()
-          }}
-        >
-          <Input name="username" required placeholder={t('username')} className="w-32" />
-          <Input name="email" type="email" required placeholder={t('email')} className="w-44" />
-          <Input name="password" type="password" required minLength={12} placeholder={t('password')} className="w-40" />
-          <select name="role" className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('role')}>
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
-          <Button type="submit">{t('create')}</Button>
-        </form>
-      }
-    >
+    <Page title={t('users')}>
+      <form
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
+        onSubmit={async (event) => {
+          event.preventDefault()
+          const form = event.currentTarget
+          const data = new FormData(form)
+          await api.request('/users', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: data.get('username'),
+              email: data.get('email'),
+              password: data.get('password'),
+              role,
+            }),
+          })
+          await queryClient.invalidateQueries({ queryKey: ['users'] })
+          form.reset()
+          setRole('user')
+        }}
+      >
+        <Input name="username" required placeholder={t('username')} className="sm:w-32" />
+        <Input name="email" type="email" required placeholder={t('email')} className="sm:w-44" />
+        <Input name="password" type="password" required minLength={12} placeholder={t('password')} className="sm:w-40" />
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger aria-label={t('role')} className="sm:w-32">
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="user">user</SelectItem>
+            <SelectItem value="admin">admin</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button type="submit">{t('create')}</Button>
+      </form>
       {users.isLoading ? <LoadingBlock /> : null}
       {users.isError ? <ErrorState message={(users.error as Error).message} /> : null}
       <div className="overflow-hidden rounded-md border border-border">
         {users.data?.users.map((user) => (
-          <div key={user.id} className="flex min-h-12 items-center justify-between border-b border-border px-3 text-sm last:border-b-0">
-            <span>{user.username} · {user.email}</span>
-            <span className="text-muted-foreground">{user.role}</span>
+          <div key={user.id} className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3 text-sm last:border-b-0">
+            <span className="min-w-0 truncate">{user.username} · {user.email}</span>
+            <span className="shrink-0 text-muted-foreground">{user.role}</span>
           </div>
         ))}
       </div>
@@ -594,7 +817,7 @@ export function ApiKeysPage() {
   return (
     <Page title={t('apiKeys')}>
       <form
-        className="flex gap-2"
+        className="flex flex-col gap-2 sm:flex-row"
         onSubmit={async (event) => {
           event.preventDefault()
           const data = new FormData(event.currentTarget)
@@ -606,10 +829,10 @@ export function ApiKeysPage() {
         <Input name="name" required placeholder={t('name')} className="max-w-xs" />
         <Button type="submit">{t('createKey')}</Button>
       </form>
-      {created ? <Card className="p-3 text-sm">{t('keyOnce')}<p className="mt-2 font-mono">{created}</p></Card> : null}
+      {created ? <Card className="p-3 text-sm">{t('keyOnce')}<p className="mt-2 font-mono break-all">{created}</p></Card> : null}
       {keys.isLoading ? <LoadingBlock /> : null}
       {keys.data?.apiKeys.map((key) => (
-        <Card key={key.id} className="flex items-center justify-between p-3 text-sm">
+        <Card key={key.id} className="flex flex-col items-start justify-between gap-2 p-3 text-sm sm:flex-row sm:items-center">
           <span>{key.name} · {key.prefix}</span>
           <Button variant="outline" onClick={() => api.request(`/api-keys/${key.id}`, { method: 'DELETE' }).then(() => keys.refetch())}>{t('revoke')}</Button>
         </Card>
@@ -627,7 +850,7 @@ export function AuditPage() {
       {audit.isError ? <ErrorState message={(audit.error as Error).message} /> : null}
       <div className="rounded-md border border-border">
         {audit.data?.entries.map((entry) => (
-          <div key={entry.id} className="flex min-h-10 items-center justify-between border-b border-border px-3 text-sm last:border-b-0">
+          <div key={entry.id} className="flex min-h-10 flex-col gap-1 border-b border-border px-3 py-2 text-sm last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
             <span>{entry.action}</span>
             <span className="text-muted-foreground">{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.createdAt))}</span>
           </div>
@@ -637,50 +860,86 @@ export function AuditPage() {
   )
 }
 
-export function ProfilePage() {
+function ProfileForm({ user }: { user: User }) {
   const { t, i18n } = useTranslation()
-  const user = useSession((state) => state.user)
   const setUser = useSession((state) => state.setUser)
-  if (!user) return <Page title={t('profile')}><LoadingBlock /></Page>
+  const [locale, setLocale] = useState(user.locale)
+  const [theme, setTheme] = useState(user.theme)
+  const [timezone, setTimezone] = useState(user.timezone)
+
+  async function save(next: { locale: string; theme: 'light' | 'dark' | 'system'; timezone: string }) {
+    const result = await api.request<{ user: User }>(`/users/${user.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(next),
+    })
+    setUser(result.user)
+    await i18n.changeLanguage(next.locale)
+    localStorage.setItem('locale', next.locale)
+    applyTheme(next.theme)
+  }
+
   return (
     <Page title={t('profile')}>
-      <nav className="flex min-h-9 gap-2 text-sm">
+      <nav className="flex min-h-9 flex-wrap gap-2 text-sm">
         <NavLink to="/settings/users" className="rounded-md px-2 py-1 hover:bg-accent">{t('users')}</NavLink>
         <NavLink to="/settings/api-keys" className="rounded-md px-2 py-1 hover:bg-accent">{t('apiKeys')}</NavLink>
         <NavLink to="/settings/audit" className="rounded-md px-2 py-1 hover:bg-accent">{t('audit')}</NavLink>
       </nav>
-      <form
-        className="grid max-w-md gap-3"
-        onSubmit={async (event) => {
-          event.preventDefault()
-          const data = new FormData(event.currentTarget)
-          const locale = String(data.get('locale'))
-          const theme = String(data.get('theme')) as 'light' | 'dark' | 'system'
-          const result = await api.request<{ user: User }>(`/users/${user.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ locale, timezone: data.get('timezone'), theme }),
-          })
-          setUser(result.user)
-          await i18n.changeLanguage(locale)
-          localStorage.setItem('locale', locale)
-          applyTheme(theme)
-        }}
-      >
+      <div className="grid max-w-md gap-3">
         <Label htmlFor="locale">{t('language')}</Label>
-        <select id="locale" name="locale" defaultValue={user.locale} className="h-9 rounded-md border border-border bg-card px-2 text-sm">
-          <option value="en">English</option>
-          <option value="de">Deutsch</option>
-        </select>
+        <Select
+          value={locale}
+          onValueChange={(value) => {
+            setLocale(value)
+            void save({ locale: value, theme: theme as 'light' | 'dark' | 'system', timezone })
+          }}
+        >
+          <SelectTrigger id="locale" aria-label={t('language')}>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">English</SelectItem>
+            <SelectItem value="de">Deutsch</SelectItem>
+          </SelectContent>
+        </Select>
         <Label htmlFor="theme">{t('theme')}</Label>
-        <select id="theme" name="theme" defaultValue={user.theme} className="h-9 rounded-md border border-border bg-card px-2 text-sm">
-          <option value="system">{t('system')}</option>
-          <option value="light">{t('light')}</option>
-          <option value="dark">{t('dark')}</option>
-        </select>
+        <Select
+          value={theme}
+          onValueChange={(value) => {
+            const next = value as 'light' | 'dark' | 'system'
+            setTheme(next)
+            void save({ locale, theme: next, timezone })
+          }}
+        >
+          <SelectTrigger id="theme" aria-label={t('theme')}>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="system">{t('system')}</SelectItem>
+            <SelectItem value="light">{t('light')}</SelectItem>
+            <SelectItem value="dark">{t('dark')}</SelectItem>
+          </SelectContent>
+        </Select>
         <Label htmlFor="timezone">Timezone</Label>
-        <Input id="timezone" name="timezone" defaultValue={user.timezone} />
-        <Button type="submit">{t('save')}</Button>
-      </form>
+        <Input
+          id="timezone"
+          value={timezone}
+          onChange={(event) => {
+            const next = event.target.value
+            setTimezone(next)
+            sync.edit(`user:${user.id}:timezone`, {
+              draft: next,
+              delay: 300,
+              apply: () => undefined,
+              commit: async (draft) => {
+                await save({ locale, theme: theme as 'light' | 'dark' | 'system', timezone: draft })
+                return draft
+              },
+              accept: () => undefined,
+              rollback: () => setTimezone(user.timezone),
+            })
+          }}
+          onBlur={() => void sync.flush(`user:${user.id}:timezone`)}
+        />
+      </div>
       <Card className="max-w-md p-4">
         <h2 className="font-medium">{t('totp')}</h2>
         <Button
@@ -696,4 +955,11 @@ export function ProfilePage() {
       </Card>
     </Page>
   )
+}
+
+export function ProfilePage() {
+  const { t } = useTranslation()
+  const user = useSession((state) => state.user)
+  if (!user) return <Page title={t('profile')}><LoadingBlock /></Page>
+  return <ProfileForm user={user} />
 }

@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { Button } from '../../components/ui/button'
+import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import { useFormulaWindow, type FormulaCell } from '../../stores/formula-window'
 import { FormulaEditor, type FormulaEditorHandle } from './formula-editor'
@@ -279,13 +280,14 @@ function BadgeMenu({
   const menuRef = useRef<HTMLDivElement>(null)
   const parts = span.body.split('->').map((part) => part.trim())
   const [mode, setMode] = useState<BracketKind>(classifyBracket(span.body, catalog))
-  const width = 288
+  const width = Math.min(288, window.innerWidth - 16)
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
   const top = rect.bottom + 286 > window.innerHeight ? Math.max(8, rect.top - 280) : rect.bottom + 6
 
   useEffect(() => {
     function onPointerDown(event: PointerEvent) {
       const target = event.target
+      if (target instanceof Element && target.closest('[role="listbox"], [data-radix-popper-content-wrapper]')) return
       if (target instanceof Node && menuRef.current?.contains(target)) return
       onClose()
     }
@@ -307,7 +309,7 @@ function BadgeMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[80] flex max-h-72 w-72 flex-col gap-2 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-md"
+      className="fixed z-[80] flex max-h-72 w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-md"
       style={{ left, top }}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -362,12 +364,8 @@ function CellList({ catalog, tableName, columnName, onReplace }: { catalog: Form
   const field = fields.find((item) => item.columnName === fieldName) ?? fields[0]
   return (
     <div className="flex flex-col gap-2">
-      <select className={fieldClass} aria-label={t('targetTable')} value={tableId} onChange={(event) => { setTableId(event.target.value); setFieldName('') }}>
-        {tables.map((item) => <option key={item.tableId} value={item.tableId}>{item.tableName}</option>)}
-      </select>
-      <select className={fieldClass} aria-label={t('formulaField')} value={field?.columnName ?? ''} onChange={(event) => setFieldName(event.target.value)}>
-        {fields.map((item) => <option key={item.columnId} value={item.columnName}>{item.columnName}</option>)}
-      </select>
+      <SelectField label={t('targetTable')} value={tableId} onValueChange={(value) => { setTableId(value); setFieldName('') }} options={tables.map((item) => ({ value: item.tableId, label: item.tableName }))} />
+      <SelectField label={t('formulaField')} value={field?.columnName ?? ''} onValueChange={setFieldName} options={fields.map((item) => ({ value: item.columnName, label: item.columnName }))} />
       {table && field ? <RowSearch tableId={table.tableId} onPick={(row) => onReplace(cellReference(table.tableName, field.columnName, row.rowNumber))} /> : null}
     </div>
   )
@@ -380,9 +378,7 @@ function RelationList({ catalog, relationName, onReplace }: { catalog: FormulaCa
   if (!relation) return <p className="text-sm text-muted-foreground">{t('formulaNoRelations')}</p>
   return (
     <div className="flex flex-col gap-2">
-      <select className={fieldClass} aria-label={t('formulaRelation')} value={relation.name} onChange={(event) => setName(event.target.value)}>
-        {catalog.relations.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-      </select>
+      <SelectField label={t('formulaRelation')} value={relation.name} onValueChange={setName} options={catalog.relations.map((item) => ({ value: item.name, label: item.name }))} />
       <ul className="overflow-y-auto rounded-md border border-border">
         {relation.columns.map((column) => <li key={column.name}>{choiceButton(column.name, () => onReplace(relationReference(relation.name, column.name)))}</li>)}
       </ul>
@@ -398,9 +394,7 @@ function ColumnList({ catalog, tableName, onReplace }: { catalog: FormulaCatalog
   const fields = catalog.columns.filter((column) => column.tableId === tableId)
   return (
     <div className="flex flex-col gap-2">
-      <select className={fieldClass} aria-label={t('targetTable')} value={tableId} onChange={(event) => setTableId(event.target.value)}>
-        {tables.map((item) => <option key={item.tableId} value={item.tableId}>{item.tableName}</option>)}
-      </select>
+      <SelectField label={t('targetTable')} value={tableId} onValueChange={setTableId} options={tables.map((item) => ({ value: item.tableId, label: item.tableName }))} />
       {table ? (
         <ul className="overflow-y-auto rounded-md border border-border">
           {fields.map((column) => <li key={column.columnId}>{choiceButton(column.columnName, () => onReplace(columnReference(table.tableName, column.columnName)))}</li>)}

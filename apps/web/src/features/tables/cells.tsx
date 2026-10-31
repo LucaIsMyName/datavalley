@@ -4,6 +4,7 @@ import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { Badge } from '../../components/ui/badge'
+import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 
@@ -403,28 +404,24 @@ function StatusEditor({ tableId, column, row, statuses, onEdit, onFlush, onCreat
   const [name, setName] = useState('')
   return (
     <div className="flex h-full items-center gap-1">
-      <select
-        autoFocus
-        aria-label={`Edit ${column.name}`}
-        className="h-7 bg-transparent outline-none"
+      <SelectField
+        label={`Edit ${column.name}`}
+        className="h-7 border-0 bg-transparent px-0"
         value={typeof row.cells[column.id] === 'string' ? String(row.cells[column.id]) : ''}
-        onChange={(event) => { onEdit(event.target.value, 0); onFlush() }}
-      >
-        <option value="" />
-        {statuses.map((status) => <option key={status.id} value={status.id}>{status.name}</option>)}
-      </select>
+        onValueChange={(value) => { onEdit(value, 0); onFlush() }}
+        options={[{ value: '', label: '\u00a0' }, ...statuses.map((status) => ({ value: status.id, label: status.name }))]}
+      />
       {statuses.filter((status) => status.id === row.cells[column.id]).map((status) => (
-        <select
+        <SelectField
           key={status.id}
-          aria-label={`${status.name} color`}
-          className="h-6 bg-transparent text-xs outline-none"
+          label={`${status.name} color`}
+          className="h-6 w-24 border-0 bg-transparent px-0 text-xs"
           value={palette.includes(status.color) ? status.color : 'slate'}
-          onChange={(event) => {
-            void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${status.id}`, { method: 'PATCH', body: JSON.stringify({ color: event.target.value }) }).then((result) => onCreated('status', { ...result.status, tableId }))
+          onValueChange={(color) => {
+            void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${status.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => onCreated('status', { ...result.status, tableId }))
           }}
-        >
-          {palette.map((color) => <option key={color} value={color}>{color}</option>)}
-        </select>
+          options={palette.map((color) => ({ value: color, label: color }))}
+        />
       ))}
       <input
         aria-label="New status"
@@ -449,19 +446,22 @@ function StatusEditor({ tableId, column, row, statuses, onEdit, onFlush, onCreat
 function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column; row: RowRecord; members: { userId: string; username: string }[]; onEdit: (value: string[], delay?: number) => void; onFlush: () => void }) {
   const selected = Array.isArray(row.cells[column.id]) ? (row.cells[column.id] as string[]) : []
   return (
-    <select
-      autoFocus
-      aria-label={`Edit ${column.name}`}
-      className="h-7 w-full bg-transparent outline-none"
+    <SelectField
+      label={`Edit ${column.name}`}
+      className="h-7 border-0 bg-transparent px-0"
       value=""
-      onChange={(event) => {
-        if (!event.target.value) return
-        onEdit(selected.includes(event.target.value) ? selected.filter((id) => id !== event.target.value) : [...selected, event.target.value], 0)
+      onValueChange={(value) => {
+        if (!value) return
+        onEdit(selected.includes(value) ? selected.filter((id) => id !== value) : [...selected, value], 0)
         onFlush()
       }}
-    >
-      <option value="">Add</option>
-      {members.map((member) => <option key={member.userId} value={member.userId}>{selected.includes(member.userId) ? `− ${member.username}` : member.username}</option>)}
-    </select>
+      options={[
+        { value: '', label: 'Add' },
+        ...members.map((member) => ({
+          value: member.userId,
+          label: selected.includes(member.userId) ? `− ${member.username}` : member.username,
+        })),
+      ]}
+    />
   )
 }

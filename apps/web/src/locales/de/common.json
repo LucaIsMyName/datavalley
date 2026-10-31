@@ -166,6 +166,8 @@
   "scopeCell": "Zelle",
   "scopeRow": "Zeile",
   "icon": "Symbol",
+  "menu": "Menü",
+  "breadcrumbs": "Pfad",
   "resize": "Spaltenbreite",
   "footer": "Fußzeile",
   "notes": "Notizen",

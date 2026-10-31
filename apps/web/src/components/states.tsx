@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-export function Page({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
+export function Page({ title, actions, children }: { title: ReactNode; actions?: ReactNode; children: ReactNode }) {
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6">
-      <header className="flex min-h-10 items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        <div className="flex min-h-9 items-center gap-2">{actions}</div>
+    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 md:p-6">
+      <header className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {typeof title === 'string' ? <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">{title}</h1> : title}
+        {actions ? <div className="flex min-h-9 flex-wrap items-center gap-2">{actions}</div> : null}
       </header>
       {children}
     </section>

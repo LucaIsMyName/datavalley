@@ -1,0 +1,47 @@
+export const RESOURCE_ICONS = [
+  'FolderKanban',
+  'Table',
+  'Star',
+  'Users',
+  'FileText',
+  'Calendar',
+  'Briefcase',
+  'Building2',
+  'ChartColumn',
+  'Heart',
+  'Flag',
+  'Bookmark',
+  'Inbox',
+  'Layers',
+  'Box',
+  'Tag',
+  'Zap',
+  'Globe',
+  'Camera',
+  'Music',
+  'ShoppingCart',
+  'Truck',
+  'Wallet',
+  'Bell',
+  'Home',
+  'Database',
+  'List',
+  'MapPin',
+  'Phone',
+  'Mail',
+  'CircleCheck',
+  'CircleDot',
+  'Hash',
+  'Sparkles',
+  'Target',
+  'Award',
+] as const
+
+export type ResourceIconName = (typeof RESOURCE_ICONS)[number]
+
+export const DEFAULT_PROJECT_ICON: ResourceIconName = 'FolderKanban'
+export const DEFAULT_TABLE_ICON: ResourceIconName = 'Table'
+
+export function isResourceIcon(value: string): value is ResourceIconName {
+  return (RESOURCE_ICONS as readonly string[]).includes(value)
+}

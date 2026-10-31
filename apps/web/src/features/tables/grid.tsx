@@ -14,7 +14,7 @@ import {
   type FilterOperator,
   type FormatRule,
 } from '@datavalley/shared'
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Eye, Filter, GripVertical, Plus, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Filter, GripVertical, Plus, X } from 'lucide-react'
 import {
   useEffect,
   useMemo,
@@ -25,10 +25,12 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
+import { QuietInput } from '../../components/quiet-input'
+import { SelectField } from '../../components/ui/select'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -44,6 +46,7 @@ import { useFormulaWindow } from '../../stores/formula-window'
 import { FORMULA_HELP, formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
+import { registerTableMenu } from './table-menu'
 import {
   historyFlags,
   pushCommand,
@@ -165,63 +168,6 @@ function activeFilter(filters: Record<string, { op: string; value: string }>): F
   return { op: 'and', conditions }
 }
 
-function QuietInput({
-  value,
-  label,
-  className,
-  autoFocus = false,
-  inputRef,
-  onDraft,
-  onFlush,
-  onCancel,
-  onContextMenu,
-}: {
-  value: string
-  label: string
-  className: string
-  autoFocus?: boolean
-  inputRef?: { current: HTMLInputElement | null }
-  onDraft: (value: string) => void
-  onFlush: () => void
-  onCancel?: () => void
-  onContextMenu?: (event: ReactMouseEvent<HTMLInputElement>) => void
-}) {
-  const [text, setText] = useState(value)
-  const focused = useRef(false)
-  useEffect(() => {
-    if (!focused.current) setText(value)
-  }, [value])
-  return (
-    <input
-      ref={inputRef}
-      autoFocus={autoFocus}
-      aria-label={label}
-      className={className}
-      value={text}
-      onFocus={() => {
-        focused.current = true
-      }}
-      onChange={(event) => {
-        setText(event.target.value)
-        onDraft(event.target.value)
-      }}
-      onBlur={() => {
-        focused.current = false
-        onFlush()
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur()
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          onCancel?.()
-        }
-      }}
-      onClick={(event) => event.stopPropagation()}
-      onContextMenu={onContextMenu}
-    />
-  )
-}
-
 function showEditError(message: string) {
   toast.error(message, { id: 'table-edit-error' })
 }
@@ -235,14 +181,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const { t } = useTranslation()
   const openMenu = useContextMenu()
   const queryClient = useQueryClient()
-  const location = useLocation()
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const columnParam = searchParams.get('column') ?? ''
   const rowParam = searchParams.get('row') ?? ''
   const parentRef = useRef<HTMLDivElement>(null)
-  const nameRef = useRef<HTMLInputElement>(null)
   const importRef = useRef<HTMLInputElement>(null)
+  const pressTimer = useRef(0)
+  const pressOrigin = useRef({ x: 0, y: 0 })
   const selectAllRef = useRef<HTMLInputElement>(null)
   const [notice, setNotice] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -297,13 +242,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const visible = columns.filter((column) => !column.hidden)
   const rules = (table?.formatRules ?? []) as FormatRule[]
   const projectId = table?.projectId ?? ''
-  const projectName = () => {
-    const projectQuery = useQuery({
-      queryKey: ['project', projectId],
-      queryFn: () => api.request<{ project: any }>(`/projects/${projectId}`),
-    })
-    return projectQuery.data?.project.name ?? ''
-  }
 
   const rowsQuery = useInfiniteQuery({
     queryKey: ['rows', tableId, search, sort, filterKey],
@@ -427,18 +365,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
     queryFn: () => api.request<{ rows: RowRecord[] }>(`/tables/${targetTableId}/rows?limit=50`),
   })
 
-  const titleReady = !tableQuery.isLoading && !rowsQuery.isLoading && Boolean(table)
-  useEffect(() => {
-    const state = location.state as { focusName?: boolean } | null
-    if (!state?.focusName || !titleReady) return
-    nameRef.current?.select()
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
-  }, [location.pathname, location.search, location.state, navigate, titleReady])
+  const titleMenuRef = useRef<(event: ReactMouseEvent) => void>(() => undefined)
+  useEffect(() => registerTableMenu((event) => titleMenuRef.current(event)), [])
 
   useEffect(() => {
     if (!popover) return
     const close = (event: PointerEvent) => {
-      if ((event.target as HTMLElement | null)?.closest('[data-popover]')) return
+      if ((event.target as HTMLElement | null)?.closest('[data-popover], [role="listbox"], [data-radix-popper-content-wrapper]')) return
       setPopover(null)
     }
     window.addEventListener('pointerdown', close)
@@ -508,7 +441,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      const typing = Boolean(target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      const typing = Boolean(
+        target &&
+          (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+            target.closest('[role="combobox"], [role="listbox"]')),
+      )
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !typing) {
         event.preventDefault()
         void undoRef.current(event.shiftKey ? 'redo' : 'undo')
@@ -531,35 +468,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  function scheduleName(next: string) {
-    if (!table) return
-    const before = table.name
-    sync.edit(`table:${tableId}:name`, {
-      draft: next,
-      delay: 300,
-      apply: () => undefined,
-      commit: async (draft) => {
-        const trimmed = draft.trim()
-        if (!trimmed || trimmed === before) return { name: before }
-        await api.request(`/tables/${tableId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ name: trimmed }),
-        })
-        return { name: trimmed }
-      },
-      accept: (record) => {
-        patchCachedTable(queryClient, tableId, (current) => ({ ...current, name: record.name }))
-        if (record.name !== before)
-          pushCommand(tableId, { kind: 'table-renamed', before, after: record.name })
-        setNotice('')
-      },
-      rollback: () => {
-        patchCachedTable(queryClient, tableId, (current) => ({ ...current, name: before }))
-        showEditError(t('error'))
-      },
-    })
-  }
 
   function openNewColumn(beforeId: string | undefined, point: ViewportAnchor) {
     setNewColumnType('text')
@@ -1494,6 +1402,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       },
     ])
   }
+  titleMenuRef.current = openTitleMenu
 
   function applyView(view: SavedView) {
     const definition = view.definition ?? {}
@@ -1593,9 +1502,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
         ),
         size: GUTTER_WIDTH,
         cell: ({ row }) => (
-          <div
+            <div
             className="flex h-9 items-center gap-1 px-1"
             onContextMenu={(event) => openRowMenu(event, row.original)}
+            onPointerDown={(event) => {
+              if (event.pointerType === 'mouse') return
+              const point = { x: event.clientX, y: event.clientY }
+              pressOrigin.current = point
+              const rowRecord = row.original
+              window.clearTimeout(pressTimer.current)
+              pressTimer.current = window.setTimeout(() => {
+                openRowMenu({ preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent, rowRecord)
+              }, 500)
+            }}
+            onPointerMove={(event) => {
+              if (Math.hypot(event.clientX - pressOrigin.current.x, event.clientY - pressOrigin.current.y) > 10) {
+                window.clearTimeout(pressTimer.current)
+              }
+            }}
+            onPointerUp={() => window.clearTimeout(pressTimer.current)}
+            onPointerCancel={() => window.clearTimeout(pressTimer.current)}
           >
             <span
               role="button"
@@ -1627,7 +1553,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             <button
               type="button"
               aria-label={t('insertRow')}
-              className="text-muted-foreground opacity-0 group-hover:opacity-100"
+              className="text-muted-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100"
               onClick={() => void insertRow(rowsRef.current[row.index + 1]?.id)}
             >
               <Plus className="size-3.5" />
@@ -1663,28 +1589,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
             >
               {active && column.type === 'relation' ? (
-                <select
-                  autoFocus
-                  className="h-9 w-full bg-transparent text-sm outline-none"
-                  defaultValue={text}
-                  aria-label={`Edit ${column.name}`}
-                  onChange={(event) => {
-                    scheduleCell(row.original, column, event.target.value, 0)
+                <SelectField
+                  label={`Edit ${column.name}`}
+                  className="h-9 border-0 bg-transparent px-0"
+                  value={typeof value === 'string' ? value : ''}
+                  onValueChange={(next) => {
+                    scheduleCell(row.original, column, next, 0)
                     void sync.flush(`cell:${row.original.id}:${column.id}`)
                     setEditing(null)
                   }}
-                >
-                  <option value="">{t('none')}</option>
-                  {(targetRows.data?.rows ?? []).map((target) => (
-                    <option key={target.id} value={target.id}>
-                      {showCell(
-                        Object.values(target.cells).find(
-                          (item) => typeof item === 'string' && item,
-                        ) ?? target.id.slice(0, 8),
-                      )}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: t('none') },
+                    ...(targetRows.data?.rows ?? []).map((target) => ({
+                      value: target.id,
+                      label: showCell(
+                        Object.values(target.cells).find((item) => typeof item === 'string' && item) ??
+                          target.id.slice(0, 8),
+                      ),
+                    })),
+                  ]}
+                />
               ) : (
                 <CellEditor
                   column={column}
@@ -1832,6 +1756,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     fetching: rowsQuery.isFetchingNextPage,
     fetch: rowsQuery.fetchNextPage,
   }
+  const gridReady = !tableQuery.isLoading && !rowsQuery.isLoading && Boolean(table)
   useEffect(() => {
     const parent = parentRef.current
     if (!parent) return
@@ -1843,7 +1768,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
     parent.addEventListener('scroll', load, { passive: true })
     return () => parent.removeEventListener('scroll', load)
-  }, [titleReady])
+  }, [gridReady])
   useEffect(() => {
     const parent = parentRef.current
     if (!parent) return
@@ -1852,11 +1777,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const observer = new ResizeObserver(measure)
     observer.observe(parent)
     return () => observer.disconnect()
-  }, [titleReady])
+  }, [gridReady])
 
   if (tableQuery.isLoading || rowsQuery.isLoading)
     return (
-      <section className="p-6">
+      <section className="p-4 md:p-6">
         <LoadingBlock />
       </section>
     )
@@ -1866,7 +1791,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       (rowsQuery.error as Error | null)?.message ??
       t('error')
     return (
-      <section className="p-6">
+      <section className="p-4 md:p-6">
         <ErrorState message={message} />
       </section>
     )
@@ -1879,28 +1804,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const formulaHelp = FORMULA_HELP.find((item) => item.name === formulaFunction)
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3 px-6 pb-0 pt-6">
-      <div className="flex items-center gap-1">
-        {/* Project Name and Link here */}
-        <div>
-          <NavLink className="max-w-lg bg-transparent text-xl font-semibold outline-none" to={`/projects/${projectId}`}>{projectName}</NavLink>
-        </div>
-        <div className="text-xl font-semibold text-muted-foreground/50">
-        <ChevronRight className="size-5" />
-        </div>
-        <QuietInput
-          inputRef={nameRef}
-          label={t('tableName')}
-          className="h-8 max-w-lg bg-transparent text-xl font-semibold outline-none"
-          value={table.name}
-          onDraft={scheduleName}
-          onFlush={() =>
-            void sync.flush(`table:${tableId}:name`).catch(() => showEditError(t('error')))
-          }
-          onCancel={() => sync.cancel(`table:${tableId}:name`)}
-          onContextMenu={openTitleMenu}
-        />
-      </div>
+    <section className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6" style={{ WebkitTouchCallout: 'none' }}>
       <p className={notice ? 'text-sm text-danger' : 'sr-only'}>{notice}</p>
       <input
         ref={importRef}
@@ -1946,10 +1850,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
             className="table-fixed border-collapse text-sm"
             style={{ width: GUTTER_WIDTH + columnsWidth + filler }}
           >
-            <thead className="sticky top-0 z-10 bg-muted">
+            <thead className="sticky top-0 z-20 bg-muted">
               <tr>
                 <th
-                  className="h-10 border-b border-r border-border p-0 text-left"
+                  className="sticky left-0 z-30 h-10 border-b border-r border-border bg-muted p-0 text-left"
                   style={{ width: GUTTER_WIDTH }}
                 >
                   {flexRender(
@@ -2005,6 +1909,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       }}
                       onClick={(event) => chooseColumns(event, column.id)}
                       onContextMenu={(event) => openColumnMenu(event, column)}
+                      onPointerDown={(event) => {
+                        if (event.pointerType === 'mouse') return
+                        const point = { x: event.clientX, y: event.clientY }
+                        pressOrigin.current = point
+                        window.clearTimeout(pressTimer.current)
+                        pressTimer.current = window.setTimeout(() => {
+                          openColumnMenu({ preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent, column)
+                        }, 500)
+                      }}
+                      onPointerMove={(event) => {
+                        if (Math.hypot(event.clientX - pressOrigin.current.x, event.clientY - pressOrigin.current.y) > 10) {
+                          window.clearTimeout(pressTimer.current)
+                        }
+                      }}
+                      onPointerUp={() => window.clearTimeout(pressTimer.current)}
+                      onPointerCancel={() => window.clearTimeout(pressTimer.current)}
                     >
                       <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                         <span
@@ -2105,12 +2025,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         role="separator"
                         aria-label={t('resize')}
                         className="absolute -right-1 top-5 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
-                        onMouseDown={(event) => {
+                        onPointerDown={(event) => {
+                          if (event.button !== 0) return
                           event.preventDefault()
                           event.stopPropagation()
+                          const handle = event.currentTarget
+                          handle.setPointerCapture(event.pointerId)
                           const startX = event.clientX
                           const start = widths[column.id] ?? column.width
-                          const move = (ev: MouseEvent) => {
+                          const move = (ev: PointerEvent) => {
                             const next = Math.max(80, Math.round(start + ev.clientX - startX))
                             setWidths((current) => {
                               const saved = { ...current, [column.id]: next }
@@ -2121,19 +2044,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
                               return saved
                             })
                           }
-                          const up = () => {
-                            window.removeEventListener('mousemove', move)
-                            window.removeEventListener('mouseup', up)
+                          const up = (ev: PointerEvent) => {
+                            if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId)
+                            handle.removeEventListener('pointermove', move)
+                            handle.removeEventListener('pointerup', up)
                           }
-                          window.addEventListener('mousemove', move)
-                          window.addEventListener('mouseup', up)
+                          handle.addEventListener('pointermove', move)
+                          handle.addEventListener('pointerup', up)
                         }}
                       />
                       <button
                         type="button"
                         data-header-control
                         aria-label={t('insertColumn')}
-                        className="absolute -right-2.5 top-0 z-40 hidden h-5 w-5 items-center justify-center rounded-full border border-border bg-card group-hover:flex"
+                        className="absolute -right-2.5 top-0 z-40 hidden h-5 w-5 items-center justify-center rounded-full border border-border bg-card max-md:flex md:group-hover:flex"
                         onClick={(event) => {
                           event.stopPropagation()
                           openNewColumn(
@@ -2180,7 +2104,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className="overflow-hidden border-b border-r border-border p-0"
+                        className={`overflow-hidden border-b border-r border-border p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${selected.row === virtualRow.index ? 'bg-accent' : 'bg-card'}` : ''}`}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
@@ -2305,7 +2229,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           prefer="below"
           align="start"
           anchor={popover}
-          className={`rounded-md border border-border bg-card p-3 shadow-md ${popover.kind === 'formula' ? 'w-80' : 'w-64'}`}
+          className={`rounded-md border border-border bg-card p-3 shadow-md ${popover.kind === 'formula' ? 'w-[min(24rem,calc(100vw-2rem))]' : 'w-[min(20rem,calc(100vw-2rem))]'}`}
         >
           {popover.kind === 'find' ? (
             <Input
@@ -2320,18 +2244,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
           ) : null}
           {popover.kind === 'new-column' ? (
             <div className="flex flex-col gap-2">
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('columnType')}
+              <SelectField
+                label={t('columnType')}
                 value={newColumnType}
-                onChange={(event) => setNewColumnType(event.target.value)}
-              >
-                {COLUMN_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {t(`type_${type}`)}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setNewColumnType}
+                options={COLUMN_TYPES.map((type) => ({ value: type, label: t(`type_${type}`) }))}
+              />
               <Button type="button" onClick={() => void createColumn(newColumnType)}>
                 {t('confirm')}
               </Button>
@@ -2339,28 +2257,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
           ) : null}
           {popover.kind === 'filter' && popoverColumn ? (
             <div className="flex flex-col gap-2">
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('operator')}
+              <SelectField
+                label={t('operator')}
                 value={filterInput[popoverColumn.id]?.op ?? operatorsFor(popoverColumn.type)[0]}
-                onChange={(event) => {
+                onValueChange={(op) => {
                   const next = {
                     ...filterInput,
                     [popoverColumn.id]: {
-                      op: event.target.value,
+                      op,
                       value: filterInput[popoverColumn.id]?.value ?? '',
                     },
                   }
                   setFilterInput(next)
                   sync.watch(`filter:${tableId}`, 300, () => setFilters(next))
                 }}
-              >
-                {operatorsFor(popoverColumn.type).map((op) => (
-                  <option key={op} value={op}>
-                    {op}
-                  </option>
-                ))}
-              </select>
+                options={operatorsFor(popoverColumn.type).map((op) => ({ value: op, label: op }))}
+              />
               <Input
                 aria-label={t('value')}
                 value={filterInput[popoverColumn.id]?.value ?? ''}
@@ -2392,32 +2304,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
           ) : null}
           {popover.kind === 'conditional' && popoverColumn ? (
             <div className="flex flex-col gap-2">
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('operator')}
+              <SelectField
+                label={t('operator')}
                 value={ruleOp}
-                onChange={(event) => setRuleOp(event.target.value)}
-              >
-                {operatorsFor(popoverColumn.type).map((op) => (
-                  <option key={op} value={op}>
-                    {op}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setRuleOp}
+                options={operatorsFor(popoverColumn.type).map((op) => ({ value: op, label: op }))}
+              />
               <Input
                 aria-label={t('value')}
                 value={ruleValue}
                 onChange={(event) => setRuleValue(event.target.value)}
               />
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('conditionalColor')}
+              <SelectField
+                label={t('conditionalColor')}
                 value={ruleScope}
-                onChange={(event) => setRuleScope(event.target.value as 'cell' | 'row')}
-              >
-                <option value="cell">{t('scopeCell')}</option>
-                <option value="row">{t('scopeRow')}</option>
-              </select>
+                onValueChange={(value) => setRuleScope(value as 'cell' | 'row')}
+                options={[
+                  { value: 'cell', label: t('scopeCell') },
+                  { value: 'row', label: t('scopeRow') },
+                ]}
+              />
               <Swatches onPick={(color) => void saveRules(popoverColumn.id, color)} />
             </div>
           ) : null}
@@ -2441,26 +2347,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 void saveFormula(popoverColumn)
               }}
             >
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('formulaFunction')}
+              <SelectField
+                label={t('formulaFunction')}
                 value=""
-                onChange={(event) => {
-                  const item = FORMULA_HELP.find((entry) => entry.name === event.target.value)
+                onValueChange={(name) => {
+                  const item = FORMULA_HELP.find((entry) => entry.name === name)
                   if (!item) return
                   setFormulaFunction(item.name)
-                  setFormulaDraft((current) =>
-                    current.trim() ? `${current.trim()} ${item.insert}` : item.insert,
-                  )
+                  setFormulaDraft((current) => (current.trim() ? `${current.trim()} ${item.insert}` : item.insert))
                 }}
-              >
-                <option value="">{t('formulaFunction')}</option>
-                {FORMULA_HELP.map((item) => (
-                  <option key={item.name} value={item.name}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: t('formulaFunction') },
+                  ...FORMULA_HELP.map((item) => ({ value: item.name, label: item.name })),
+                ]}
+              />
               <Input
                 aria-label={t('formulaExpression')}
                 value={formulaDraft}
@@ -2483,34 +2383,30 @@ export function TableScreen({ tableId }: { tableId: string }) {
           ) : null}
           {popover.kind === 'relation' && popoverColumn ? (
             <div className="flex flex-col gap-2">
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('cardinality')}
+              <SelectField
+                label={t('cardinality')}
                 value={relationCardinality}
-                onChange={(event) => setRelationCardinality(event.target.value)}
-              >
-                <option value="many_to_one">many_to_one</option>
-                <option value="one_to_one">one_to_one</option>
-                <option value="one_to_many">one_to_many</option>
-              </select>
-              <select
-                className="h-9 rounded-md border border-border bg-card px-2 text-sm"
-                aria-label={t('targetTable')}
+                onValueChange={setRelationCardinality}
+                options={[
+                  { value: 'many_to_one', label: 'many_to_one' },
+                  { value: 'one_to_one', label: 'one_to_one' },
+                  { value: 'one_to_many', label: 'one_to_many' },
+                ]}
+              />
+              <SelectField
+                label={t('targetTable')}
                 value={relationTarget}
-                onChange={(event) => {
-                  setRelationTarget(event.target.value)
-                  if (event.target.value) void saveRelation(popoverColumn, event.target.value)
+                onValueChange={(next) => {
+                  setRelationTarget(next)
+                  if (next) void saveRelation(popoverColumn, next)
                 }}
-              >
-                <option value="">{t('targetTable')}</option>
-                {(projectTables.data?.tables ?? [])
-                  .filter((item) => item.id !== tableId)
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-              </select>
+                options={[
+                  { value: '', label: t('targetTable') },
+                  ...(projectTables.data?.tables ?? [])
+                    .filter((item) => item.id !== tableId)
+                    .map((item) => ({ value: item.id, label: item.name })),
+                ]}
+              />
             </div>
           ) : null}
           {popover.kind === 'icon' && popoverColumn ? (

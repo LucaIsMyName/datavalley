@@ -77,3 +77,29 @@ export function useContextMenu() {
   if (!open) throw new Error('Context menu is unavailable')
   return open
 }
+
+export function pressMenuProps(
+  open: (event: ReactMouseEvent, items: MenuItem[]) => void,
+  timer: { current: number },
+  origin: { current: { x: number; y: number } },
+  items: MenuItem[],
+) {
+  const clear = () => window.clearTimeout(timer.current)
+  return {
+    onContextMenu: (event: ReactMouseEvent) => open(event, items),
+    onPointerDown: (event: React.PointerEvent) => {
+      if (event.pointerType === 'mouse') return
+      origin.current = { x: event.clientX, y: event.clientY }
+      clear()
+      const point = { x: event.clientX, y: event.clientY }
+      timer.current = window.setTimeout(() => {
+        open({ preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent, items)
+      }, 500)
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      if (Math.hypot(event.clientX - origin.current.x, event.clientY - origin.current.y) > 10) clear()
+    },
+    onPointerUp: clear,
+    onPointerCancel: clear,
+  }
+}
