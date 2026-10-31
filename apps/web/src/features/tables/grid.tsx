@@ -118,7 +118,7 @@ function writable(column: Column) {
 }
 
 function fillable(column: Column) {
-  return writable(column) && column.type !== 'row_id'
+  return column.type !== 'lookup' && column.type !== 'row_id'
 }
 
 function operatorsFor(type: string) {
@@ -462,7 +462,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       openFormula(row.id, column.id, column.name)
       return
     }
-    if (!fillable(column)) return
+    if (!fillable(column) || column.type === 'checkbox') return
     setEditing(`${row.id}:${column.id}`)
   }
   useEffect(() => {
@@ -1173,11 +1173,38 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await refresh()
   }
 
+  async function commitFormulaFill(column: Column, sourceRowId: string, rowIds: string[]) {
+    const result = await api.request<{ expression: string; previous: { rowId: string; source: string }[] }>(
+      `/tables/${tableId}/formulas/fill`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ columnId: column.id, sourceRowId, rowIds }),
+      },
+    )
+    if (result.previous.length === 0) return
+    pushCommand(tableId, {
+      kind: 'formulas',
+      columnId: column.id,
+      undo: result.previous.map((item) => ({ rowId: item.rowId, expression: item.source })),
+      redo: result.previous.map((item) => ({ rowId: item.rowId, expression: result.expression })),
+    })
+    await refresh()
+  }
+
   async function commitFill(column: Column, from: number, to: number) {
     const ids = fillTargets(rows, from, to, fillable(column))
     if (ids.length === 0) return
     const source = rows[from]
     if (!source) return
+    if (column.type === 'formula') {
+      try {
+        await commitFormulaFill(column, source.id, ids)
+      } catch (error) {
+        const message = editFailureMessage(error, t('error'))
+        if (message) showEditError(message)
+      }
+      return
+    }
     const value = source.cells[column.id] ?? null
     const updates = ids.map((rowId) => {
       const row = rows.find((item) => item.id === rowId)
@@ -1200,8 +1227,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
         }))
       pushCommand(tableId, { kind: 'patch', undo: stamp(previous), redo: stamp(updates) })
       await refresh()
-    } catch {
-      showEditError(t('error'))
+    } catch (error) {
+      const message = editFailureMessage(error, t('error'))
+      if (message) showEditError(message)
     }
   }
 
@@ -1715,7 +1743,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
               style={{ color: ruleStyle.color, background: inFill && !picked ? undefined : background, fontWeight: ruleStyle.bold ? 700 : 400 }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
               onClick={() => {
-                if (column.type !== 'row_id') return
+                if (column.type !== 'row_id' && column.type !== 'checkbox') return
                 setSelected({ row: row.index, column: columnIndex })
               }}
             >
@@ -1774,7 +1802,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       openFormula(row.original.id, column.id, column.name)
                       return
                     }
-                    if (!fillable(column)) return
+                    if (!fillable(column) || column.type === 'checkbox') return
                     setEditing(`${row.original.id}:${column.id}`)
                   }}
                   onCreated={(kind, item) =>
@@ -2138,7 +2166,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           type="button"
                           data-header-control
                           aria-label={t('sort')}
-                          className={`rounded p-0.5 ${activeSort ? 'text-foreground' : 'text-muted-foreground'}`}
+                          className={` p-0.5 ${activeSort ? 'text-foreground' : 'text-muted-foreground'}`}
                           onClick={(event) => {
                             event.stopPropagation()
                             cycleSort(column.id)
@@ -2156,7 +2184,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           type="button"
                           data-header-control
                           aria-label={t('filter')}
-                          className={`rounded p-0.5 ${filtered ? 'text-foreground' : 'text-muted-foreground'}`}
+                          className={` p-0.5 ${filtered ? 'text-foreground' : 'text-muted-foreground'}`}
                           onClick={(event) => {
                             event.stopPropagation()
                             setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) })

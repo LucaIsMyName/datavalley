@@ -274,6 +274,45 @@ describe('table fields', () => {
     expect(JSON.stringify(own.json())).not.toContain('outsider')
   })
 
+  it('copies a formula expression onto the dragged rows and can clear them', async () => {
+    const { tableId } = await blankTable('Formula fill')
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const total = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Total', type: 'formula' } })
+    const amountId = amount.json().column.id as string
+    const totalId = total.json().column.id as string
+    const first = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 2 } } })
+    const second = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 5 } } })
+    const third = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [amountId]: 9 } } })
+    const firstId = first.json().row.id as string
+    const secondId = second.json().row.id as string
+    const thirdId = third.json().row.id as string
+    await session.inject({ method: 'POST', url: `/api/v1/rows/${firstId}/columns/${totalId}/formula`, payload: { expression: '[Amount] * 2' } })
+    await session.inject({ method: 'POST', url: `/api/v1/rows/${secondId}/columns/${totalId}/formula`, payload: { expression: '[Amount] + 1' } })
+    const filled = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/formulas/fill`,
+      payload: { columnId: totalId, sourceRowId: firstId, rowIds: [secondId, firstId] },
+    })
+    expect(filled.statusCode).toBe(200)
+    expect(filled.json()).toEqual({ expression: '[Amount] * 2', previous: [{ rowId: secondId, source: '[Amount] + 1' }] })
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const rows = listed.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(rows.find((row) => row.id === firstId)?.cells[totalId]).toBe(4)
+    expect(rows.find((row) => row.id === secondId)?.cells[totalId]).toBe(10)
+    expect(rows.find((row) => row.id === thirdId)?.cells[totalId] ?? null).toBeNull()
+    const cleared = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/formulas/fill`,
+      payload: { columnId: totalId, sourceRowId: thirdId, rowIds: [secondId] },
+    })
+    expect(cleared.statusCode).toBe(200)
+    expect(cleared.json().previous).toEqual([{ rowId: secondId, source: '[Amount] * 2' }])
+    const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const afterRows = after.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(afterRows.find((row) => row.id === secondId)?.cells[totalId] ?? null).toBeNull()
+    expect(afterRows.find((row) => row.id === firstId)?.cells[totalId]).toBe(4)
+  })
+
   it('assigns a status and refuses a user who is not a project member', async () => {
     const { tableId, projectId } = await blankTable('People fields')
     const statusColumn = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Stage', type: 'status' } })

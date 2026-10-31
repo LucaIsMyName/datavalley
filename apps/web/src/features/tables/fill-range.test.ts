@@ -12,7 +12,7 @@ describe('fill targets', () => {
     expect(fillTargets(rows, 2, 0, true)).toEqual(['a', 'b'])
   })
 
-  it('returns nothing for a formula column or a drag that stays on the source', () => {
+  it('returns nothing for a lookup or row id column, or a drag that stays on the source', () => {
     expect(fillTargets(rows, 1, 3, false)).toEqual([])
     expect(fillTargets(rows, 1, 1, true)).toEqual([])
   })

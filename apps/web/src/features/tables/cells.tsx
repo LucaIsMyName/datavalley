@@ -145,7 +145,7 @@ function FormatHint({ message }: { message: string }) {
           prefer="above"
           align="end"
           role="tooltip"
-          className="pointer-events-none w-max max-w-56 rounded-md border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md"
+          className="pointer-events-none w-max max-w-56 border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md"
         >
           {message}
         </AnchoredLayer>
@@ -377,14 +377,14 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
   const { t } = useTranslation()
   const current = palette.includes(tag.color) ? tag.color : 'slate'
   return (
-    <AnchoredLayer anchor={anchor} prefer="below" align="start" tagMenu className="w-40 rounded-md border border-border bg-card p-2 shadow-md">
+    <AnchoredLayer anchor={anchor} prefer="below" align="start" tagMenu className="w-40 border border-border bg-card p-2 shadow-md">
       <div className="flex flex-wrap gap-1">
         {palette.map((color) => (
           <button
             key={color}
             type="button"
             aria-label={color}
-            className={`h-5 w-5 rounded-full border border-border ${swatch[color] ?? swatch.slate} ${color === current ? 'ring-2 ring-foreground' : ''}`}
+            className={`h-5 w-5 border border-border ${swatch[color] ?? swatch.slate} ${color === current ? 'ring-2 ring-foreground' : ''}`}
             onClick={() => onColor(color)}
           />
         ))}
@@ -495,13 +495,13 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
       ) : null}
       {renameError ? <FormatHint message={renameError} /> : null}
       {menu && current ? (
-        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu className="w-[min(12rem,calc(100vw-2rem))] rounded-md border border-border bg-card p-2 shadow-md">
+        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu className="w-[min(12rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-md">
           <ul className="max-h-40 overflow-auto">
             {statuses.map((status) => (
               <li key={status.id}>
                 <button
                   type="button"
-                  className={`block min-h-9 w-full truncate rounded px-2 text-left text-sm hover:bg-accent ${status.id === current.id ? 'font-medium' : ''}`}
+                  className={`block min-h-9 w-full truncate px-2 text-left text-sm hover:bg-accent ${status.id === current.id ? 'font-medium' : ''}`}
                   onClick={() => choose(status.id)}
                 >
                   {status.name}
@@ -512,7 +512,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
           <input
             autoFocus
             aria-label={t('rename')}
-            className="mt-2 h-8 w-full rounded-md border border-border bg-transparent px-2 text-sm outline-none"
+            className="mt-2 h-8 w-full  border border-border bg-transparent px-2 text-sm outline-none"
             value={draft}
             onClick={(event) => event.stopPropagation()}
             onChange={(event) => setDraft(event.target.value)}

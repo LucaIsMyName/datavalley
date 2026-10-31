@@ -48,6 +48,7 @@ export type Command =
   | { kind: 'column-type'; columnId: string; beforeType: string; afterType: string; cells: { rowId: string; value: unknown }[] }
   | { kind: 'rules'; before: FormatRule[]; after: FormatRule[] }
   | { kind: 'column-hidden'; columnId: string; before: boolean; after: boolean }
+  | { kind: 'formulas'; columnId: string; undo: { rowId: string; expression: string }[]; redo: { rowId: string; expression: string }[] }
 
 const memory = new Map<string, ReturnType<typeof createUndoStack<Command>>>()
 
@@ -255,6 +256,16 @@ async function run(tableId: string, command: Command, direction: 'undo' | 'redo'
         const fresh = await sendPatch({ rowId: cell.rowId, version, cells: { [command.columnId]: cell.value } })
         versions.set(cell.rowId, fresh)
       }
+    }
+    return command
+  }
+  if (command.kind === 'formulas') {
+    const items = direction === 'undo' ? command.undo : command.redo
+    for (const item of items) {
+      await api.request(`/rows/${item.rowId}/columns/${command.columnId}/formula`, {
+        method: 'POST',
+        body: JSON.stringify({ expression: item.expression }),
+      })
     }
     return command
   }

@@ -342,6 +342,45 @@ export async function saveFormula(db: AppDatabase, subject: Subject, columnId: s
   return { id: first?.id ?? null, canonical, cycle: first?.cycle ?? false }
 }
 
+export async function fillFormulas(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  input: { columnId: string; sourceRowId: string; rowIds: string[] },
+) {
+  const table = await requireTable(db, subject, tableId, 'edit')
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(and(eq(tableColumns.id, input.columnId), eq(tableColumns.tableId, table.id)))
+    .limit(1)
+  if (!column || column.type !== 'formula') throw badRequest('Unknown column')
+  const targets = [...new Set(input.rowIds.filter((id) => id && id !== input.sourceRowId))]
+  if (targets.length === 0) return { expression: '', previous: [] as { rowId: string; source: string }[] }
+  if (targets.length > 500) throw badRequest('Bulk updates are limited to 500 cells')
+  const rows = await db
+    .select({ id: tableRows.id })
+    .from(tableRows)
+    .where(and(eq(tableRows.tableId, table.id), inArray(tableRows.id, [input.sourceRowId, ...targets])))
+  const found = new Set(rows.map((row) => row.id))
+  if (!found.has(input.sourceRowId) || targets.some((id) => !found.has(id))) throw badRequest('Unknown row')
+  const stored = await db
+    .select()
+    .from(formulas)
+    .where(and(eq(formulas.columnId, column.id), inArray(formulas.rowId, [input.sourceRowId, ...targets])))
+  const expression = stored.find((item) => item.rowId === input.sourceRowId)?.source ?? ''
+  const previous = targets.map((rowId) => ({
+    rowId,
+    source: stored.find((item) => item.rowId === rowId)?.source ?? '',
+  }))
+  await db.transaction(async (tx) => {
+    for (const rowId of targets) {
+      await saveFormula(tx as unknown as AppDatabase, subject, column.id, expression, rowId)
+    }
+  })
+  return { expression, previous }
+}
+
 export async function readCellFormula(db: AppDatabase, subject: Subject, rowId: string, columnId: string) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw badRequest('Unknown column')
