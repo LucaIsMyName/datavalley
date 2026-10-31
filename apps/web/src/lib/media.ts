@@ -9,6 +9,16 @@ export function isRasterImageMime(mime: string) {
   return mime.startsWith('image/') && mime !== 'image/svg+xml'
 }
 
+export function isPdfMime(mime: string) {
+  return mime === 'application/pdf'
+}
+
+export function formatMediaBytes(size: number) {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export async function uploadMedia(file: File, options?: { tableId?: string }) {
   const params = options?.tableId ? `?tableId=${encodeURIComponent(options.tableId)}` : ''
   const body = new FormData()

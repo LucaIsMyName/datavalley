@@ -10,6 +10,13 @@ function pngPayload(boundary: string) {
   return Buffer.concat([Buffer.from(head), png, Buffer.from(tail)])
 }
 
+function pdfPayload(boundary: string) {
+  const pdf = Buffer.from('%PDF-1.4\n')
+  const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="doc.pdf"\r\nContent-Type: application/pdf\r\n\r\n`
+  const tail = `\r\n--${boundary}--\r\n`
+  return Buffer.concat([Buffer.from(head), pdf, Buffer.from(tail)])
+}
+
 async function sessionFor(harness: Harness, username: string) {
   const session = await new ApiSession(harness.app).prepare()
   await login(session, username, password)
@@ -58,6 +65,30 @@ describe('media access', () => {
     const blocked = await cam.inject({ method: 'GET', url: `/api/v1/media/${fileId}` })
     expect(blocked.statusCode).toBe(404)
 
+    await harness.close()
+  })
+
+  it('serves pdf with inline disposition for embedded preview', async () => {
+    const harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'pdf',
+      email: 'pdf@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await sessionFor(harness, 'pdf')
+    const boundary = 'dvPdf'
+    const uploaded = await session.inject({
+      method: 'POST',
+      url: '/api/v1/media',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: pdfPayload(boundary),
+    })
+    expect(uploaded.statusCode).toBe(200)
+    const fileId = uploaded.json().file.id as string
+    const response = await session.inject({ method: 'GET', url: `/api/v1/media/${fileId}` })
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-disposition']).toMatch(/^inline;/)
     await harness.close()
   })
 
