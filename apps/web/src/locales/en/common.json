@@ -264,6 +264,7 @@
   "roleAdmin": "Administrator",
   "roleUser": "User",
   "addToFavorites": "Add to favorites",
+  "removeFromFavorites": "Remove from favorites",
   "lastAdminHint": "The last administrator cannot be removed or disabled.",
   "revokeKeyTitle": "Revoke API key",
   "revokeKeyWarning": "Revoke {{name}}? Requests that use this key will stop working.",

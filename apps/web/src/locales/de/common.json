@@ -264,6 +264,7 @@
   "roleAdmin": "Administrator",
   "roleUser": "Benutzer",
   "addToFavorites": "Zu Favoriten",
+  "removeFromFavorites": "Aus Favoriten entfernen",
   "lastAdminHint": "Der letzte Administrator kann nicht entfernt oder deaktiviert werden.",
   "revokeKeyTitle": "API-Schlüssel widerrufen",
   "revokeKeyWarning": "{{name}} widerrufen? Anfragen mit diesem Schlüssel funktionieren nicht mehr.",

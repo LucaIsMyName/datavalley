@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, GripVertical, Info, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
+import { FolderOpen, GripVertical, Info, MoreHorizontal, Pencil, Plus, Star, Trash2, Users } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -494,6 +494,11 @@ export function ProjectPage() {
     enabled: membersOpen,
     queryFn: () => api.request<{ users: { id: string; username: string; email: string }[] }>(`/projects/${projectId}/directory?q=${encodeURIComponent(memberName)}`),
   })
+  const savedFavorites = useQuery({
+    queryKey: ['favorites'],
+    queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites'),
+  })
+  const projectFavorited = savedFavorites.data?.favorites.some((item) => item.resourceType === 'project' && item.resourceId === projectId) ?? false
   const record = project.data?.project
   const tableRows = tables.data?.tables ?? []
   const active = tableRows.find((table) => table.id === tableId)
@@ -617,13 +622,19 @@ export function ProjectPage() {
     }
   }
 
+  const favoriteBody = JSON.stringify({ resourceType: 'project', resourceId: projectId })
+
+  function toggleProjectFavorite() {
+    void api.request('/favorites', { method: projectFavorited ? 'DELETE' : 'POST', body: favoriteBody }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
+  }
+
   const favoriteProject = [
     {
       id: 'favorite',
       label: t('addToFavorites'),
       icon: Star,
       onSelect: () => {
-        void api.request('/favorites', { method: 'POST', body: JSON.stringify({ resourceType: 'project', resourceId: projectId }) }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
+        void api.request('/favorites', { method: 'POST', body: favoriteBody }).then(() => queryClient.invalidateQueries({ queryKey: ['favorites'] }))
       },
     },
   ]
@@ -649,21 +660,33 @@ export function ProjectPage() {
                 onCancel={() => sync.cancel(`project:${projectId}:name`)}
               />
             </h1>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label={projectFavorited ? t('removeFromFavorites') : t('addToFavorites')}
+              aria-pressed={projectFavorited}
+              className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+              onClick={toggleProjectFavorite}
+            >
+              <Star className={projectFavorited ? 'size-4 fill-current' : 'size-4'} />
+            </button>
+            <button
+              type="button"
+              aria-label={t('members')}
+              className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+              onClick={() => setMembersOpen(true)}
+            >
+              <Users className="size-4" />
+            </button>
             <button
               type="button"
               aria-label={t('info')}
-              className="inline-flex size-8 shrink-0 items-center justify-center  hover:bg-accent"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation()
-                setDescriptionOpen(true)
-              }}
+              className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+              onClick={() => setDescriptionOpen(true)}
             >
               <Info className="size-4" />
             </button>
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => setMembersOpen(true)}>{t('members')}</Button>
           </div>
         </div>
         <div className="flex h-11 items-end gap-1 overflow-x-auto">
