@@ -12,7 +12,14 @@ async function markup(node: ReturnType<typeof createElement>) {
     if (done) break
     if (value) chunks.push(value)
   }
-  return new TextDecoder().decode(Buffer.concat(chunks))
+  const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.length
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 describe('lazy routes', () => {
