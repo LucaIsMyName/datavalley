@@ -45,13 +45,11 @@ function isTrue(value: FormulaValue) {
   return false
 }
 
-export function matchesCondition(expression: string, item: FormulaValue, values: Record<string, FormulaValue>) {
-  const ast = cached(expression)
-  if (!ast) return false
-  const node = ast.type === 'call' && ast.name === 'IF' && ast.args.length === 1 ? ast.args[0] : ast
-  const value = runFormula(node, {
+function context(item: FormulaValue, values: Record<string, FormulaValue>) {
+  return {
     item,
     blankItem: true,
+    condition: true,
     clock: () => new Date(),
     get: (ref: RefNode) => {
       if (ref.tableId || ref.rowId) return { error: '#REF' }
@@ -61,6 +59,28 @@ export function matchesCondition(expression: string, item: FormulaValue, values:
     lookup: () => ({ error: '#N/A' }),
     relation: () => ({ error: '#N/A' }),
     column: () => ({ error: '#VALUE' }),
-  })
-  return isTrue(value)
+  }
+}
+
+function conditionNodes(ast: AstNode): { nodes: AstNode[]; invert: boolean } {
+  if (ast.type !== 'call') return { nodes: [ast], invert: false }
+  if (ast.name === 'IF' && ast.args.length >= 1 && ast.args.length <= 3) return { nodes: [ast.args[0]], invert: false }
+  if (ast.name === 'IFNOT' && ast.args.length >= 2 && ast.args.length <= 3) return { nodes: [ast.args[0]], invert: true }
+  if (ast.name === 'IFS' && ast.args.length >= 2 && ast.args.length % 2 === 0) {
+    return { nodes: ast.args.filter((_, index) => index % 2 === 0), invert: false }
+  }
+  return { nodes: [ast], invert: false }
+}
+
+export function matchesCondition(expression: string, item: FormulaValue, values: Record<string, FormulaValue>) {
+  const ast = cached(expression)
+  if (!ast) return false
+  const { nodes, invert } = conditionNodes(ast)
+  const ctx = context(item, values)
+  if (invert) {
+    const value = runFormula(nodes[0], ctx)
+    if (isFormulaError(value) || Array.isArray(value)) return false
+    return !isTrue(value)
+  }
+  return nodes.some((node) => isTrue(runFormula(node, ctx)))
 }

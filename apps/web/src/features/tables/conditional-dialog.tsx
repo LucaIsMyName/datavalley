@@ -1,5 +1,5 @@
 import { displayFormula, type BracketCatalog } from '@datavalley/formula-engine'
-import { expressionFromOperator, type FormatRule } from '@datavalley/shared'
+import { expressionFromOperator, swatchName, type FormatRule } from '@datavalley/shared'
 import { ApiClientError } from '@datavalley/api-client'
 import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/button'
 import { api } from '../../lib/api'
 import { FormulaEditor, type FormulaEditorHandle } from './formula-editor'
 import { thisRowReference } from './formula-insert'
+import { Swatches } from './swatches'
 import type { BracketSpan, FormulaCatalog } from './formula-tokens'
 
 export type ConditionDraft = {
@@ -31,8 +32,17 @@ type CatalogResponse = {
   relations: { name: string; columnId: string; toTableId: string; toTableName: string; columns: { id: string; name: string }[] }[]
 }
 
-function hex(value: string | undefined) {
-  return value && /^#[0-9a-fA-F]{6}$/.test(value) ? value : null
+const freshRule = 'IT = '
+
+function unfinished(source: string) {
+  return source.trim() === 'IT ='
+}
+
+function keptColor(value: string | undefined) {
+  if (!value) return null
+  const name = swatchName(value)
+  if (name) return name
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : null
 }
 
 function bracketCatalog(tableId: string, result: CatalogResponse): BracketCatalog {
@@ -107,19 +117,19 @@ export function ConditionalDialog({
       const seeded = rulesRef.current.length > 0 ? rulesRef.current.map((rule) => ({
         id: rule.id,
         source: sourceFor(rule, bracket),
-        color: hex(rule.style.color),
-        background: hex(rule.style.background),
-      })) : [{ id: crypto.randomUUID(), source: 'IF()', color: null, background: null }]
+        color: keptColor(rule.style.color),
+        background: keptColor(rule.style.background),
+      })) : [{ id: crypto.randomUUID(), source: freshRule, color: null, background: null }]
       setDrafts(seeded)
-      setFocusId(seeded.length === 1 && seeded[0].source === 'IF()' ? seeded[0].id : null)
+      setFocusId(seeded.length === 1 && seeded[0].source === freshRule ? seeded[0].id : null)
     }).catch(() => {
       if (cancelled) return
       setDrafts(rulesRef.current.length > 0 ? rulesRef.current.map((rule) => ({
         id: rule.id,
         source: rule.expression ?? expressionFromOperator(rule) ?? '',
-        color: hex(rule.style.color),
-        background: hex(rule.style.background),
-      })) : [{ id: crypto.randomUUID(), source: 'IF()', color: null, background: null }])
+        color: keptColor(rule.style.color),
+        background: keptColor(rule.style.background),
+      })) : [{ id: crypto.randomUUID(), source: freshRule, color: null, background: null }])
     })
     return () => {
       cancelled = true
@@ -130,7 +140,7 @@ export function ConditionalDialog({
     if (!drafts) return
     const handle = setTimeout(() => {
       for (const draft of drafts) {
-        if (!draft.source.trim()) {
+        if (!draft.source.trim() || unfinished(draft.source)) {
           setErrors((current) => ({ ...current, [draft.id]: '' }))
           continue
         }
@@ -169,7 +179,7 @@ export function ConditionalDialog({
     const nextErrors: Record<string, string> = {}
     const ready: ConditionDraft[] = []
     for (const draft of drafts) {
-      if (!draft.source.trim()) {
+      if (!draft.source.trim() || unfinished(draft.source)) {
         nextErrors[draft.id] = t('conditionRequired')
         continue
       }
@@ -207,7 +217,7 @@ export function ConditionalDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(40rem,calc(100vh-2rem))] w-[min(44rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-auto border border-border bg-card p-4 shadow-md">
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           <Dialog.Description className="text-sm text-muted-foreground">
-            {t('firstRuleWins')}
+            {t('firstRuleWins')} {t('conditionExamples')}
             {rowLabel ? ` ${t('cellRulesReplace')}` : ''}
           </Dialog.Description>
           <div className="flex min-h-40 flex-col gap-3">
@@ -229,17 +239,15 @@ export function ConditionalDialog({
                   />
                 </div>
                 {errors[draft.id] ? <p className="text-sm text-danger">{errors[draft.id]}</p> : <p className="h-5 text-sm" />}
-                <div className="flex flex-wrap items-center gap-3">
-                  <ColorField
-                    label={t('textColor')}
-                    value={draft.color}
-                    onChange={(color) => update(draft.id, { color })}
-                  />
-                  <ColorField
-                    label={t('backgroundColor')}
-                    value={draft.background}
-                    onChange={(color) => update(draft.id, { background: color })}
-                  />
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm">{t('textColor')}</span>
+                    <Swatches role="text" label={t('textColor')} value={draft.color} onPick={(color) => update(draft.id, { color })} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm">{t('backgroundColor')}</span>
+                    <Swatches role="background" label={t('backgroundColor')} value={draft.background} onPick={(color) => update(draft.id, { background: color })} />
+                  </div>
                   <div className="ml-auto flex items-center gap-1">
                     <Button type="button" variant="outline" aria-label={t('moveUp')} disabled={index === 0} onClick={() => move(index, -1)}>
                       <ArrowUp className="size-4" />
@@ -268,7 +276,7 @@ export function ConditionalDialog({
               onClick={() => {
                 const id = crypto.randomUUID()
                 setFocusId(id)
-                setDrafts((current) => [...(current ?? []), { id, source: 'IF()', color: null, background: null }])
+                setDrafts((current) => [...(current ?? []), { id, source: freshRule, color: null, background: null }])
               }}
             >
               <Plus className="size-4" />
@@ -294,25 +302,6 @@ export function ConditionalDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  )
-}
-
-function ColorField({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string | null) => void }) {
-  const { t } = useTranslation()
-  return (
-    <label className="flex items-center gap-2 text-sm">
-      {label}
-      <input
-        type="color"
-        aria-label={label}
-        value={value ?? '#000000'}
-        className="h-8 w-10 border border-border bg-card"
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <button type="button" className="text-sm text-muted-foreground" onClick={() => onChange(null)}>
-        {t('clearColor')}
-      </button>
-    </label>
   )
 }
 

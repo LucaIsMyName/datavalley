@@ -1,3 +1,4 @@
+export * from './colors.js'
 export * from './errors.js'
 export * from './permissions.js'
 export * from './filters.js'

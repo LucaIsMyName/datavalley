@@ -11,16 +11,16 @@ import type { ViewportAnchor } from '../../lib/place-in-viewport'
 const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
 const swatch: Record<string, string> = {
-  amber: 'bg-amber-200',
-  green: 'bg-green-200',
-  blue: 'bg-blue-200',
-  red: 'bg-red-200',
-  violet: 'bg-violet-200',
-  orange: 'bg-orange-200',
-  pink: 'bg-pink-200',
-  teal: 'bg-teal-200',
-  slate: 'bg-slate-200',
-  yellow: 'bg-yellow-200',
+  amber: 'bg-amber-200 dark:bg-amber-900',
+  green: 'bg-green-200 dark:bg-green-900',
+  blue: 'bg-blue-200 dark:bg-blue-900',
+  red: 'bg-red-200 dark:bg-red-900',
+  violet: 'bg-violet-200 dark:bg-violet-900',
+  orange: 'bg-orange-200 dark:bg-orange-900',
+  pink: 'bg-pink-200 dark:bg-pink-900',
+  teal: 'bg-teal-200 dark:bg-teal-900',
+  slate: 'bg-slate-200 dark:bg-slate-700',
+  yellow: 'bg-yellow-200 dark:bg-yellow-900',
 }
 
 export function formatCell(column: Column, value: unknown) {

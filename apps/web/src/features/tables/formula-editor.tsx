@@ -410,9 +410,10 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
     viewRef.current = view
     if (autoFocusRef.current) {
       view.focus()
-      const text = view.state.doc.toString().trim()
-      const match = /^([A-Za-z_]+)\(\)$/.exec(text)
+      const text = view.state.doc.toString()
+      const match = /^([A-Za-z_]+)\(\)$/.exec(text.trim())
       if (match) view.dispatch({ selection: { anchor: match[1].length + 1 } })
+      else if (text.trim() === 'IT =') view.dispatch({ selection: { anchor: text.length } })
     }
     return () => {
       view.destroy()

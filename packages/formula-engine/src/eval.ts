@@ -24,6 +24,8 @@ export type EvalContext = {
   item?: FormulaValue
   /** When set, a missing item is a blank cell. Normal formulas leave this unset, so `IT` stays `#VALUE`. */
   blankItem?: boolean
+  /** When set, comparisons follow conditional-formatting rules. Normal formulas leave this unset. */
+  condition?: boolean
 }
 
 function err(code: FormulaErrorValue['error']): FormulaErrorValue {
@@ -145,7 +147,13 @@ function evalBinary(op: string, leftNode: AstNode, rightNode: AstNode, ctx: Eval
     if (Array.isArray(left) || Array.isArray(right)) return err('#VALUE')
     return asText(left) + asText(right)
   }
-  if (['>', '<', '>=', '<=', '=', '<>'].includes(op)) return compare(op, left, right)
+  if (['>', '<', '>=', '<=', '=', '<>'].includes(op)) {
+    if (ctx.condition) {
+      const relaxed = conditionCompare(op, left, right)
+      if (relaxed != null) return relaxed
+    }
+    return compare(op, left, right)
+  }
   const a = asNumber(left)
   const b = asNumber(right)
   if (isFormulaError(a)) return a
@@ -159,6 +167,49 @@ function evalBinary(op: string, leftNode: AstNode, rightNode: AstNode, ctx: Eval
   if (op === '/') return leftNumber / rightNumber
   if (op === '%') return leftNumber % rightNumber
   return err('#VALUE')
+}
+
+function numericText(value: FormulaValue) {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  if (!/^-?\d+(\.\d+)?$/.test(text)) return null
+  const number = Number(text)
+  return Number.isFinite(number) ? number : null
+}
+
+function conditionCompare(op: string, left: FormulaValue, right: FormulaValue): FormulaValue | null {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (op !== '=' && op !== '<>') return err('#VALUE')
+    if (Array.isArray(left) && Array.isArray(right)) return err('#VALUE')
+    const list = (Array.isArray(left) ? left : right) as FormulaValue[]
+    const scalar = Array.isArray(left) ? right : left
+    if (isFormulaError(scalar) || Array.isArray(scalar)) return err('#VALUE')
+    const needle = scalar == null ? '' : String(scalar).toLowerCase()
+    const hit = list.some((item) => {
+      if (isFormulaError(item) || Array.isArray(item) || item == null) return false
+      return String(item).toLowerCase() === needle
+    })
+    return op === '=' ? hit : !hit
+  }
+  const leftBlank = left == null || left === ''
+  const rightBlank = right == null || right === ''
+  if ((op === '=' || op === '<>') && leftBlank && rightBlank) return op === '='
+  if ((op === '=' || op === '<>') && typeof left === 'string' && typeof right === 'string') {
+    const equal = left.toLowerCase() === right.toLowerCase()
+    return op === '=' ? equal : !equal
+  }
+  const leftNumber = typeof left === 'number' && Number.isFinite(left) ? left : numericText(left)
+  const rightNumber = typeof right === 'number' && Number.isFinite(right) ? right : numericText(right)
+  const mixed = typeof left === 'number' ? typeof right !== 'number' : typeof right === 'number'
+  if (mixed && leftNumber != null && rightNumber != null) {
+    if (op === '=') return leftNumber === rightNumber
+    if (op === '<>') return leftNumber !== rightNumber
+    if (op === '>') return leftNumber > rightNumber
+    if (op === '<') return leftNumber < rightNumber
+    if (op === '>=') return leftNumber >= rightNumber
+    if (op === '<=') return leftNumber <= rightNumber
+  }
+  return null
 }
 
 function compare(op: string, left: FormulaValue, right: FormulaValue): FormulaValue {

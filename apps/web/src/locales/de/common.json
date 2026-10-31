@@ -155,6 +155,7 @@
   "addRule": "Regel hinzufügen",
   "condition": "Bedingung",
   "firstRuleWins": "Die erste zutreffende Regel gilt.",
+  "conditionExamples": "Zum Beispiel IT = \"Open\", IT > 10 oder ISBLANK(IT).",
   "cellRulesReplace": "Diese Regeln ersetzen die Spaltenregeln für diese Zelle.",
   "moveUp": "Nach oben",
   "moveDown": "Nach unten",

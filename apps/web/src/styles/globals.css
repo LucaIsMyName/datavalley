@@ -25,6 +25,26 @@
   --primary-foreground: #dedede;
   --accent: #e5e6f4;
   --danger: #9f2d2d;
+  --swatch-amber-bg: #fde68a;
+  --swatch-amber-fg: #92400e;
+  --swatch-green-bg: #bbf7d0;
+  --swatch-green-fg: #166534;
+  --swatch-blue-bg: #bfdbfe;
+  --swatch-blue-fg: #1e40af;
+  --swatch-red-bg: #fecaca;
+  --swatch-red-fg: #991b1b;
+  --swatch-violet-bg: #e9d5ff;
+  --swatch-violet-fg: #5b21b6;
+  --swatch-orange-bg: #fed7aa;
+  --swatch-orange-fg: #9a3412;
+  --swatch-pink-bg: #fbcfe8;
+  --swatch-pink-fg: #9d174d;
+  --swatch-teal-bg: #99f6e4;
+  --swatch-teal-fg: #115e59;
+  --swatch-slate-bg: #e5e7eb;
+  --swatch-slate-fg: #374151;
+  --swatch-yellow-bg: #fef08a;
+  --swatch-yellow-fg: #854d0e;
   color-scheme: light;
 }
 
@@ -39,6 +59,26 @@
   --primary-foreground: #1b1923;
   --accent: #343434;
   --danger: #cf6a6a;
+  --swatch-amber-bg: #78350f;
+  --swatch-amber-fg: #fde68a;
+  --swatch-green-bg: #14532d;
+  --swatch-green-fg: #bbf7d0;
+  --swatch-blue-bg: #1e3a8a;
+  --swatch-blue-fg: #bfdbfe;
+  --swatch-red-bg: #7f1d1d;
+  --swatch-red-fg: #fecaca;
+  --swatch-violet-bg: #4c1d95;
+  --swatch-violet-fg: #e9d5ff;
+  --swatch-orange-bg: #7c2d12;
+  --swatch-orange-fg: #fed7aa;
+  --swatch-pink-bg: #831843;
+  --swatch-pink-fg: #fbcfe8;
+  --swatch-teal-bg: #134e4a;
+  --swatch-teal-fg: #99f6e4;
+  --swatch-slate-bg: #3f3f46;
+  --swatch-slate-fg: #e5e7eb;
+  --swatch-yellow-bg: #713f12;
+  --swatch-yellow-fg: #fef08a;
   color-scheme: dark;
 }
 

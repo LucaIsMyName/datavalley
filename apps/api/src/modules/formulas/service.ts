@@ -30,7 +30,7 @@ import {
   tables,
   users,
 } from '../../database/schema.js'
-import type { FormatRule } from '@datavalley/shared'
+import { swatchName, type FormatRule } from '@datavalley/shared'
 import { readCell } from '../../column-types/index.js'
 import { badRequest } from '../../errors.js'
 import { allows, loadGrants } from '../../security/access.js'
@@ -168,8 +168,11 @@ export async function compileCondition(db: AppDatabase, subject: Subject, tableI
 
 function formatColor(value: unknown) {
   if (value == null || value === '') return undefined
-  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) throw badRequest('Invalid color')
-  return value.toLowerCase()
+  if (typeof value !== 'string') throw badRequest('Invalid color')
+  const name = swatchName(value)
+  if (name) return name
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase()
+  throw badRequest('Invalid color')
 }
 
 export async function canonicalizeFormatRules(db: AppDatabase, subject: Subject, tableId: string, rules: unknown) {

@@ -155,6 +155,7 @@
   "addRule": "Add rule",
   "condition": "Condition",
   "firstRuleWins": "The first matching rule is used.",
+  "conditionExamples": "Try IT = \"Open\", IT > 10, or ISBLANK(IT).",
   "cellRulesReplace": "These rules replace the column rules for this cell.",
   "moveUp": "Move up",
   "moveDown": "Move down",

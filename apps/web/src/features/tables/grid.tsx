@@ -11,6 +11,7 @@ import { matchesCondition } from '@datavalley/formula-engine'
 import {
   conditionalStyle,
   moveSelection,
+  paintSwatch,
   type FilterNode,
   type FilterOperator,
   type FormatRule,
@@ -80,6 +81,7 @@ import { useFormulaWindow } from '../../stores/formula-window'
 import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { NotesDrawer } from './notes'
+import { Swatches } from './swatches'
 import { registerTableMenu } from './table-menu'
 import {
   historyFlags,
@@ -90,7 +92,6 @@ import {
   type RowSnap,
 } from './history'
 
-const SWATCHES = ['#fde68a', '#bbf7d0', '#bfdbfe', '#fecaca', '#e9d5ff', '#fed7aa', '#e5e7eb']
 const GUTTER_WIDTH = 60
 const ADD_COLUMN_WIDTH = 40
 
@@ -1797,7 +1798,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           return (
             <div
               className={`relative flex h-9 min-w-0 items-center overflow-hidden px-2 ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
-              style={{ color: ruleStyle.color, background: inFill && !picked ? undefined : background, fontWeight: ruleStyle.bold ? 700 : 400 }}
+              style={{ color: paintSwatch(ruleStyle.color, 'text'), background: inFill && !picked ? undefined : paintSwatch(background, 'background'), fontWeight: ruleStyle.bold ? 700 : 400 }}
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
               onClick={() => {
                 if (column.type !== 'row_id' && column.type !== 'checkbox') return
@@ -2530,6 +2531,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
           ) : null}
           {popover.kind === 'row-color' ? (
             <Swatches
+              role="background"
+              value={popoverRow?.color}
               onPick={(color) => {
                 if (checked.length > 1 && popover.rowId && checked.includes(popover.rowId))
                   void paintRows(color)
@@ -2538,7 +2541,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
             />
           ) : null}
           {popover.kind === 'cell-color' && popoverRow && popover.columnId ? (
-            <Swatches onPick={(color) => void paintCell(popoverRow, popover.columnId!, color)} />
+            <Swatches
+              role="background"
+              value={popoverRow.backgrounds?.[popover.columnId]}
+              onPick={(color) => void paintCell(popoverRow, popover.columnId!, color)}
+            />
           ) : null}
           {popover.kind === 'relation' && popoverColumn ? (
             <div className="flex flex-col gap-2">
@@ -2678,27 +2685,3 @@ function footerValue(
   return String(stats[calc as 'count' | 'unique' | 'empty' | 'filled'] ?? '')
 }
 
-function Swatches({ onPick }: { onPick: (color: string | null) => void }) {
-  const { t } = useTranslation()
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {SWATCHES.map((color) => (
-        <button
-          key={color}
-          type="button"
-          aria-label={color}
-          className="h-6 w-6 border border-border"
-          style={{ background: color }}
-          onClick={() => onPick(color)}
-        />
-      ))}
-      <button
-        type="button"
-        className="px-1 text-sm text-muted-foreground"
-        onClick={() => onPick(null)}
-      >
-        {t('clearColor')}
-      </button>
-    </div>
-  )
-}

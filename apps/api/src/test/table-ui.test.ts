@@ -172,7 +172,20 @@ describe('table interactions', () => {
       payload: { formatRules: [{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { color: '#112233', background: '#bbf7d0' } }] },
     })
     expect(formula.statusCode).toBe(200)
-    expect(formula.json().table.formatRules).toEqual([{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { color: '#112233', background: '#bbf7d0' } }])
+    expect(formula.json().table.formatRules).toEqual([{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { color: '#112233', background: 'green' } }])
+    const named = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${people?.id}`,
+      payload: { formatRules: [{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { background: 'green' } }] },
+    })
+    expect(named.statusCode).toBe(200)
+    expect(named.json().table.formatRules[0].style.background).toBe('green')
+    const unknown = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${people?.id}`,
+      payload: { formatRules: [{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { background: 'nope' } }] },
+    })
+    expect(unknown.statusCode).toBe(400)
     const lookup = await session.inject({
       method: 'PATCH',
       url: `/api/v1/tables/${people?.id}`,
