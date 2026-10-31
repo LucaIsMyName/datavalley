@@ -116,6 +116,15 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Header grid lines use inset shadows so they stay visible with sticky thead + border-collapse. */
+.table-grid thead th {
+  box-shadow:
+    inset 0 1px 0 var(--border),
+    inset 0 -1px 0 var(--border),
+    inset -1px 0 0 var(--border);
+}
+
 button:hover {
   cursor: pointer;
 }

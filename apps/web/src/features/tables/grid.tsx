@@ -104,6 +104,8 @@ import {
 } from './history'
 
 const GUTTER_WIDTH = 60
+const TABLE_GRID_DIVIDER = 'border-b border-r border-border'
+const TABLE_HEADER_CELL = 'bg-card'
 const ADD_COLUMN_WIDTH = 40
 
 type PopoverState = {
@@ -2181,13 +2183,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
           }}
         >
           <table
-            className="table-fixed border-collapse text-sm"
+            className="table-grid table-fixed border-collapse text-sm"
             style={{ width: GUTTER_WIDTH + columnsWidth + filler }}
           >
-            <thead className="sticky top-0 z-20 bg-muted">
+            <thead className="sticky top-0 z-20">
               <tr>
                 <th
-                  className="sticky left-0 z-30 h-10 border-b border-r border-border bg-muted p-0 text-left"
+                  className={`sticky left-0 z-30 h-10 p-0 text-left ${TABLE_HEADER_CELL}`}
                   style={{ width: GUTTER_WIDTH }}
                 >
                   {flexRender(
@@ -2201,7 +2203,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       <th
                         key={column.id}
                         data-column-id={column.id}
-                        className="h-10 border-b border-r border-border p-0"
+                        className={`h-10 p-0 ${TABLE_HEADER_CELL}`}
                         style={{ width: widths[column.id] ?? column.width }}
                       >
                         <button
@@ -2226,7 +2228,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     <th
                       key={column.id}
                       data-column-id={column.id}
-                      className={`group relative h-10 overflow-visible border-b border-r border-border px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : ''} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''}`}
+                      className={`group relative h-10 overflow-visible px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''}`}
                       style={{ width: widths[column.id] ?? column.width }}
                       onDragOver={(event: DragEvent) => {
                         const from = dragItem.current
@@ -2423,7 +2425,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     </th>
                   )
                 })}
-                <th className="border-b border-border p-0 align-start" style={{ width: filler }}>
+                <th className={`p-0 align-start ${TABLE_HEADER_CELL}`} style={{ width: filler }}>
                   <button
                     type="button"
                     aria-label={t('insertColumn')}
@@ -2496,7 +2498,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={`relative overflow-hidden border-b border-r border-border p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
+                        className={`relative overflow-hidden ${TABLE_GRID_DIVIDER} p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
                       >
                         {dropTarget?.kind === 'column' && dropTarget.id === cell.column.id ? (
                           <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
