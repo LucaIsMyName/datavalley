@@ -10,7 +10,7 @@ export function Badge({
 }: HTMLAttributes<HTMLSpanElement> & { color?: string }) {
   return (
     <span
-      className={cn('inline-flex items-center px-2 py-0.5 text-xs font-medium', className)}
+      className={cn('inline-flex font-mono rounded-full border border-border/50 items-center px-2 py-0.5 text-xs font-medium', className)}
       style={{ ...swatchStyle(color), ...style }}
       {...props}
     />

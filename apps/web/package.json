@@ -17,6 +17,8 @@
     "@datavalley/api-client": "*",
     "@datavalley/formula-engine": "*",
     "@datavalley/shared": "*",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@hookform/resolvers": "^5.1.1",
     "@lezer/highlight": "^1.2.5",
     "@radix-ui/react-checkbox": "^1.3.2",

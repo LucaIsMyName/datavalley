@@ -11,7 +11,25 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-accent: var(--accent);
   --color-danger: var(--danger);
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.doc-content code {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 65%, var(--card));
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+}
+
+.doc-content pre code {
+  font-size: inherit;
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
 }
 
 :root {

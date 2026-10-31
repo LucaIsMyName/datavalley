@@ -20,7 +20,7 @@ export function UserGuidePage() {
 
   return (
     <Page title={t('use')}>
-      <article className="max-w-3xl space-y-8 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
+      <article className="doc-content max-w-3xl space-y-8 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
         <section id="projects">
           <h2 className="text-lg font-semibold">{t('projectsTitle')}</h2>
           <p className="mt-2 text-muted-foreground">{t('projectsBody')}</p>
@@ -35,7 +35,7 @@ export function UserGuidePage() {
           <ul className="mt-4 flex flex-col gap-3">
             {(['ThisRow', 'Cell', 'Link', 'Column', 'Lookup'] as const).map((item) => (
               <li key={item}>
-                <code className="font-mono text-foreground">{t(`formulas${item}Code`)}</code>
+                <code>{t(`formulas${item}Code`)}</code>
                 <p className="text-muted-foreground">{t(`formulas${item}`)}</p>
               </li>
             ))}
@@ -43,7 +43,7 @@ export function UserGuidePage() {
           <ul className="mt-4 flex flex-col gap-3">
             {FORMULA_HELP.map((item) => (
               <li key={item.name}>
-                <code className="font-mono text-foreground">{item.example}</code>
+                <code>{item.example}</code>
                 <p className="text-muted-foreground">{t(`functions.${item.name}`)}</p>
               </li>
             ))}

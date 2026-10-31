@@ -22,8 +22,7 @@ const markdown = {
   a: ({ href, children }: { href?: string; children?: ReactNode }) => (
     <a href={href} className="underline">{children}</a>
   ),
-  code: ({ children, className }: { children?: ReactNode; className?: string }) =>
-    className ? <code className={className}>{children}</code> : <code className="font-mono text-foreground">{children}</code>,
+  code: ({ children, className }: { children?: ReactNode; className?: string }) => <code className={className}>{children}</code>,
   pre: ({ children }: { children?: ReactNode }) => <pre className="mt-2 overflow-x-auto bg-muted p-3 text-xs">{children}</pre>,
 }
 
@@ -45,7 +44,7 @@ export function DeveloperGuidePage() {
 
   return (
     <Page title={t('develop')}>
-      <article className="max-w-3xl space-y-8 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
+      <article className="doc-content max-w-3xl space-y-8 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
         {sections.map((section) => (
           <section key={section.id} id={section.id}>
             <Markdown components={markdown}>{section.source}</Markdown>

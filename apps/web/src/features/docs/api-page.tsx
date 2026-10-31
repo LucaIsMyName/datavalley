@@ -23,7 +23,7 @@ export function ApiReferencePage() {
 
   return (
     <Page title={t('api')}>
-      <article className="max-w-3xl space-y-10 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
+      <article className="doc-content max-w-3xl space-y-10 overflow-x-auto pb-6 text-sm leading-6 break-words [&_code]:break-all">
         {groups.map((group) => (
           <section key={group.id} id={group.id} className="space-y-4">
             <h2 className="text-lg font-semibold">{group.title}</h2>
@@ -31,7 +31,7 @@ export function ApiReferencePage() {
               <Card key={operation.id} className="space-y-3 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge color={methodColor[operation.method] ?? 'slate'}>{operation.method}</Badge>
-                  <code className="font-mono text-xs">{operation.url}</code>
+                  <code>{operation.url}</code>
                 </div>
                 <p className="text-muted-foreground">{operation.description}</p>
                 <ParamList label={t('pathParams')} params={operation.pathParams} empty={t('none')} />
@@ -67,7 +67,7 @@ function ParamList({
         <ul className="mt-1 flex flex-col gap-1">
           {params.map((param) => (
             <li key={param.name}>
-              <code className="font-mono text-foreground">{param.name}</code>
+              <code>{param.name}</code>
               <span className="text-muted-foreground">{` ${param.type}${param.required ? '' : ' (optional)'}`}</span>
             </li>
           ))}

@@ -125,7 +125,7 @@ const formulaTheme = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
     overflow: 'auto',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontFamily: 'var(--font-mono)',
     lineHeight: '1.5',
   },
   '.cm-content': { padding: '8px 0', caretColor: 'var(--foreground)' },
