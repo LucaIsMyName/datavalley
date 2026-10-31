@@ -28,16 +28,19 @@ IFNOT(Paid, "Open", "Done")
 
 `SUM`, `AVERAGE`, `MIN`, and `MAX` add only numbers. `COUNT` counts numbers. `COUNTA` counts values that are not empty. `ROUND` and `ABS` change a number. `LEFT`, `RIGHT`, `LEN`, `LOWER`, and `UPPER` read text. `TODAY` and `NOW` use the clock supplied by the caller.
 
-Editors can type a column name, `Table.Column`, and `Table.Column@rowId`. Saving rewrites those names to stable ids.
+A reference is written in brackets. Inside the brackets, spaces and dots are part of the name. Outside them, `.` is only a decimal. Saving rewrites brackets, and the older column name, `Table.Column`, and `Table.Column@rowId` forms, to stable ids.
 
 ```text
-SUM(Amount)
-LOOKUP(People.Email, Email, People.Name)
-RELATION(Customer, Name)
-People.Name@44444444-4444-4444-8444-444444444444
+[Column copy]
+1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #15]
+[Customer -> Price]
+SUM([People -> Column copy])
+LOOKUP([People -> Mail], [Email], [People -> Name])
 ```
 
-Stored references look like `{columnId}` for the current row, `{tableId}.{columnId}` for a whole column, and `{tableId}.{columnId}@{rowId}` for one cell. `LOOKUP` finds the first equal row and returns the result column. `RELATION` is resolved by the caller, which follows the row's link. A reference the caller cannot view becomes `#REF`. The hidden cell is not read.
+`[Column copy]` is that column on this row. `[People -> Column copy -> #15]` is one cell, and `#15` is the row number shown in the grid. `[Customer -> Price]` follows this row's Customer link and reads Price on the linked record. A link and a table that share a name follow the link when there are two names. Three names are always one cell. `[People -> Column copy]` is every row of that column. `+ - * / %` reject that list and the caller reports that the column is every row. `SUM`, `AVERAGE`, `MIN`, `MAX`, and `COUNT` fold it. A name that contains `]` or `->` is refused.
+
+Stored references look like `{columnId}` for the current row, `{tableId}.{columnId}` for a whole column, and `{tableId}.{columnId}@{rowId}` for one cell. Opening a formula shows the bracket form built from those ids. `LOOKUP` finds the first equal row and returns the result column. A two-name link is stored as `RELATION`, which the caller resolves by following the row's link. A reference the caller cannot view becomes `#REF`. The hidden cell is not read.
 
 The caller maps grid values before evaluation. Text, long text, mail, and url are text. Number and currency are numbers. A checkbox is a boolean. A date is `YYYY-MM-DD` and a datetime is ISO text. Status, select, and radio are labels. Tags, multi-select, and people are lists of labels. A relation value is the linked row's title. Media is null. A whole column keeps that list, including text and empty cells, so `COUNTIF` can see the labels.
 

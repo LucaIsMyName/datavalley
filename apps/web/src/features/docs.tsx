@@ -19,6 +19,14 @@ export function DocsPage() {
           <h2 className="text-lg font-semibold">{t('formulasTitle')}</h2>
           <p className="mt-2 text-muted-foreground">{t('formulasIntro')}</p>
           <ul className="mt-4 flex flex-col gap-3">
+            {(['ThisRow', 'Cell', 'Link', 'Column', 'Lookup'] as const).map((item) => (
+              <li key={item}>
+                <code className="font-mono text-foreground">{t(`formulas${item}Code`)}</code>
+                <p className="text-muted-foreground">{t(`formulas${item}`)}</p>
+              </li>
+            ))}
+          </ul>
+          <ul className="mt-4 flex flex-col gap-3">
             {FORMULA_HELP.map((item) => (
               <li key={item.name}>
                 <code className="font-mono text-foreground">{item.example}</code>

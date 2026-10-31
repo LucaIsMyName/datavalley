@@ -5,9 +5,19 @@
   "tablesTitle": "Tables",
   "tablesBody": "A table is a grid of columns and rows. Add a column with the + at the end of the header or between two headers, and choose the type before it is created. Drag a grip to reorder a column or a row. Sort and filter from the column header; those choices stay with your account. Select rows or columns to duplicate, color, or delete them. The bar at the bottom of the grid closes with X.",
   "formulasTitle": "Formulas",
-  "formulasIntro": "Each formula cell keeps its own expression. There is no = in front. A result is a number, text, a boolean, or a list of those. The cell shows a number as a number, text as text, TRUE or FALSE, and a list joined with a comma. An empty cell is empty. Write numbers as 1 and 3.5, text in quotes, and booleans as TRUE and FALSE. + - * / % work on numbers. & and CONCAT join text. = and <> compare two numbers, two texts, or two booleans. > < >= <= compare two numbers or two texts. Mixing a number with text is #VALUE. A column name reads this row. Table.Column reads a whole column. Table.Column@row reads one cell. Text, long text, mail, and url are text. Number and currency are numbers. A checkbox is TRUE or FALSE. A date is YYYY-MM-DD and a datetime is an ISO text. Status, select, and radio are the label you see. Tags, multi-select, and people are lists of labels. A relation used as a value is the linked row's title. The row id is the id shown in the grid. Media is empty. Errors are #CYCLE, #REF, #VALUE, #DIV/0, #LIM, and #N/A.",
+  "formulasIntro": "Each formula cell keeps its own expression. There is no = in front. A result is a number, text, a boolean, or a list of those. The cell shows a number as a number, text as text, TRUE or FALSE, and a list joined with a comma. An empty cell is empty. Write numbers as 1 and 3.5, text in quotes, and booleans as TRUE and FALSE. + - * / % work on numbers. & and CONCAT join text. = and <> compare two numbers, two texts, or two booleans. > < >= <= compare two numbers or two texts. Mixing a number with text is #VALUE. Name a column, a cell, or a link in brackets. Older names such as Amount and People.Name still work. Text, long text, mail, and url are text. Number and currency are numbers. A checkbox is TRUE or FALSE. A date is YYYY-MM-DD and a datetime is an ISO text. Status, select, and radio are the label you see. Tags, multi-select, and people are lists of labels. A relation used as a value is the linked row's title. The row id is the id shown in the grid. Media is empty. Errors are #CYCLE, #REF, #VALUE, #DIV/0, #LIM, and #N/A.",
+  "formulasThisRowCode": "[Column copy]",
+  "formulasThisRow": "That column on this row. [Qty] * [Price] multiplies two numbers on this row.",
+  "formulasCellCode": "1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #15]",
+  "formulasCell": "One cell. #15 is the row number in the grid, so the value is a number you can add. A space or a dot in the column name stays inside the brackets.",
+  "formulasLinkCode": "[Customer -> Price]",
+  "formulasLink": "Price on the record this row's Customer link points at. One link is one number. Several links is a list, so use SUM([Customer -> Price]).",
+  "formulasColumnCode": "SUM([People -> Column copy])",
+  "formulasColumn": "Every row of that column. A bracket with only a table and a column is a list, so math rejects it until SUM, AVERAGE, MIN, MAX, or COUNT folds it.",
+  "formulasLookupCode": "LOOKUP([People -> Mail], [Email], [People -> Name])",
+  "formulasLookup": "Finds a row by a matching value when there is no link. The first and third brackets are columns on the same table. The middle one is the value on this row.",
   "lookupTitle": "Lookup",
-  "lookupBody": "LOOKUP(Customers.Email, Email, Customers.Name) searches Customers.Email for the Email on this row and returns the Name from the matching row. The first and third arguments are columns on the same table. The middle argument is the value to find.",
+  "lookupBody": "LOOKUP([People -> Mail], [Email], [People -> Name]) searches People Mail for the Email on this row and returns the Name from the matching row. The first and third arguments are columns on the same table. The middle argument is the value to find.",
   "functions": {
     "SUM": "Adds the numbers in a column.",
     "AVERAGE": "Average of the numbers. Empty cells are skipped.",
@@ -39,7 +49,7 @@
     "UPPER": "Uppercase text.",
     "TODAY": "Today's date.",
     "NOW": "The current date and time.",
-    "LOOKUP": "Finds the first row whose match column equals the value, and returns the result column. No match is #N/A. A table you cannot view is #REF. LOOKUP(People.Email, Email, People.Name).",
-    "RELATION": "Follows this row's relation column and reads a field on the linked row. Several links return a list, so SUM still works. An empty link is empty. A target you cannot view is #REF. RELATION(Customer, Name)."
+    "LOOKUP": "Finds the first row whose match column equals the value, and returns the result column. No match is #N/A. A table you cannot view is #REF. LOOKUP([People -> Mail], [Email], [People -> Name]).",
+    "RELATION": "Follows this row's link and reads a field on the linked record. Write [Customer -> Price]. Several links return a list, so SUM still works. An empty link is empty. A target you cannot view is #REF."
   }
 }

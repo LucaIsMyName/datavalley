@@ -5,9 +5,19 @@
   "tablesTitle": "Tabellen",
   "tablesBody": "Eine Tabelle ist ein Raster aus Spalten und Zeilen. Eine Spalte kommt über das + am Ende der Überschrift oder zwischen zwei Überschriften; der Typ wird vorher gewählt. Am Griff ziehst du eine Spalte oder eine Zeile. Sortierung und Filter sitzen in der Überschrift und bleiben deinem Konto erhalten. Markierte Zeilen oder Spalten kannst du duplizieren, färben oder löschen. Die Leiste unten am Raster schließt du mit X.",
   "formulasTitle": "Formeln",
-  "formulasIntro": "Jede Formelzelle hat ihren eigenen Ausdruck. Setze kein = davor. Das Ergebnis ist eine Zahl, ein Text, ein Wahrheitswert oder eine Liste davon. Die Zelle zeigt eine Zahl als Zahl, Text als Text, TRUE oder FALSE, und eine Liste mit Komma getrennt. Eine leere Zelle ist leer. Zahlen schreibst du als 1 und 3.5, Text in Anführungszeichen, Wahrheitswerte als TRUE und FALSE. + - * / % gelten für Zahlen. & und CONCAT verbinden Text. = und <> vergleichen zwei Zahlen, zwei Texte oder zwei Wahrheitswerte. > < >= <= vergleichen zwei Zahlen oder zwei Texte. Eine Zahl mit Text gemischt ergibt #VALUE. Ein Spaltenname liest diese Zeile. Tabelle.Spalte liest eine ganze Spalte. Tabelle.Spalte@Zeile liest eine Zelle. Text, Langtext, Mail und URL sind Text. Zahl und Währung sind Zahlen. Ein Kontrollkästchen ist TRUE oder FALSE. Ein Datum ist JJJJ-MM-TT, ein Datum mit Uhrzeit ein ISO-Text. Status, Auswahl und Radio sind die Beschriftung. Tags, Mehrfachauswahl und Personen sind Listen von Beschriftungen. Eine Verknüpfung als Wert ist der Titel der verknüpften Zeile. Die Zeilen-ID ist die ID im Raster. Medien sind leer. Fehler sind #CYCLE, #REF, #VALUE, #DIV/0, #LIM und #N/A.",
+  "formulasIntro": "Jede Formelzelle hat ihren eigenen Ausdruck. Setze kein = davor. Das Ergebnis ist eine Zahl, ein Text, ein Wahrheitswert oder eine Liste davon. Die Zelle zeigt eine Zahl als Zahl, Text als Text, TRUE oder FALSE, und eine Liste mit Komma getrennt. Eine leere Zelle ist leer. Zahlen schreibst du als 1 und 3.5, Text in Anführungszeichen, Wahrheitswerte als TRUE und FALSE. + - * / % gelten für Zahlen. & und CONCAT verbinden Text. = und <> vergleichen zwei Zahlen, zwei Texte oder zwei Wahrheitswerte. > < >= <= vergleichen zwei Zahlen oder zwei Texte. Eine Zahl mit Text gemischt ergibt #VALUE. Eine Spalte, eine Zelle oder eine Verknüpfung steht in Klammern. Ältere Namen wie Amount und People.Name funktionieren weiter. Text, Langtext, Mail und URL sind Text. Zahl und Währung sind Zahlen. Ein Kontrollkästchen ist TRUE oder FALSE. Ein Datum ist JJJJ-MM-TT, ein Datum mit Uhrzeit ein ISO-Text. Status, Auswahl und Radio sind die Beschriftung. Tags, Mehrfachauswahl und Personen sind Listen von Beschriftungen. Eine Verknüpfung als Wert ist der Titel der verknüpften Zeile. Die Zeilen-ID ist die ID im Raster. Medien sind leer. Fehler sind #CYCLE, #REF, #VALUE, #DIV/0, #LIM und #N/A.",
+  "formulasThisRowCode": "[Column copy]",
+  "formulasThisRow": "Diese Spalte in dieser Zeile. [Qty] * [Price] multipliziert zwei Zahlen dieser Zeile.",
+  "formulasCellCode": "1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #15]",
+  "formulasCell": "Eine Zelle. #15 ist die Zeilennummer im Raster, der Wert ist also eine Zahl, die du addieren kannst. Ein Leerzeichen oder ein Punkt im Spaltennamen bleibt in der Klammer.",
+  "formulasLinkCode": "[Customer -> Price]",
+  "formulasLink": "Price auf dem Datensatz, auf den die Verknüpfung Customer dieser Zeile zeigt. Eine Verknüpfung ist eine Zahl. Mehrere Verknüpfungen sind eine Liste, also SUM([Customer -> Price]).",
+  "formulasColumnCode": "SUM([People -> Column copy])",
+  "formulasColumn": "Jede Zeile dieser Spalte. Eine Klammer mit nur Tabelle und Spalte ist eine Liste. Rechnung damit schlägt fehl, bis SUM, AVERAGE, MIN, MAX oder COUNT sie zu einer Zahl macht.",
+  "formulasLookupCode": "LOOKUP([People -> Mail], [Email], [People -> Name])",
+  "formulasLookup": "Findet eine Zeile über einen passenden Wert, wenn es keine Verknüpfung gibt. Die erste und die dritte Klammer sind Spalten derselben Tabelle. Die mittlere ist der Wert dieser Zeile.",
   "lookupTitle": "Nachschlagen",
-  "lookupBody": "LOOKUP(Customers.Email, Email, Customers.Name) sucht in Customers.Email die E-Mail dieser Zeile und gibt den Namen der passenden Zeile zurück. Das erste und das dritte Argument sind Spalten derselben Tabelle. Das mittlere Argument ist der gesuchte Wert.",
+  "lookupBody": "LOOKUP([People -> Mail], [Email], [People -> Name]) sucht in People die Mail dieser Zeile und gibt den Namen der passenden Zeile zurück. Das erste und das dritte Argument sind Spalten derselben Tabelle. Das mittlere Argument ist der gesuchte Wert.",
   "functions": {
     "SUM": "Addiert die Zahlen einer Spalte.",
     "AVERAGE": "Durchschnitt der Zahlen. Leere Zellen werden übersprungen.",
@@ -39,7 +49,7 @@
     "UPPER": "Text in Großbuchstaben.",
     "TODAY": "Das heutige Datum.",
     "NOW": "Das aktuelle Datum mit Uhrzeit.",
-    "LOOKUP": "Findet die erste Zeile, deren Vergleichsspalte dem Wert entspricht, und gibt die Ergebnisspalte zurück. Kein Treffer ist #N/A. Eine Tabelle, die du nicht sehen darfst, ist #REF. LOOKUP(People.Email, Email, People.Name).",
-    "RELATION": "Folgt der Verknüpfungsspalte dieser Zeile und liest ein Feld der verknüpften Zeile. Mehrere Verknüpfungen ergeben eine Liste, SUM bleibt also möglich. Eine leere Verknüpfung ist leer. Ein Ziel, das du nicht sehen darfst, ist #REF. RELATION(Customer, Name)."
+    "LOOKUP": "Findet die erste Zeile, deren Vergleichsspalte dem Wert entspricht, und gibt die Ergebnisspalte zurück. Kein Treffer ist #N/A. Eine Tabelle, die du nicht sehen darfst, ist #REF. LOOKUP([People -> Mail], [Email], [People -> Name]).",
+    "RELATION": "Folgt der Verknüpfung dieser Zeile und liest ein Feld des verknüpften Datensatzes. Schreibe [Customer -> Price]. Mehrere Verknüpfungen ergeben eine Liste, SUM bleibt also möglich. Eine leere Verknüpfung ist leer. Ein Ziel, das du nicht sehen darfst, ist #REF."
   }
 }

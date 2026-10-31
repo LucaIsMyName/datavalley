@@ -1,10 +1,15 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import {
+  bracketRowAsks,
   canonicalize,
   collectRefs,
+  displayFormula,
   parseFormula,
+  resolveBrackets,
   runFormula,
+  wholeColumnInMath,
   type AstNode,
+  type BracketCatalog,
   type FormulaValue,
   type RefNode,
 } from '@datavalley/formula-engine'
@@ -66,6 +71,86 @@ async function namesFor(db: AppDatabase, subject: Subject, tableId: string, expr
     if (seen.count === 1 && !names[name]) names[name] = seen.ref
   }
   return { table, names: bindCellNames(expression, names), grants }
+}
+
+async function catalogFor(db: AppDatabase, subject: Subject, tableId: string): Promise<BracketCatalog> {
+  const table = await requireTable(db, subject, tableId, 'view')
+  const grants = await loadGrants(db, subject)
+  const columns: BracketCatalog['columns'] = []
+  const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
+  for (const item of projectTables) {
+    if (!allows(subject, grants, 'view', { type: 'table', id: item.id, parents: { project: item.projectId } })) continue
+    for (const column of await loadColumns(db, item.id)) {
+      columns.push({ name: column.name, columnId: column.id, tableId: item.id, tableName: item.name })
+    }
+  }
+  const links: BracketCatalog['relations'] = []
+  for (const column of await loadColumns(db, table.id)) {
+    if (column.type !== 'relation') continue
+    const relationId = String(column.config.relationId ?? '')
+    const [relation] = relationId ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1) : []
+    if (!relation) continue
+    const [target] = await db.select().from(tables).where(eq(tables.id, relation.toTableId)).limit(1)
+    if (!target) continue
+    if (!allows(subject, grants, 'view', { type: 'table', id: target.id, parents: { project: target.projectId } })) continue
+    const fields = await loadColumns(db, target.id)
+    for (const field of fields) {
+      if (!columns.some((item) => item.columnId === field.id)) {
+        columns.push({ name: field.name, columnId: field.id, tableId: target.id, tableName: target.name })
+      }
+    }
+    links.push({
+      name: column.name,
+      columnId: column.id,
+      toTableId: target.id,
+      toTableName: target.name,
+      fields: fields.map((field) => ({ name: field.name, columnId: field.id })),
+    })
+  }
+  return { tableId: table.id, columns, relations: links, rows: [] }
+}
+
+async function rowsForBrackets(db: AppDatabase, asks: { tableName: string; rowNumber: number }[], catalog: BracketCatalog) {
+  const rows: BracketCatalog['rows'] = []
+  for (const ask of asks) {
+    const column = catalog.columns.find((item) => item.tableName === ask.tableName)
+    if (!column) continue
+    const [row] = await db
+      .select()
+      .from(tableRows)
+      .where(and(eq(tableRows.tableId, column.tableId), eq(tableRows.rowNumber, ask.rowNumber)))
+      .limit(1)
+    if (row) rows.push({ tableId: row.tableId, rowNumber: row.rowNumber, rowId: row.id })
+  }
+  return rows
+}
+
+function everyRowMessage(ref: RefNode, catalog: BracketCatalog) {
+  const column = catalog.columns.find((item) => item.columnId === ref.columnId && (!ref.tableId || item.tableId === ref.tableId))
+  const label = column ? `${column.tableName} -> ${column.name}` : 'That column'
+  return `${label} is every row. Choose one row, or wrap it in SUM.`
+}
+
+async function compileFormula(db: AppDatabase, subject: Subject, tableId: string, expression: string) {
+  const { names } = await namesFor(db, subject, tableId, expression)
+  const catalog = await catalogFor(db, subject, tableId)
+  let asks: { tableName: string; rowNumber: number }[]
+  try {
+    asks = bracketRowAsks(expression)
+  } catch (error) {
+    throw badRequest(error instanceof Error ? error.message : 'Invalid formula')
+  }
+  catalog.rows = await rowsForBrackets(db, asks, catalog)
+  let canonical: string
+  try {
+    canonical = canonicalize(resolveBrackets(expression, catalog), names)
+  } catch (error) {
+    throw badRequest(error instanceof Error ? error.message : 'Invalid formula')
+  }
+  const ast = parseFormula(canonical)
+  const listed = wholeColumnInMath(ast)
+  if (listed) throw badRequest(everyRowMessage(listed, catalog))
+  return { canonical, ast }
 }
 
 function sameValue(left: FormulaValue, right: FormulaValue) {
@@ -224,14 +309,7 @@ export async function saveFormula(db: AppDatabase, subject: Subject, columnId: s
     else await db.delete(formulas).where(eq(formulas.columnId, column.id))
     return { id: null, canonical: '', cycle: false }
   }
-  const { names } = await namesFor(db, subject, column.tableId, expression)
-  let canonical: string
-  try {
-    canonical = canonicalize(expression, names)
-  } catch (error) {
-    throw badRequest(error instanceof Error ? error.message : 'Invalid formula')
-  }
-  const ast = parseFormula(canonical)
+  const { canonical, ast } = await compileFormula(db, subject, column.tableId, expression)
   const refs = collectRefs(ast)
   const crosses = refs.some((ref) => ref.tableId && ref.tableId !== column.tableId)
   const rows = rowId
@@ -273,7 +351,19 @@ export async function readCellFormula(db: AppDatabase, subject: Subject, rowId: 
     .from(formulas)
     .where(and(eq(formulas.columnId, columnId), eq(formulas.rowId, rowId)))
     .limit(1)
-  return { source: formula?.source ?? '' }
+  if (!formula?.canonical) return { source: formula?.source ?? '' }
+  try {
+    const catalog = await catalogFor(db, subject, column.tableId)
+    const ast = parseFormula(formula.canonical)
+    const rowIds = [...new Set(collectRefs(ast).flatMap((ref) => (ref.rowId ? [ref.rowId] : [])))]
+    if (rowIds.length) {
+      const found = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
+      catalog.rows = found.map((row) => ({ tableId: row.tableId, rowNumber: row.rowNumber, rowId: row.id }))
+    }
+    return { source: displayFormula(formula.canonical, catalog) ?? formula.source }
+  } catch {
+    return { source: formula.source }
+  }
 }
 
 async function hasCycle(db: AppDatabase, columnId: string, rowId: string, refs: RefNode[]) {
@@ -421,7 +511,11 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     },
     relation: (fromColumnId, toColumnId) => related.get(`${fromColumnId}:${toColumnId}`) ?? { error: '#N/A' },
     column: (ref) => criteria.get(ref.columnId) ?? { error: '#REF' },
-    get: (ref) => values.get(refKey(ref, rowId)) ?? { error: '#REF' },
+    get: (ref) => {
+      const key = refKey(ref, rowId)
+      if (!values.has(key)) return { error: '#REF' }
+      return values.get(key) ?? null
+    },
   })
 }
 
@@ -473,14 +567,8 @@ export async function evaluateStored(db: AppDatabase, subject: Subject, formulaI
 }
 
 export async function previewFormula(db: AppDatabase, subject: Subject, tableId: string, expression: string, rowId?: string) {
-  const { names } = await namesFor(db, subject, tableId, expression)
-  let canonical: string
-  try {
-    canonical = canonicalize(expression, names)
-  } catch (error) {
-    throw badRequest(error instanceof Error ? error.message : 'Invalid formula')
-  }
-  const value = await evaluateAst(db, subject, parseFormula(canonical), rowId ?? '')
+  const { canonical, ast } = await compileFormula(db, subject, tableId, expression)
+  const value = await evaluateAst(db, subject, ast, rowId ?? '')
   return { canonical, value }
 }
 

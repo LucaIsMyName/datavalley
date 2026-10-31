@@ -35,8 +35,8 @@ export const FORMULA_HELP: FormulaHelp[] = [
   { name: 'UPPER', insert: 'UPPER()', example: 'UPPER(Code)' },
   { name: 'TODAY', insert: 'TODAY()', example: 'TODAY()' },
   { name: 'NOW', insert: 'NOW()', example: 'NOW()' },
-  { name: 'LOOKUP', insert: 'LOOKUP()', example: 'LOOKUP(People.Email, Email, People.Name)' },
-  { name: 'RELATION', insert: 'RELATION()', example: 'RELATION(Customer, Name)' },
+  { name: 'LOOKUP', insert: 'LOOKUP()', example: 'LOOKUP([People -> Mail], [Email], [People -> Name])' },
+  { name: 'RELATION', insert: 'RELATION()', example: '[Customer -> Price]' },
 ]
 
 export function formatFormulaValue(value: unknown): string {

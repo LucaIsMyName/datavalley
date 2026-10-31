@@ -167,7 +167,7 @@ describe('table fields', () => {
     expect(rows.find((row) => row.id === firstId)?.cells[totalId]).toBe(4)
     expect(rows.find((row) => row.id === secondId)?.cells[totalId]).toBe(6)
     const source = await session.inject({ method: 'GET', url: `/api/v1/rows/${firstId}/columns/${totalId}/formula` })
-    expect(source.json().source).toBe('Amount * 2')
+    expect(source.json().source).toBe('[Amount] * 2')
     const cleared = await session.inject({ method: 'POST', url: `/api/v1/rows/${firstId}/columns/${totalId}/formula`, payload: { expression: '' } })
     expect(cleared.statusCode).toBe(200)
     const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
@@ -351,6 +351,124 @@ describe('table fields', () => {
     const footer = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/footer` })
     expect(footer.statusCode).toBe(200)
     expect(footer.json().footer[columnId].median).toBe(2)
+  })
+
+  it('adds a number from another cell and keeps a linked field on that table', async () => {
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Bracket math' } })
+    const projectId = project.json().project.id as string
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const peopleId = (listed.json().tables as { id: string; name: string }[]).find((table) => table.name === 'People')?.id
+    expect(peopleId).toBeTruthy()
+    const copy = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${peopleId}/columns`,
+      payload: { name: 'Column copy', type: 'number' },
+    })
+    const copyId = copy.json().column.id as string
+    const peopleRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const sample = peopleRows.json().rows[0] as { id: string; version: number; rowNumber: number }
+    const patched = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${sample.id}`,
+      payload: { version: sample.version, cells: { [copyId]: 10 } },
+    })
+    expect(patched.statusCode).toBe(200)
+    const orders = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables`,
+      payload: { name: 'Orders' },
+    })
+    const ordersId = orders.json().table.id as string
+    const localName = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${ordersId}/columns`,
+      payload: { name: 'Name', type: 'text' },
+    })
+    const total = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${ordersId}/columns`,
+      payload: { name: 'Total', type: 'formula' },
+    })
+    const totalId = total.json().column.id as string
+    const order = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${ordersId}/rows`,
+      payload: { cells: { [localName.json().column.id as string]: 'Local' } },
+    })
+    const orderRow = order.json().row as { id: string; version: number }
+    const link = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${ordersId}/relations`,
+      payload: { toTableId: peopleId, cardinality: 'many_to_one', name: 'Customer' },
+    })
+    const linkId = link.json().relation.column.id as string
+    const linked = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${orderRow.id}`,
+      payload: { version: orderRow.version, cells: { [linkId]: sample.id } },
+    })
+    expect(linked.statusCode).toBe(200)
+    const expression = `1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #${sample.rowNumber}]`
+    const math = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId: peopleId, rowId: sample.id, expression },
+    })
+    expect(math.statusCode).toBe(200)
+    expect(math.json().value).toBeCloseTo(1 + 2 + 7 / 4 / 3.75646 + 10)
+    const empty = await session.inject({ method: 'POST', url: `/api/v1/tables/${peopleId}/rows`, payload: { cells: {} } })
+    expect(empty.statusCode).toBe(200)
+    const emptyId = empty.json().row.id as string
+    const listedPeople = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const emptyRow = (listedPeople.json().rows as { id: string; rowNumber: number }[]).find((row) => row.id === emptyId)
+    expect(emptyRow?.rowNumber).toBeGreaterThan(0)
+    const blank = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: {
+        tableId: peopleId,
+        rowId: sample.id,
+        expression: `1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #${emptyRow!.rowNumber}]`,
+      },
+    })
+    expect(blank.statusCode).toBe(200)
+    expect(blank.json().value).toBeCloseTo(1 + 2 + 7 / 4 / 3.75646)
+    const formula = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${peopleId}/columns`,
+      payload: { name: 'Total', type: 'formula' },
+    })
+    const formulaId = formula.json().column.id as string
+    const stored = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${sample.id}/columns/${formulaId}/formula`,
+      payload: { expression },
+    })
+    expect(stored.statusCode).toBe(200)
+    const source = await session.inject({ method: 'GET', url: `/api/v1/rows/${sample.id}/columns/${formulaId}/formula` })
+    expect(source.json().source).toBe(expression)
+    const related = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId: ordersId, rowId: orderRow.id, expression: '[Customer -> Name]' },
+    })
+    expect(related.statusCode).toBe(200)
+    expect(related.json().value).toBe('John Doe')
+    const listedColumn = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId: ordersId, rowId: orderRow.id, expression: '1 + [People -> Column copy]' },
+    })
+    expect(listedColumn.statusCode).toBe(400)
+    expect(listedColumn.json().error.message).toBe('People -> Column copy is every row. Choose one row, or wrap it in SUM.')
+    const orderSource = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${orderRow.id}/columns/${totalId}/formula`,
+      payload: { expression: '[Customer -> Name]' },
+    })
+    expect(orderSource.statusCode).toBe(200)
+    const opened = await session.inject({ method: 'GET', url: `/api/v1/rows/${orderRow.id}/columns/${totalId}/formula` })
+    expect(opened.json().source).toBe('[Customer -> Name]')
   })
 
   async function blankTable(name: string) {

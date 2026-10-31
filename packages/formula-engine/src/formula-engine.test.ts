@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { collectRefs, parseFormula, runFormula, canonicalize } from './index.js'
-import type { EvalContext, FormulaValue, RefNode } from './index.js'
+import { collectRefs, parseFormula, runFormula, canonicalize, displayFormula, resolveBrackets, wholeColumnInMath } from './index.js'
+import type { BracketCatalog, EvalContext, FormulaValue, RefNode } from './index.js'
 
 const column = '11111111-1111-4111-8111-111111111111'
 const other = '22222222-2222-4222-8222-222222222222'
@@ -135,6 +135,57 @@ describe('formula engine', () => {
       [`People.Name@${row}`]: { tableId: table, columnId: column, rowId: row },
     })
     expect(canonical).toBe(`{${table}}.{${column}}@{${row}}`)
+  })
+
+  it('resolves bracket references, including spaces, dots, and a linked field', () => {
+    const people = table
+    const orders = '55555555-5555-4555-8555-555555555555'
+    const localName = '66666666-6666-4666-8666-666666666666'
+    const peopleName = '77777777-7777-4777-8777-777777777777'
+    const dotted = '88888888-8888-4888-8888-888888888888'
+    const relation = '99999999-9999-4999-8999-999999999999'
+    const row = '44444444-4444-4444-8444-444444444444'
+    const catalog: BracketCatalog = {
+      tableId: orders,
+      columns: [
+        { name: 'Column copy', columnId: column, tableId: people, tableName: 'People' },
+        { name: 'Column. copy', columnId: dotted, tableId: people, tableName: 'People' },
+        { name: 'Name', columnId: localName, tableId: orders, tableName: 'Orders' },
+        { name: 'Name', columnId: peopleName, tableId: people, tableName: 'People' },
+        { name: 'Price', columnId: other, tableId: orders, tableName: 'Orders' },
+      ],
+      relations: [
+        {
+          name: 'Customer',
+          columnId: relation,
+          toTableId: people,
+          toTableName: 'People',
+          fields: [{ name: 'Name', columnId: peopleName }],
+        },
+      ],
+      rows: [{ tableId: people, rowNumber: 15, rowId: row }],
+    }
+    const cell = `1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #15]`
+    const resolved = resolveBrackets(cell, catalog)
+    expect(resolved).toBe(`1 + 2 + 7 / 4 / 3.75646 + {${people}}.{${column}}@{${row}}`)
+    expect(displayFormula(resolved, catalog)).toBe(cell)
+    expect(resolveBrackets('[People -> Column. copy]', catalog)).toBe(`{${people}}.{${dotted}}`)
+    expect(resolveBrackets('SUM([People -> Column copy])', catalog)).toBe(`SUM({${people}}.{${column}})`)
+    expect(resolveBrackets('[Customer -> Name]', catalog)).toBe(`RELATION({${relation}}, {${people}}.{${peopleName}})`)
+    expect(resolveBrackets('[Name]', catalog)).toBe(`{${localName}}`)
+    expect(resolveBrackets('CONCAT("[Name]", [Price])', catalog)).toBe(`CONCAT("[Name]", {${other}})`)
+    expect(wholeColumnInMath(parseFormula(resolveBrackets('1 + [People -> Column copy]', catalog)))).toEqual({
+      tableId: people,
+      columnId: column,
+    })
+    expect(wholeColumnInMath(parseFormula(resolveBrackets('SUM([People -> Column copy]) + [Price]', catalog)))).toBeNull()
+    expect(() => resolveBrackets('[People -> Column copy -> #99]', catalog)).toThrow(/Unknown row #99/)
+    expect(() =>
+      resolveBrackets('[A -> B]', {
+        ...catalog,
+        columns: [...catalog.columns, { name: 'A -> B', columnId: column, tableId: orders, tableName: 'Orders' }],
+      }),
+    ).toThrow(/cannot contain/)
   })
 
   it('looks up related values through the caller-supplied resolver', () => {

@@ -6,7 +6,7 @@ import { Link } from 'react-router'
 import { Button } from '../../components/ui/button'
 import { api } from '../../lib/api'
 import { FORMULA_HELP, formatFormulaValue } from './formula-help'
-import { insertSnippet, matchingFunctions } from './formula-insert'
+import { aggregateReference, cellReference, insertSnippet, lookupReference, matchingFunctions, relationReference, thisRowReference } from './formula-insert'
 
 type CatalogColumn = {
   tableId: string
@@ -27,7 +27,9 @@ type CatalogRelation = {
 
 type Catalog = { columns: CatalogColumn[]; relations: CatalogRelation[] }
 
-type Picker = 'row' | 'cell' | 'lookup' | 'relation'
+type Picker = 'row' | 'cell' | 'lookup' | 'relation' | 'column'
+
+const AGGREGATES = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT'] as const
 
 function rowLabel(row: Pick<RowRecord, 'id' | 'rowNumber' | 'cells'>) {
   const text = Object.values(row.cells).find((item) => typeof item === 'string' && item.trim())
@@ -193,10 +195,11 @@ export function FormulaDialog({
             </div>
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium">{t('formulaValues')}</p>
+              <p className="text-sm text-muted-foreground">{t('formulaValueHint')}</p>
               <div className="flex flex-wrap gap-1">
-                {(['row', 'cell', 'lookup', 'relation'] as const).map((mode) => (
+                {(['row', 'cell', 'relation', 'column', 'lookup'] as const).map((mode) => (
                   <Button key={mode} type="button" variant={picker === mode ? 'default' : 'outline'} onClick={() => setPicker(mode)}>
-                    {t(mode === 'row' ? 'formulaThisRow' : mode === 'cell' ? 'formulaAnotherCell' : mode === 'lookup' ? 'formulaLookup' : 'formulaRelation')}
+                    {t(pickerLabel(mode))}
                   </Button>
                 ))}
               </div>
@@ -204,7 +207,7 @@ export function FormulaDialog({
                 <ul className="max-h-48 overflow-y-auto rounded-md border border-border">
                   {here.map((column) => (
                     <li key={column.columnId}>
-                      <button type="button" className="block w-full px-2 py-1 text-left text-sm hover:bg-accent" onClick={() => insert(column.columnName)}>
+                      <button type="button" className="block w-full px-2 py-1 text-left text-sm hover:bg-accent" onClick={() => insert(thisRowReference(column.columnName))}>
                         {column.columnName}
                       </button>
                     </li>
@@ -214,6 +217,7 @@ export function FormulaDialog({
               {picker === 'cell' ? <CellPicker key={catalog.columns.length} columns={catalog.columns} onInsert={insert} /> : null}
               {picker === 'lookup' ? <LookupPicker key={catalog.columns.length} columns={catalog.columns} here={here} onInsert={insert} /> : null}
               {picker === 'relation' ? <RelationPicker key={catalog.relations.map((item) => item.columnId).join(',')} relations={catalog.relations} onInsert={insert} /> : null}
+              {picker === 'column' ? <ColumnPicker key={catalog.columns.length} columns={catalog.columns} onInsert={insert} /> : null}
             </div>
           </div>
           <div className="flex items-center justify-between gap-2">
@@ -246,7 +250,7 @@ function CellPicker({ columns, onInsert }: { columns: CatalogColumn[]; onInsert:
         {fields.map((item) => <option key={item.columnId} value={item.columnName}>{item.columnName}</option>)}
       </select>
       {table && field ? (
-        <RowSearch tableId={table.tableId} onPick={(row) => onInsert(`${table.tableName}.${field.columnName}@${row.id}`)} />
+        <RowSearch tableId={table.tableId} onPick={(row) => onInsert(cellReference(table.tableName, field.columnName, row.rowNumber))} />
       ) : null}
     </div>
   )
@@ -272,7 +276,7 @@ function LookupPicker({ columns, here, onInsert }: { columns: CatalogColumn[]; h
         {results.map((column) => <option key={column.columnId} value={column.columnId}>{column.tableName}.{column.columnName}</option>)}
       </select>
       {match && result && needle ? (
-        <Button type="button" variant="outline" onClick={() => onInsert(`LOOKUP(${match.tableName}.${match.columnName}, ${needle}, ${result.tableName}.${result.columnName})`)}>
+        <Button type="button" variant="outline" onClick={() => onInsert(lookupReference(match.tableName, match.columnName, needle, result.tableName, result.columnName))}>
           {t('formulaInsert')}
         </Button>
       ) : null}
@@ -296,7 +300,7 @@ function RelationPicker({ relations, onInsert }: { relations: CatalogRelation[];
         {relation.columns.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
       </select>
       {chosen ? (
-        <Button type="button" variant="outline" onClick={() => onInsert(`RELATION(${relation.name}, ${chosen.name})`)}>
+        <Button type="button" variant="outline" onClick={() => onInsert(relationReference(relation.name, chosen.name))}>
           {t('formulaInsert')}
         </Button>
       ) : null}
@@ -304,17 +308,46 @@ function RelationPicker({ relations, onInsert }: { relations: CatalogRelation[];
   )
 }
 
-function RowSearch({ tableId, onPick }: { tableId: string; onPick: (row: { id: string; label: string }) => void }) {
+function ColumnPicker({ columns, onInsert }: { columns: CatalogColumn[]; onInsert: (snippet: string) => void }) {
+  const { t } = useTranslation()
+  const tables = uniqueTables(columns)
+  const [tableId, setTableId] = useState(tables[0]?.tableId ?? '')
+  const fields = columns.filter((column) => column.tableId === tableId)
+  const [columnName, setColumnName] = useState(fields[0]?.columnName ?? '')
+  const [aggregate, setAggregate] = useState<(typeof AGGREGATES)[number]>('SUM')
+  const table = tables.find((item) => item.tableId === tableId)
+  const field = fields.find((item) => item.columnName === columnName) ?? fields[0]
+  return (
+    <div className="flex flex-col gap-2">
+      <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('targetTable')} value={tableId} onChange={(event) => { setTableId(event.target.value); setColumnName('') }}>
+        {tables.map((item) => <option key={item.tableId} value={item.tableId}>{item.tableName}</option>)}
+      </select>
+      <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('formulaField')} value={field?.columnName ?? ''} onChange={(event) => setColumnName(event.target.value)}>
+        {fields.map((item) => <option key={item.columnId} value={item.columnName}>{item.columnName}</option>)}
+      </select>
+      <select className="h-9 rounded-md border border-border bg-card px-2 text-sm" aria-label={t('formulaAggregate')} value={aggregate} onChange={(event) => setAggregate(event.target.value as (typeof AGGREGATES)[number])}>
+        {AGGREGATES.map((item) => <option key={item} value={item}>{item}</option>)}
+      </select>
+      {table && field ? (
+        <Button type="button" variant="outline" onClick={() => onInsert(aggregateReference(aggregate, table.tableName, field.columnName))}>
+          {t('formulaInsert')}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function RowSearch({ tableId, onPick }: { tableId: string; onPick: (row: { id: string; label: string; rowNumber: number }) => void }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const [rows, setRows] = useState<{ id: string; label: string }[]>([])
+  const [rows, setRows] = useState<{ id: string; label: string; rowNumber: number }[]>([])
   useEffect(() => {
     const handle = setTimeout(() => {
       const params = new URLSearchParams({ limit: '20' })
       if (query.trim()) params.set('q', query.trim())
       void api
         .request<{ rows: RowRecord[] }>(`/tables/${tableId}/rows?${params}`)
-        .then((result) => setRows(result.rows.map((row) => ({ id: row.id, label: rowLabel(row) }))))
+        .then((result) => setRows(result.rows.map((row) => ({ id: row.id, label: rowLabel(row), rowNumber: row.rowNumber }))))
         .catch(() => setRows([]))
     }, 250)
     return () => clearTimeout(handle)
@@ -340,6 +373,14 @@ function RowSearch({ tableId, onPick }: { tableId: string; onPick: (row: { id: s
       </ul>
     </div>
   )
+}
+
+function pickerLabel(mode: Picker) {
+  if (mode === 'row') return 'formulaThisRow'
+  if (mode === 'cell') return 'formulaAnotherCell'
+  if (mode === 'lookup') return 'formulaLookup'
+  if (mode === 'relation') return 'formulaRelation'
+  return 'formulaWholeColumn'
 }
 
 function uniqueTables(columns: CatalogColumn[]) {

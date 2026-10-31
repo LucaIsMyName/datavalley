@@ -1,6 +1,8 @@
 export { LIMITS, astDepth, collectRefs, isFormulaError } from './ast.js'
 export type { AstNode, FormulaErrorValue, FormulaScalar, FormulaValue, RefNode } from './ast.js'
 export { FormulaLimitError, FormulaSyntaxError, parseFormula } from './parse.js'
+export { bracketRowAsks, displayFormula, resolveBrackets, wholeColumnInMath } from './brackets.js'
+export type { BracketCatalog, BracketColumn, BracketRelation, BracketRow } from './brackets.js'
 export { runFormula } from './eval.js'
 export type { EvalContext } from './eval.js'
 
