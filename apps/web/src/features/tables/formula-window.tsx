@@ -117,12 +117,8 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      if (menu) {
-        setMenu(null)
-        return
-      }
-      useFormulaWindow.getState().close()
+      if (event.key !== 'Escape' || !menu) return
+      setMenu(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
