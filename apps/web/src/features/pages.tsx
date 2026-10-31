@@ -20,6 +20,7 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../components/ui/select'
 import { ConfirmDialog, PromptDialog } from '../components/confirm-dialog'
+import { DocumentTitle } from '../components/document-title'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states'
 import { patchCachedTable } from './tables/cache'
 import { pushCommand } from './tables/history'
@@ -68,7 +69,9 @@ export function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center p-4 md:p-6">
+    <>
+      <DocumentTitle segments={[t('login')]} />
+      <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('login')}</h1>
         <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
@@ -88,6 +91,7 @@ export function LoginPage() {
         </form>
       </Card>
     </main>
+    </>
   )
 }
 
@@ -96,7 +100,9 @@ export function ChangePasswordPage() {
   const navigate = useNavigate()
   const [error, setError] = useState('')
   return (
-    <main className="grid min-h-screen place-items-center p-4 md:p-6">
+    <>
+      <DocumentTitle segments={[t('changePassword')]} />
+      <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('changePassword')}</h1>
         <form
@@ -126,6 +132,7 @@ export function ChangePasswordPage() {
         </form>
       </Card>
     </main>
+    </>
   )
 }
 
@@ -134,7 +141,9 @@ export function ForgotPasswordPage() {
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
   return (
-    <main className="grid min-h-screen place-items-center p-4 md:p-6">
+    <>
+      <DocumentTitle segments={[t('forgotPassword')]} />
+      <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('forgotPassword')}</h1>
         <form
@@ -163,6 +172,7 @@ export function ForgotPasswordPage() {
         </form>
       </Card>
     </main>
+    </>
   )
 }
 
@@ -173,7 +183,9 @@ export function ResetPasswordPage() {
   const token = params.get('token') ?? ''
   const [error, setError] = useState(token ? '' : t('invalidResetLink'))
   return (
-    <main className="grid min-h-screen place-items-center p-4 md:p-6">
+    <>
+      <DocumentTitle segments={[t('resetPassword')]} />
+      <main className="grid min-h-screen place-items-center p-4 md:p-6">
       <Card className="w-full max-w-sm p-6">
         <h1 className="text-xl font-semibold">{t('resetPassword')}</h1>
         <form
@@ -201,6 +213,7 @@ export function ResetPasswordPage() {
         </form>
       </Card>
     </main>
+    </>
   )
 }
 

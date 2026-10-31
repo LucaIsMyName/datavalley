@@ -6,6 +6,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { applyTheme, useSession } from '../stores/session'
 import { Breadcrumbs } from '../components/breadcrumbs'
+import { RouteDocumentTitle } from '../components/document-title'
 import { ContextMenuProvider } from '../components/context-menu'
 import { HeaderSearch } from '../components/command-palette'
 import { Button } from '../components/ui/button'
@@ -144,6 +145,7 @@ export function AppShell() {
 
   return (
     <ContextMenuProvider>
+      <RouteDocumentTitle />
       <div className="flex h-screen overflow-hidden">
         <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card p-3 md:flex">
           <SideNav />

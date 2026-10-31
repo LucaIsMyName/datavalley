@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronRight } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useMatch } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import type { Project, TableRecord } from '@datavalley/api-client'
 import { api } from '../lib/api'
 import { fitCrumbs } from '../lib/fit-crumbs'
+import { projectRouteParams } from './project-route'
 
 export type Crumb = { label: string; to?: string }
 
@@ -20,10 +21,7 @@ export function useCrumbs(): Crumb[] {
   const { t } = useTranslation()
   const { t: td } = useTranslation('docs')
   const { pathname } = useLocation()
-  const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
-  const projectMatch = useMatch('/projects/:projectId')
-  const projectId = tableMatch?.params.projectId ?? projectMatch?.params.projectId ?? ''
-  const tableId = tableMatch?.params.tableId ?? ''
+  const { projectId, tableId } = projectRouteParams(pathname)
   const project = useQuery({
     queryKey: ['project', projectId],
     enabled: Boolean(projectId),

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { HelmetProvider } from 'react-helmet-async'
 import { Navigate, Outlet, createBrowserRouter } from 'react-router'
 import { LoadingBlock } from '../components/states'
 import { api } from '../lib/api'
@@ -62,7 +63,18 @@ function RequireAdmin() {
   return <Outlet />
 }
 
+function RootWithHelmet() {
+  return (
+    <HelmetProvider>
+      <Outlet />
+    </HelmetProvider>
+  )
+}
+
 export const router = createBrowserRouter([
+  {
+    element: <RootWithHelmet />,
+    children: [
   { path: '/login', element: <LoginPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
@@ -111,6 +123,8 @@ export const router = createBrowserRouter([
           },
         ],
       },
+    ],
+  },
     ],
   },
 ])
