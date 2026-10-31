@@ -1,7 +1,7 @@
 {
   "title": "Documentation",
   "projectsTitle": "Projects",
-  "projectsBody": "Create a project from the Projects page. The name starts as Name and is selected, so typing replaces it. Start with a Customers table adds a People table with Name, Mail, and one sample row. Open a project to edit its description. Right-click a project to rename or delete it.",
+  "projectsBody": "Create a project from the Projects page. The name starts as Name and is selected, so typing replaces it. Start with a Customers table adds a People table with Name, Mail, and one sample row. Open a project and use the info button beside the name to edit its description. Right-click a project to rename or delete it.",
   "tablesTitle": "Tables",
   "tablesBody": "A table is a grid of columns and rows. Add a column with the + at the end of the header or between two headers, and choose the type before it is created. Drag a grip to reorder a column or a row. Sort and filter from the column header; those choices stay with your account. Select rows or columns to duplicate, color, or delete them. The bar at the bottom of the grid closes with X.",
   "formulasTitle": "Formulas",

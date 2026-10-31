@@ -1,9 +1,9 @@
-import { and, eq, isNull } from 'drizzle-orm'
-import { isResourceIcon, projectOwnerActions, type Action } from '@datavalley/shared'
+import { and, asc, eq, isNull, notInArray, sql } from 'drizzle-orm'
+import { escapeLike, isResourceIcon, projectOwnerActions, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { permissionGrants, projectMembers, projects, users } from '../../database/schema.js'
-import { badRequest, notFound } from '../../errors.js'
-import { assertCan, replaceGrants } from '../../security/access.js'
+import { AppError, badRequest, notFound } from '../../errors.js'
+import { allows, assertCan, loadGrants, replaceGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { seedCustomers, seedStarter } from '../tables/template.js'
@@ -119,6 +119,32 @@ export async function listMembers(db: AppDatabase, subject: Subject, projectId: 
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .where(eq(projectMembers.projectId, projectId))
   return members
+}
+
+export async function listDirectory(db: AppDatabase, subject: Subject, projectId: string, query: string) {
+  const project = await getProject(db, subject, projectId)
+  const grants = await loadGrants(db, subject)
+  if (!allows(subject, grants, 'manage_permissions', { type: 'project', id: projectId })) {
+    throw new AppError(403, 'forbidden', 'Permission required')
+  }
+  const members = await db
+    .select({ userId: projectMembers.userId })
+    .from(projectMembers)
+    .where(eq(projectMembers.projectId, projectId))
+  const memberIds = members.map((member) => member.userId)
+  const q = query.trim()
+  const filters = [eq(users.organizationId, project.organizationId)]
+  if (memberIds.length > 0) filters.push(notInArray(users.id, memberIds))
+  if (q) {
+    const pattern = `%${escapeLike(q)}%`
+    filters.push(sql`(${users.username} ILIKE ${pattern} ESCAPE '\\' OR ${users.email} ILIKE ${pattern} ESCAPE '\\')`)
+  }
+  return db
+    .select({ id: users.id, username: users.username, email: users.email })
+    .from(users)
+    .where(and(...filters))
+    .orderBy(asc(users.username))
+    .limit(q ? 20 : 8)
 }
 
 export async function addMember(db: AppDatabase, subject: Subject, projectId: string, username: string) {

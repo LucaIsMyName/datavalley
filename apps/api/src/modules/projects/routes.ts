@@ -8,6 +8,7 @@ import {
   createProject,
   deleteProject,
   getProject,
+  listDirectory,
   listMembers,
   listProjects,
   removeMember,
@@ -64,6 +65,13 @@ export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
   app.post('/projects/:id/restore', async (request) => {
     if (!request.subject) throw unauthorized()
     return { project: await setArchived(db, request.subject, (request.params as { id: string }).id, false) }
+  })
+
+  app.get('/projects/:id/directory', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const query = request.query as { q?: string }
+    const params = request.params as { id: string }
+    return { users: await listDirectory(db, request.subject, params.id, query.q ?? '') }
   })
 
   app.get('/projects/:id/members', async (request) => {

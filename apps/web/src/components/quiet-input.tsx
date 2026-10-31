@@ -5,6 +5,8 @@ export function QuietInput({
   label,
   className,
   autoFocus = false,
+  fit = false,
+  fitMaxClass = 'max-w-48',
   inputRef,
   onDraft,
   onFlush,
@@ -15,6 +17,8 @@ export function QuietInput({
   label: string
   className: string
   autoFocus?: boolean
+  fit?: boolean
+  fitMaxClass?: string
   inputRef?: { current: HTMLInputElement | null }
   onDraft: (value: string) => void
   onFlush: () => void
@@ -27,7 +31,7 @@ export function QuietInput({
   useEffect(() => {
     if (!focused.current) setText(value)
   }, [value])
-  return (
+  const field = (
     <input
       ref={(node) => {
         localRef.current = node
@@ -35,7 +39,8 @@ export function QuietInput({
       }}
       autoFocus={autoFocus}
       aria-label={label}
-      className={className}
+      size={fit ? 1 : undefined}
+      className={fit ? `${className} col-start-1 row-start-1 w-full min-w-0 truncate` : className}
       value={text}
       onFocus={() => {
         focused.current = true
@@ -58,5 +63,14 @@ export function QuietInput({
       onClick={(event) => event.stopPropagation()}
       onContextMenu={onContextMenu}
     />
+  )
+  if (!fit) return field
+  return (
+    <span className={`inline-grid min-w-0 ${fitMaxClass}`}>
+      <span aria-hidden className={`invisible col-start-1 row-start-1 block w-max min-w-0 truncate ${fitMaxClass} ${className}`}>
+        {text || '\u00a0'}
+      </span>
+      {field}
+    </span>
   )
 }

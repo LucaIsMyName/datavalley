@@ -87,4 +87,45 @@ describe('workspace library', () => {
       }),
     )
   })
+
+  it('lists people who can be added to a project', async () => {
+    const names = ['dira', 'dirb', 'dirc', 'dird', 'dire']
+    for (const username of names) {
+      await createUser(harness.db, harness.env, harness.organizationId, {
+        username,
+        email: `${username}@example.com`,
+        password,
+        role: 'user',
+      })
+    }
+    const viewer = await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'dirview',
+      email: 'dirview@example.com',
+      password,
+      role: 'user',
+    })
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Directory' } })
+    const projectId = project.json().project.id as string
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/directory` })
+    expect(listed.statusCode).toBe(200)
+    const usernames = (listed.json().users as { username: string }[]).map((user) => user.username)
+    expect(usernames.length).toBeGreaterThanOrEqual(5)
+    expect(usernames).toEqual(expect.arrayContaining(names))
+    expect(usernames).not.toContain('ada')
+
+    const searched = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/directory?q=dirc` })
+    expect(searched.json().users).toEqual([expect.objectContaining({ username: 'dirc', email: 'dirc@example.com' })])
+
+    const granted = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/permissions`,
+      payload: { userId: viewer.id, grants: [{ action: 'view', effect: 'allow' }] },
+    })
+    expect(granted.statusCode).toBe(200)
+    const viewerSession = await new ApiSession(harness.app).prepare()
+    const signedIn = await login(viewerSession, 'dirview', password)
+    expect(signedIn.statusCode).toBe(200)
+    const denied = await viewerSession.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/directory` })
+    expect(denied.statusCode).toBe(403)
+  })
 })

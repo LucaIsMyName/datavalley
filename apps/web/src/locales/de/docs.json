@@ -1,7 +1,7 @@
 {
   "title": "Dokumentation",
   "projectsTitle": "Projekte",
-  "projectsBody": "Ein Projekt wird auf der Seite Projekte angelegt. Der Name ist mit „Name“ vorausgefüllt und markiert, damit Tippen ihn ersetzt. „Mit einer Kundentabelle starten“ legt eine Personen-Tabelle mit Name, Mail und einer Beispielzeile an. In einem geöffneten Projekt bearbeitest du die Beschreibung. Ein Rechtsklick benennt das Projekt um oder löscht es.",
+  "projectsBody": "Ein Projekt wird auf der Seite Projekte angelegt. Der Name ist mit „Name“ vorausgefüllt und markiert, damit Tippen ihn ersetzt. „Mit einer Kundentabelle starten“ legt eine Personen-Tabelle mit Name, Mail und einer Beispielzeile an. In einem geöffneten Projekt öffnest du die Beschreibung über die Info-Schaltfläche neben dem Namen. Ein Rechtsklick benennt das Projekt um oder löscht es.",
   "tablesTitle": "Tabellen",
   "tablesBody": "Eine Tabelle ist ein Raster aus Spalten und Zeilen. Eine Spalte kommt über das + am Ende der Überschrift oder zwischen zwei Überschriften; der Typ wird vorher gewählt. Am Griff ziehst du eine Spalte oder eine Zeile. Sortierung und Filter sitzen in der Überschrift und bleiben deinem Konto erhalten. Markierte Zeilen oder Spalten kannst du duplizieren, färben oder löschen. Die Leiste unten am Raster schließt du mit X.",
   "formulasTitle": "Formeln",

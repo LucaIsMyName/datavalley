@@ -2079,7 +2079,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     </th>
                   )
                 })}
-                <th className="border-b border-border p-0" style={{ width: filler }}>
+                <th className="border-b border-border p-0 align-start" style={{ width: filler }}>
                   <button
                     type="button"
                     aria-label={t('insertColumn')}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Info, Plus } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -371,7 +372,6 @@ function ProjectDescription({ projectId, value }: { projectId: string; value: st
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [text, setText] = useState(value)
-  const area = useRef<HTMLTextAreaElement>(null)
   const focused = useRef(false)
   const baseline = useRef(value)
   useEffect(() => {
@@ -379,21 +379,10 @@ function ProjectDescription({ projectId, value }: { projectId: string; value: st
     setText(value)
     baseline.current = value
   }, [value])
-  useEffect(() => {
-    const node = area.current
-    if (!node) return
-    node.style.minHeight = '0px'
-    node.style.height = '0px'
-    const next = node.scrollHeight
-    node.style.minHeight = ''
-    node.style.height = next > 0 ? `${next}px` : ''
-  }, [text])
   return (
     <textarea
-      ref={area}
-      rows={1}
       aria-label={t('description')}
-      className="min-h-5 w-full shrink-0 resize-none overflow-hidden bg-transparent text-sm leading-5 text-muted-foreground outline-none"
+      className="min-h-40 w-full flex-1 resize-none rounded-md border border-border bg-transparent p-2 text-sm leading-5 outline-none"
       value={text}
       placeholder={t('description')}
       onFocus={() => { focused.current = true }}
@@ -441,10 +430,17 @@ export function ProjectPage() {
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
   const [membersOpen, setMembersOpen] = useState(false)
+  const [descriptionOpen, setDescriptionOpen] = useState(false)
+  const [memberName, setMemberName] = useState('')
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
   const tables = useQuery({ queryKey: ['tables', projectId], queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`) })
   const members = useQuery({ queryKey: ['members', projectId], enabled: membersOpen, queryFn: () => api.request<{ members: { userId: string; username: string }[] }>(`/projects/${projectId}/members`) })
+  const directory = useQuery({
+    queryKey: ['directory', projectId, memberName],
+    enabled: membersOpen,
+    queryFn: () => api.request<{ users: { id: string; username: string; email: string }[] }>(`/projects/${projectId}/directory?q=${encodeURIComponent(memberName)}`),
+  })
   const record = project.data?.project
   const tableRows = tables.data?.tables ?? []
   const active = tableRows.find((table) => table.id === tableId)
@@ -532,36 +528,39 @@ export function ProjectPage() {
       <header className="flex shrink-0 flex-col gap-3 px-4 pt-4 md:px-6 md:pt-6">
         <div className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div
-            className="flex min-w-0 flex-1 items-center gap-2"
+            className="flex min-w-0 items-center gap-2"
             {...pressMenuProps(openMenu, pressTimer, pressOrigin, favoriteProject)}
           >
             <IconButton name={record?.icon ?? 'FolderKanban'} onChange={(icon) => void saveIcon('project', projectId, icon)} />
-            <h1 aria-label={record?.name ?? t('projects')} className="min-w-0 flex-1">
+            <h1 aria-label={record?.name ?? t('projects')} className="min-w-0">
               <QuietInput
+                fit
+                fitMaxClass="max-w-[min(28rem,calc(100vw-9rem))]"
                 label={t('name')}
-                className="h-8 w-full min-w-0 bg-transparent text-xl font-semibold outline-none"
+                className="h-8 bg-transparent px-0 text-xl font-semibold outline-none"
                 value={record?.name ?? ''}
                 onDraft={scheduleProjectName}
                 onFlush={() => void sync.flush(`project:${projectId}:name`)}
                 onCancel={() => sync.cancel(`project:${projectId}:name`)}
               />
             </h1>
+            <button
+              type="button"
+              aria-label={t('info')}
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                setDescriptionOpen(true)
+              }}
+            >
+              <Info className="size-4" />
+            </button>
           </div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setMembersOpen(true)}>{t('members')}</Button>
-            <Button
-              type="button"
-              onClick={async () => {
-                const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
-                await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
-                navigate(`/projects/${projectId}/tables/${created.table.id}`, { state: { focusName: true } })
-              }}
-            >
-              {t('newTable')}
-            </Button>
           </div>
         </div>
-        <ProjectDescription projectId={projectId} value={record?.description ?? ''} />
         <div className="flex h-11 items-end gap-1 overflow-x-auto">
           {tableRows.map((table) => {
             const current = table.id === tableId
@@ -605,22 +604,35 @@ export function ProjectPage() {
                 <IconButton name={table.icon} onChange={(icon) => void saveIcon('table', table.id, icon)} />
                 {current ? (
                   <QuietInput
+                    fit
                     inputRef={nameRef}
                     label={t('tableName')}
-                    className="h-8 w-36 max-w-48 bg-transparent text-sm font-medium outline-none"
+                    className="h-8 bg-transparent px-0 text-sm font-medium outline-none"
                     value={table.name}
                     onDraft={(next) => scheduleTableName(table, next)}
                     onFlush={() => void sync.flush(`table:${table.id}:name`)}
                     onCancel={() => sync.cancel(`table:${table.id}:name`)}
                   />
                 ) : (
-                  <Link to={`/projects/${projectId}/tables/${table.id}`} className="max-w-48 truncate text-sm">
+                  <Link to={`/projects/${projectId}/tables/${table.id}`} className="inline-block w-max max-w-48 truncate text-sm font-medium">
                     {table.name}
                   </Link>
                 )}
               </div>
             )
           })}
+          <button
+            type="button"
+            className="flex h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-t-md border border-transparent px-2 text-sm font-medium"
+            onClick={async () => {
+              const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables`, { method: 'POST', body: JSON.stringify({}) })
+              await queryClient.invalidateQueries({ queryKey: ['tables', projectId] })
+              navigate(`/projects/${projectId}/tables/${created.table.id}`, { state: { focusName: true } })
+            }}
+          >
+            <Plus className="size-4" />
+            {t('newTable')}
+          </button>
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
@@ -632,27 +644,75 @@ export function ProjectPage() {
           <Outlet />
         )}
       </div>
-      <Dialog.Root open={membersOpen} onOpenChange={setMembersOpen}>
+      <Dialog.Root
+        open={descriptionOpen}
+        onOpenChange={(open) => {
+          if (!open) void sync.flush(`project:${projectId}:description`)
+          setDescriptionOpen(open)
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/20" />
+          <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col gap-3 border-l border-border bg-card p-4 shadow-lg">
+            <Dialog.Title className="text-lg font-semibold">{t('description')}</Dialog.Title>
+            <Dialog.Description className="sr-only">{t('description')}</Dialog.Description>
+            <ProjectDescription projectId={projectId} value={record?.description ?? ''} />
+            <Dialog.Close className="self-end rounded-md border border-border px-3 py-1.5 text-sm">{t('cancel')}</Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root
+        open={membersOpen}
+        onOpenChange={(open) => {
+          setMembersOpen(open)
+          if (!open) setMemberName('')
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-card p-4 shadow-md">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[min(32rem,calc(100vh-2rem))] w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-md border border-border bg-card p-4 shadow-md">
             <Dialog.Title className="text-base font-semibold">{t('members')}</Dialog.Title>
             <ul className="mt-3 min-h-8 text-sm">
               {members.data?.members.map((member) => <li key={member.userId} className="min-h-9 py-1">{member.username}</li>)}
             </ul>
             <form
-              className="mt-3 flex flex-col gap-2 sm:flex-row"
+              className="mt-3"
               onSubmit={async (event) => {
                 event.preventDefault()
-                const form = event.currentTarget
-                const data = new FormData(form)
-                await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username: data.get('username') }) })
+                const username = memberName.trim()
+                if (!username) return
+                await api.request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ username }) })
+                setMemberName('')
                 await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
-                form.reset()
+                await queryClient.invalidateQueries({ queryKey: ['directory', projectId] })
               }}
             >
-              <Input name="username" placeholder={t('username')} required />
-              <Button type="submit" variant="outline">{t('addMember')}</Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  name="username"
+                  value={memberName}
+                  placeholder={t('username')}
+                  aria-label={t('username')}
+                  className="min-w-0 flex-1"
+                  onChange={(event) => setMemberName(event.target.value)}
+                  required
+                />
+                <Button type="submit" variant="outline" className="shrink-0 whitespace-nowrap">{t('addMember')}</Button>
+              </div>
+              <ul className="mt-2 max-h-60 overflow-auto">
+                {directory.data?.users.map((user) => (
+                  <li key={user.id}>
+                    <button
+                      type="button"
+                      className="flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left text-sm hover:bg-accent"
+                      onClick={() => setMemberName(user.username)}
+                    >
+                      <span className="truncate font-medium">{user.username}</span>
+                      <span className="min-w-0 truncate text-muted-foreground">{user.email}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </form>
           </Dialog.Content>
         </Dialog.Portal>
