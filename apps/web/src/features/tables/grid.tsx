@@ -264,7 +264,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const pressOrigin = useRef({ x: 0, y: 0 })
   const dragItem = useRef<{ kind: 'column' | 'row'; id: string } | null>(null)
   const [dropTarget, setDropTarget] = useState<{ kind: 'column' | 'row'; id: string } | null>(null)
-  const [notice, setNotice] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const appliedLink = useRef('')
@@ -521,7 +520,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function undo(direction: 'undo' | 'redo') {
-    setNotice('')
     try {
       const ran = await (direction === 'undo' ? undoTable(tableId) : redoTable(tableId))
       if (ran) await refresh()
@@ -747,7 +745,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
           void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
           void invalidateFooter(queryClient, tableId)
         }
-        setNotice('')
       },
       rollback: () => {
         const message = serverReject.current.get(key)
@@ -797,7 +794,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
             before,
             after: record.name,
           })
-        setNotice('')
       },
       rollback: () => {
         patchCachedTable(queryClient, tableId, (current) => ({
@@ -1408,7 +1404,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
         method: 'PATCH',
         body: JSON.stringify({ config }),
       })
-      setNotice('')
     } catch {
       showEditError(t('error'))
       await refresh()
@@ -2197,7 +2192,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6" style={{ WebkitTouchCallout: 'none' }}>
-      <p className={notice ? 'text-sm text-danger' : 'sr-only'}>{notice}</p>
       <input
         ref={importRef}
         aria-label={t('import')}
@@ -2219,11 +2213,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
               const summary = t('imported', { count: result.created })
               if (result.errors[0]?.error) {
                 toast.warning(`${summary} ${result.errors[0].error}`)
-                setNotice(`${summary} ${result.errors[0].error}`)
               } else {
-                setNotice(summary)
+                toast.success(summary)
               }
               await refresh()
+            })
+            .catch((caught) => {
+              showEditError(caught instanceof Error ? caught.message : t('error'))
             })
         }}
       />

@@ -8,6 +8,7 @@ const toastVars = {
   '--error-bg': 'var(--card)',
   '--error-text': 'var(--danger)',
   '--error-border': 'var(--border)',
+  '--border': 'var(--border)',
 } as CSSProperties
 
 export function Toaster() {
@@ -19,7 +20,7 @@ export function Toaster() {
       style={toastVars}
       offset={{ bottom: 16, right: 16 }}
       mobileOffset={{ bottom: 72, left: 16, right: 16 }}
-      toastOptions={{ className: 'w-[min(24rem,calc(100vw-2rem))]' }}
+      toastOptions={{ className: 'rounded-none w-[min(24rem,calc(100vw-2rem))]' }}
     />
   )
 }
