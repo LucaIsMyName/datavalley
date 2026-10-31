@@ -166,6 +166,44 @@ describe('table interactions', () => {
       payload: { formatRules: rules },
     })
     expect(saved.json().table.formatRules).toEqual(rules)
+    const formula = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${people?.id}`,
+      payload: { formatRules: [{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { color: '#112233', background: '#bbf7d0' } }] },
+    })
+    expect(formula.statusCode).toBe(200)
+    expect(formula.json().table.formatRules).toEqual([{ id: 'ada', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { color: '#112233', background: '#bbf7d0' } }])
+    const lookup = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${people?.id}`,
+      payload: { formatRules: [{ id: 'bad', scope: 'cell', columnId: nameId, expression: 'LOOKUP([People -> Mail], "a", [People -> Name])', style: { background: '#bbf7d0' } }] },
+    })
+    expect(lookup.statusCode).toBe(400)
+    const whole = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${people?.id}`,
+      payload: { formatRules: [{ id: 'bad', scope: 'cell', columnId: nameId, expression: 'IF([People -> Name] = "A")', style: { background: '#bbf7d0' } }] },
+    })
+    expect(whole.statusCode).toBe(400)
+    const cell = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${row.id}`,
+      payload: {
+        version: painted.json().row.version,
+        cells: {},
+        formats: { [nameId]: [{ id: 'cell', scope: 'cell', columnId: nameId, expression: 'IF(IT = "Ada")', style: { color: '#111111', background: '#fecaca' } }] },
+      },
+    })
+    expect(cell.statusCode).toBe(200)
+    expect(cell.json().row.formats[nameId][0].expression).toBe('IF(IT = "Ada")')
+    const edited = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${row.id}`,
+      payload: { version: cell.json().row.version, cells: { [nameId]: 'Ada' } },
+    })
+    expect(edited.statusCode).toBe(200)
+    expect(edited.json().row.cells[nameId]).toBe('Ada')
+    expect(edited.json().row.formats[nameId][0].expression).toBe('IF(IT = "Ada")')
   })
 
   it('remembers sort and filter for the signed-in user', async () => {

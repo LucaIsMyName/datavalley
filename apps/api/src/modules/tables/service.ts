@@ -462,7 +462,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       await db.insert(columnOptions).values({ columnId: created.id, label: option.label, color: option.color, position: option.position })
     }
   }
-  await db.update(tables).set({ nextRowNumber: table.nextRowNumber }).where(eq(tables.id, copy.id))
+  await db.update(tables).set({ nextRowNumber: table.nextRowNumber, formatRules: remapIds(table.formatRules, columnMap) as never }).where(eq(tables.id, copy.id))
   const tagMap = new Map<string, string>()
   for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))) {
     const [created] = await db.insert(tableTags).values({ tableId: copy.id, name: tag.name, color: tag.color }).returning()
@@ -490,6 +490,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
             valueTimestamptz: cell.valueTimestamptz,
             valueJsonb: remapCatalog(cell.valueJsonb, tagMap, statusMap),
             background: cell.background,
+            formatRules: remapIds(cell.formatRules, columnMap) as never,
           })),
         )
       }
@@ -513,6 +514,12 @@ export async function moveTable(db: AppDatabase, subject: Subject, tableId: stri
   const [updated] = await db.update(tables).set({ projectId, updatedAt: new Date() }).where(eq(tables.id, table.id)).returning()
   await writeAudit(db, subject, { action: 'table.move', resourceType: 'table', resourceId: tableId, metadata: { from: table.projectId, to: projectId } })
   return presentTable(updated)
+}
+
+function remapIds(value: unknown, ids: Map<string, string>) {
+  let text = JSON.stringify(value ?? [])
+  for (const [from, to] of ids) text = text.replaceAll(from, to)
+  return JSON.parse(text) as unknown
 }
 
 function remapCatalog(value: unknown, tags: Map<string, string>, statuses: Map<string, string>) {

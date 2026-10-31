@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { collectRefs, parseFormula, runFormula, canonicalize, displayFormula, resolveBrackets, wholeColumnInMath } from './index.js'
+import { collectRefs, conditionBlock, matchesCondition, parseFormula, runFormula, canonicalize, displayFormula, resolveBrackets, wholeColumnInMath } from './index.js'
 import type { BracketCatalog, EvalContext, FormulaValue, RefNode } from './index.js'
 
 const column = '11111111-1111-4111-8111-111111111111'
@@ -194,6 +194,24 @@ describe('formula engine', () => {
         columns: [...catalog.columns, { name: 'A -> B', columnId: column, tableId: orders, tableName: 'Orders' }],
       }),
     ).toThrow(/cannot contain/)
+  })
+
+  it('matches a condition against IT and this row', () => {
+    expect(matchesCondition('IF(IT = 1)', 1, {})).toBe(true)
+    expect(matchesCondition('IF(IT = 1)', 2, {})).toBe(false)
+    expect(matchesCondition('IF(IT > "myCellText")', 'z', {})).toBe(true)
+    expect(matchesCondition('IF(IT > "myCellText")', 'a', {})).toBe(false)
+    expect(matchesCondition(`{${column}} = "Open"`, null, { [column]: 'Open' })).toBe(true)
+    expect(matchesCondition('1/0', 1, {})).toBe(false)
+    expect(matchesCondition('IF(IT = 1, "High", "Low")', 1, {})).toBe(true)
+    expect(matchesCondition('IF(ISBLANK(IT))', null, {})).toBe(true)
+    expect(matchesCondition('IF(NOT(ISBLANK(IT)))', null, {})).toBe(false)
+    expect(matchesCondition('IF(IT = 1)', null, {})).toBe(false)
+    expect(run('IT')).toEqual({ error: '#VALUE' })
+    expect(conditionBlock(parseFormula('IF(IT = 1)'))).toBeNull()
+    expect(conditionBlock(parseFormula(`LOOKUP({${table}}.{${column}}, 1, {${table}}.{${other}})`))).toBe('lookup')
+    expect(conditionBlock(parseFormula(`{${table}}.{${column}}`))).toBe('column')
+    expect(conditionBlock(parseFormula(`RELATION({${column}}, {${table}}.{${other}})`))).toBe('relation')
   })
 
   it('looks up related values through the caller-supplied resolver', () => {

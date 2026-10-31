@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { parseCsv, toCsv, type FilterNode } from '@datavalley/shared'
+import { parseCsv, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
@@ -7,7 +7,7 @@ import { badRequest, conflict, notFound } from '../../errors.js'
 import { allows, loadGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
-import { evaluateStored } from '../formulas/service.js'
+import { canonicalizeFormatRules, evaluateStored } from '../formulas/service.js'
 import { loadColumns, positionBetween, requireTable, type LoadedColumn } from '../tables/service.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 
@@ -46,6 +46,7 @@ function presentRows(
   return page.map((row) => {
     const values: Record<string, unknown> = {}
     const backgrounds: Record<string, string> = {}
+    const formats: Record<string, FormatRule[]> = {}
     for (const column of columns) {
       if (column.type === 'row_id') {
         values[column.id] = column.config.style === 'uuid' ? row.id : row.rowNumber ?? null
@@ -60,6 +61,7 @@ function presentRows(
         valueJsonb: cell.valueJsonb,
       } : undefined)
       if (cell?.background) backgrounds[column.id] = cell.background
+      if (Array.isArray(cell?.formatRules) && cell.formatRules.length > 0) formats[column.id] = cell.formatRules as FormatRule[]
     }
     return {
       id: row.id,
@@ -70,6 +72,7 @@ function presentRows(
       rowNumber: row.rowNumber ?? 0,
       cells: values,
       backgrounds,
+      formats,
     }
   })
 }
@@ -141,8 +144,9 @@ async function writeCell(db: AppDatabase, tableId: string, rowId: string, column
     .limit(1)
   const parsed = parseCell(column, value)
   const kept = background !== undefined ? background : (existing?.background ?? null)
+  const rules = storedRules(existing?.formatRules)
   await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
-  if (!parsed && !kept) return
+  if (!parsed && !kept && rules.length === 0) return
   await db.insert(tableCells).values({
     tableId,
     rowId,
@@ -153,6 +157,7 @@ async function writeCell(db: AppDatabase, tableId: string, rowId: string, column
     valueTimestamptz: parsed?.valueTimestamptz ?? null,
     valueJsonb: (parsed?.valueJsonb ?? null) as never,
     background: kept,
+    formatRules: rules as never,
   })
   if (parsed && column.type === 'relation') await syncRelation(db, column, rowId, parsed)
 }
@@ -176,11 +181,41 @@ async function setBackground(db: AppDatabase, tableId: string, rowId: string, co
     await db.insert(tableCells).values({ tableId, rowId, columnId, background })
     return
   }
-  if (!background && !hasValue) {
+  if (!background && !hasValue && storedRules(existing.formatRules).length === 0) {
     await db.delete(tableCells).where(eq(tableCells.id, existing.id))
     return
   }
   await db.update(tableCells).set({ background, updatedAt: new Date() }).where(eq(tableCells.id, existing.id))
+}
+
+function storedRules(value: unknown) {
+  return Array.isArray(value) ? value : []
+}
+
+async function setCellFormats(db: AppDatabase, tableId: string, rowId: string, columnId: string, rules: FormatRule[]) {
+  const [existing] = await db
+    .select()
+    .from(tableCells)
+    .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
+    .limit(1)
+  const hasValue = Boolean(
+    existing &&
+      (existing.valueText != null ||
+        existing.valueNumber != null ||
+        existing.valueBool != null ||
+        existing.valueTimestamptz != null ||
+        existing.valueJsonb != null),
+  )
+  if (!existing) {
+    if (rules.length === 0) return
+    await db.insert(tableCells).values({ tableId, rowId, columnId, formatRules: rules as never })
+    return
+  }
+  if (rules.length === 0 && !hasValue && !existing.background) {
+    await db.delete(tableCells).where(eq(tableCells.id, existing.id))
+    return
+  }
+  await db.update(tableCells).set({ formatRules: rules as never, updatedAt: new Date() }).where(eq(tableCells.id, existing.id))
 }
 
 async function syncRelation(db: AppDatabase, column: LoadedColumn, rowId: string, parsed: CellWrite) {
@@ -265,7 +300,7 @@ export async function patchRow(
   db: AppDatabase,
   subject: Subject,
   rowId: string,
-  input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; notes?: string },
+  input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; formats?: Record<string, FormatRule[]>; notes?: string },
 ) {
   const { row, table, grants } = await assertRow(db, subject, rowId, 'edit')
   if (row.version !== input.version) throw conflict('This row was changed by someone else')
@@ -300,6 +335,13 @@ export async function patchRow(
       const column = columns.find((item) => item.id === columnId)
       if (!column) throw badRequest('Unknown column')
       await setBackground(tx as unknown as AppDatabase, table.id, row.id, column.id, background)
+    }
+    for (const [columnId, rules] of Object.entries(input.formats ?? {})) {
+      const column = columns.find((item) => item.id === columnId)
+      if (!column) throw badRequest('Unknown column')
+      const prepared = await canonicalizeFormatRules(tx as unknown as AppDatabase, subject, table.id, rules)
+      if (prepared.some((rule) => !rule.expression)) throw badRequest('A cell condition needs a formula')
+      await setCellFormats(tx as unknown as AppDatabase, table.id, row.id, column.id, prepared.map((rule) => ({ ...rule, columnId })))
     }
   })
   await writeAudit(db, subject, {
@@ -357,8 +399,9 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
     const columns = await loadColumns(db, tableId)
     for (const cell of cells) {
       const column = columns.find((item) => item.id === cell.columnId)
-      if (!column || !isWritable(column.type)) continue
-      await writeCell(db, tableId, copy.id, column, readCell(column, cell), cell.background)
+      if (!column) continue
+      if (isWritable(column.type)) await writeCell(db, tableId, copy.id, column, readCell(column, cell), cell.background)
+      if (storedRules(cell.formatRules).length > 0) await setCellFormats(db, tableId, copy.id, column.id, storedRules(cell.formatRules) as FormatRule[])
     }
     created.push(copy.id)
   }

@@ -22,6 +22,8 @@ export type EvalContext = {
   relation?: (fromColumnId: string, toColumnId: string) => FormulaValue
   column?: (ref: RefNode) => FormulaValue
   item?: FormulaValue
+  /** When set, a missing item is a blank cell. Normal formulas leave this unset, so `IT` stays `#VALUE`. */
+  blankItem?: boolean
 }
 
 function err(code: FormulaErrorValue['error']): FormulaErrorValue {
@@ -99,7 +101,8 @@ export function evaluate(node: AstNode, ctx: EvalContext, depth = 0): FormulaVal
     case 'range':
       return ctx.range(node.start, node.end)
     case 'it':
-      return ctx.item ?? err('#VALUE')
+      if (ctx.item == null) return ctx.blankItem ? null : err('#VALUE')
+      return ctx.item
   }
 }
 

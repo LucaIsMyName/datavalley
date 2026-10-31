@@ -221,6 +221,7 @@ export const tableCells = pgTable('table_cells', {
   valueTimestamptz: timestamp('value_timestamptz', { withTimezone: true }),
     valueJsonb: jsonb('value_jsonb'),
     background: text('background'),
+    formatRules: jsonb('format_rules').notNull().default([]),
     ...timestamps,
   })
 

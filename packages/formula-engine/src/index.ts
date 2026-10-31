@@ -5,6 +5,8 @@ export { bracketRowAsks, displayFormula, resolveBrackets, wholeColumnInMath } fr
 export type { BracketCatalog, BracketColumn, BracketRelation, BracketRow } from './brackets.js'
 export { runFormula } from './eval.js'
 export type { EvalContext } from './eval.js'
+export { conditionBlock, matchesCondition } from './condition.js'
+export type { ConditionBlock } from './condition.js'
 
 import type { RefNode } from './ast.js'
 import { parseFormula } from './parse.js'

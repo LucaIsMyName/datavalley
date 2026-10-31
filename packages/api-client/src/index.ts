@@ -106,4 +106,5 @@ export type RowRecord = {
   rowNumber: number
   cells: Record<string, unknown>
   backgrounds: Record<string, string>
+  formats?: Record<string, FormatRule[]>
 }

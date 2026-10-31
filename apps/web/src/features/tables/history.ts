@@ -10,6 +10,7 @@ export type Patch = {
   cells: Record<string, unknown>
   color?: string | null
   backgrounds?: Record<string, string | null>
+  formats?: Record<string, FormatRule[]>
 }
 
 export type RowSnap = {
@@ -99,6 +100,7 @@ async function sendPatch(patch: Patch) {
       cells: patch.cells,
       ...(patch.color !== undefined ? { color: patch.color } : {}),
       ...(patch.backgrounds ? { backgrounds: patch.backgrounds } : {}),
+      ...(patch.formats ? { formats: patch.formats } : {}),
     }),
   })
   return result.row.version

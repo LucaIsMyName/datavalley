@@ -3,6 +3,7 @@ import {
   bracketRowAsks,
   canonicalize,
   collectRefs,
+  conditionBlock,
   displayFormula,
   parseFormula,
   resolveBrackets,
@@ -29,6 +30,7 @@ import {
   tables,
   users,
 } from '../../database/schema.js'
+import type { FormatRule } from '@datavalley/shared'
 import { readCell } from '../../column-types/index.js'
 import { badRequest } from '../../errors.js'
 import { allows, loadGrants } from '../../security/access.js'
@@ -150,7 +152,57 @@ async function compileFormula(db: AppDatabase, subject: Subject, tableId: string
   const ast = parseFormula(canonical)
   const listed = wholeColumnInMath(ast)
   if (listed) throw badRequest(everyRowMessage(listed, catalog))
-  return { canonical, ast }
+  return { canonical, ast, catalog }
+}
+
+export async function compileCondition(db: AppDatabase, subject: Subject, tableId: string, expression: string) {
+  const { canonical, ast, catalog } = await compileFormula(db, subject, tableId, expression)
+  const block = conditionBlock(ast)
+  if (!block) return canonical
+  if (block === 'lookup') throw badRequest('LOOKUP is not available in a condition')
+  if (block === 'relation') throw badRequest('A link to another table is not available in a condition')
+  if (block === 'cell') throw badRequest('A condition can only read this row')
+  const ref = collectRefs(ast).find((item) => item.tableId || item.rowId)
+  throw badRequest(ref ? everyRowMessage(ref, catalog) : 'That column is every row. Choose one row, or wrap it in SUM.')
+}
+
+function formatColor(value: unknown) {
+  if (value == null || value === '') return undefined
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) throw badRequest('Invalid color')
+  return value.toLowerCase()
+}
+
+export async function canonicalizeFormatRules(db: AppDatabase, subject: Subject, tableId: string, rules: unknown) {
+  if (!Array.isArray(rules)) throw badRequest('Invalid format rules')
+  const prepared: FormatRule[] = []
+  for (const raw of rules) {
+    if (!raw || typeof raw !== 'object') throw badRequest('Invalid format rule')
+    const rule = raw as FormatRule
+    const expression = typeof rule.expression === 'string' ? rule.expression.trim() : ''
+    if (expression) {
+      const color = formatColor(rule.style?.color)
+      const background = formatColor(rule.style?.background)
+      if (!color && !background) throw badRequest('A condition needs a color')
+      prepared.push({
+        id: typeof rule.id === 'string' && rule.id ? rule.id : crypto.randomUUID(),
+        scope: 'cell',
+        columnId: typeof rule.columnId === 'string' ? rule.columnId : undefined,
+        expression: await compileCondition(db, subject, tableId, expression),
+        style: { ...(color ? { color } : {}), ...(background ? { background } : {}) },
+      })
+      continue
+    }
+    prepared.push({
+      id: typeof rule.id === 'string' && rule.id ? rule.id : crypto.randomUUID(),
+      scope: rule.scope === 'row' ? 'row' : 'cell',
+      columnId: typeof rule.columnId === 'string' ? rule.columnId : undefined,
+      operator: typeof rule.operator === 'string' ? rule.operator : 'eq',
+      value: rule.value,
+      valueTo: rule.valueTo,
+      style: rule.style && typeof rule.style === 'object' ? rule.style : {},
+    })
+  }
+  return prepared
 }
 
 function sameValue(left: FormulaValue, right: FormulaValue) {

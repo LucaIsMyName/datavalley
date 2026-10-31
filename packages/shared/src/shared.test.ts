@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseCsv, toCsv } from './csv.js'
 import { compareOp } from './filters.js'
-import { stylesForCell } from './formatting.js'
+import { conditionalStyle, expressionFromOperator, stylesForCell } from './formatting.js'
 import { decide } from './permissions.js'
 import { moveSelection } from './selection.js'
 import { createUndoStack } from './undo.js'
@@ -74,6 +74,32 @@ describe('formatting and filters', () => {
       'status',
     )
     expect(style).toEqual({ background: 'green', bold: true, color: 'red' })
+  })
+
+  it('uses the first true formula and lets a cell list replace the column', () => {
+    const column = [
+      { id: '1', scope: 'cell' as const, columnId: 'amount', expression: 'high', style: { background: '#bbf7d0' } },
+      { id: '2', scope: 'cell' as const, columnId: 'amount', expression: 'low', style: { color: '#fecaca' } },
+      { id: '3', scope: 'cell' as const, columnId: 'amount', operator: 'eq', value: 1, style: { bold: true } },
+    ]
+    const matches = (expression: string) => expression === 'low'
+    expect(conditionalStyle(column, undefined, { amount: 1 }, 'amount', () => true)).toEqual({ background: '#bbf7d0' })
+    expect(conditionalStyle(column, undefined, { amount: 1 }, 'amount', matches)).toEqual({ color: '#fecaca' })
+    expect(conditionalStyle(column, [], { amount: 1 }, 'amount', () => false)).toEqual({ bold: true })
+    expect(
+      conditionalStyle(column, [{ id: 'c', scope: 'cell', columnId: 'amount', expression: 'no', style: { color: '#111111' } }], { amount: 1 }, 'amount', () => false),
+    ).toEqual({})
+    expect(
+      conditionalStyle(column, [{ id: 'c', scope: 'cell', columnId: 'amount', expression: 'yes', style: { background: '#bfdbfe' } }], { amount: 1 }, 'amount', (expression) => expression === 'yes'),
+    ).toEqual({ background: '#bfdbfe' })
+  })
+
+  it('turns an operator rule into a formula condition', () => {
+    expect(expressionFromOperator({ operator: 'eq', value: 1 })).toBe('IT = 1')
+    expect(expressionFromOperator({ operator: 'gt', value: 'Open' })).toBe('IT > "Open"')
+    expect(expressionFromOperator({ operator: 'contains', value: 'pha' })).toBe('CONTAINS(IT, "pha")')
+    expect(expressionFromOperator({ operator: 'empty' })).toBe('ISBLANK(IT)')
+    expect(expressionFromOperator({ operator: 'starts_with', value: 'Al' })).toBe('LEFT(IT, 2) = "Al"')
   })
 
   it('supports the spreadsheet comparison operators', () => {

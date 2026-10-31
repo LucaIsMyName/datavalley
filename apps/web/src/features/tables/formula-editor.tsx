@@ -34,6 +34,8 @@ type FormulaEditorProps = {
   catalog: FormulaCatalog
   columnId: string
   label: string
+  compact?: boolean
+  autoFocus?: boolean
   onChange: (value: string) => void
   onBadge: (span: BracketSpan, rect: DOMRect) => void
 }
@@ -258,6 +260,8 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
   catalog,
   columnId,
   label,
+  compact = false,
+  autoFocus = true,
   onChange,
   onBadge,
 }, ref) {
@@ -269,6 +273,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
   const onChangeRef = useRef(onChange)
   const onBadgeRef = useRef(onBadge)
   const labelRef = useRef(label)
+  const autoFocusRef = useRef(autoFocus)
   catalogRef.current = catalog
   columnIdRef.current = columnId
   onChangeRef.current = onChange
@@ -376,7 +381,9 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       Prec.highest(keymap.of([
         { key: 'Backspace', run: deleteBracket('Backspace') },
         { key: 'Delete', run: deleteBracket('Delete') },
+        ...(compact ? [{ key: 'Enter', run: () => true }] : []),
       ])),
+      ...(compact ? [EditorView.theme({ '.cm-content': { padding: '2px 0' }, '.cm-scroller': { overflow: 'hidden' } })] : []),
       keymap.of([...historyKeymap, ...defaultKeymap]),
       EditorState.transactionFilter.of((tr) => {
         if (!tr.docChanged) return tr
@@ -391,7 +398,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
         if (update.docChanged) onChangeRef.current(update.state.doc.toString())
       }),
     ]
-  }, [])
+  }, [compact])
 
   useEffect(() => {
     const parent = host.current
@@ -401,7 +408,12 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       state: EditorState.create({ doc: initialRef.current, extensions }),
     })
     viewRef.current = view
-    view.focus()
+    if (autoFocusRef.current) {
+      view.focus()
+      const text = view.state.doc.toString().trim()
+      const match = /^([A-Za-z_]+)\(\)$/.exec(text)
+      if (match) view.dispatch({ selection: { anchor: match[1].length + 1 } })
+    }
     return () => {
       view.destroy()
       viewRef.current = null
@@ -409,7 +421,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
   }, [extensions])
 
   return (
-    <div className="h-full overflow-hidden border border-border">
+    <div className={compact ? 'h-10 overflow-hidden border border-border' : 'h-full overflow-hidden border border-border'}>
       <div ref={host} className="h-full" />
     </div>
   )

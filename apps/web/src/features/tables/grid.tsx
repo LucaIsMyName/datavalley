@@ -7,9 +7,10 @@ import {
   type RowRecord,
   type TableRecord,
 } from '@datavalley/api-client'
+import { matchesCondition } from '@datavalley/formula-engine'
 import {
+  conditionalStyle,
   moveSelection,
-  stylesForCell,
   type FilterNode,
   type FilterOperator,
   type FormatRule,
@@ -70,6 +71,8 @@ import { sync } from '../../lib/sync'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
+import { ConditionalDialog } from './conditional-dialog'
+import { presentFormatRow } from './format-values'
 import { CellEditor } from './cells'
 import { editFailureMessage } from './edit-error'
 import { fillTargets } from './fill-range'
@@ -94,7 +97,6 @@ const ADD_COLUMN_WIDTH = 40
 type PopoverState = {
   kind:
     | 'filter'
-    | 'conditional'
     | 'row-color'
     | 'cell-color'
     | 'relation'
@@ -273,9 +275,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
-  const [ruleOp, setRuleOp] = useState('eq')
-  const [ruleValue, setRuleValue] = useState('')
-  const [ruleScope, setRuleScope] = useState<'cell' | 'row'>('cell')
+  const [formatTarget, setFormatTarget] = useState<{ columnId: string; rowId?: string } | null>(null)
   const [viewName, setViewName] = useState('')
   const [sharedView, setSharedView] = useState(false)
   const [historyTick, setHistoryTick] = useState(0)
@@ -854,28 +854,51 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
   }
 
-  async function saveRules(columnId: string, color: string | null) {
+  async function saveColumnRules(columnId: string, drafts: { id: string; expression: string; color: string | null; background: string | null }[]) {
     const before = rules
-    const after = color
-      ? [
-          ...rules.filter((rule) => rule.columnId !== columnId),
-          {
-            id: columnId,
-            scope: ruleScope,
-            columnId,
-            operator: ruleOp,
-            value: ruleValue,
-            style: { background: color },
-          },
-        ]
-      : rules.filter((rule) => rule.columnId !== columnId)
-    await api.request(`/tables/${tableId}`, {
+    const next = drafts.map((draft) => ({
+      id: draft.id,
+      scope: 'cell' as const,
+      columnId,
+      expression: draft.expression,
+      style: {
+        ...(draft.color ? { color: draft.color } : {}),
+        ...(draft.background ? { background: draft.background } : {}),
+      },
+    }))
+    const after = [...rules.filter((rule) => rule.columnId !== columnId), ...next]
+    const saved = await api.request<{ table: TableRecord }>(`/tables/${tableId}`, {
       method: 'PATCH',
       body: JSON.stringify({ formatRules: after }),
     })
-    patchCachedTable(queryClient, tableId, (current) => ({ ...current, formatRules: after }))
-    pushCommand(tableId, { kind: 'rules', before, after })
-    setPopover(null)
+    patchCachedTable(queryClient, tableId, (current) => ({ ...current, formatRules: saved.table.formatRules }))
+    pushCommand(tableId, { kind: 'rules', before, after: saved.table.formatRules })
+    setFormatTarget(null)
+  }
+
+  async function saveCellRules(row: RowRecord, columnId: string, drafts: { id: string; expression: string; color: string | null; background: string | null }[]) {
+    const previous = row.formats?.[columnId] ?? []
+    const next = drafts.map((draft) => ({
+      id: draft.id,
+      scope: 'cell' as const,
+      columnId,
+      expression: draft.expression,
+      style: {
+        ...(draft.color ? { color: draft.color } : {}),
+        ...(draft.background ? { background: draft.background } : {}),
+      },
+    }))
+    const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ version: row.version, cells: {}, formats: { [columnId]: next } }),
+    })
+    pushCommand(tableId, {
+      kind: 'patch',
+      undo: [{ rowId: row.id, version: result.row.version, cells: {}, formats: { [columnId]: previous } }],
+      redo: [{ rowId: row.id, version: result.row.version, cells: {}, formats: { [columnId]: result.row.formats?.[columnId] ?? next } }],
+    })
+    mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, ...result.row } : item))
+    setFormatTarget(null)
   }
 
   async function applyType(column: Column, type: string, after?: () => Promise<void>) {
@@ -1383,7 +1406,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             return
           }
           if (id === 'conditional') {
-            setPopover({ kind: 'conditional', columnId: column.id, ...point })
+            setFormatTarget({ columnId: column.id })
             return
           }
           if (id.startsWith('variant-')) {
@@ -1489,6 +1512,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
         icon: Palette,
         onSelect: () =>
           setPopover({ kind: 'cell-color', rowId: row.id, columnId: column.id, ...point }),
+      },
+      {
+        id: 'conditional',
+        label: t('conditionalColor'),
+        icon: Palette,
+        onSelect: () => setFormatTarget({ columnId: column.id, rowId: row.id }),
       },
     ])
   }
@@ -1629,6 +1658,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       column.config.currency ?? null,
       column.config.style ?? null,
       column.config.toTableId ?? null,
+      column.options.map((option) => [option.id, option.label]),
     ]),
   )
   const catalogSignature = JSON.stringify([
@@ -1729,7 +1759,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
         cell: ({ row }: { row: { original: RowRecord; index: number } }) => {
           if (column.hidden) return <div className="h-9" />
           const value = row.original.cells[column.id]
-          const ruleStyle = stylesForCell(rules, row.original.cells, column.id)
+          const presented = presentFormatRow(columns, row.original.cells, {
+            tags: (table?.tags ?? []).map((tag) => ({ id: tag.id, name: tag.name })),
+            statuses: (table?.statuses ?? []).map((status) => ({ id: status.id, name: status.name })),
+            members: (membersQuery.data?.members ?? []).map((member) => ({ id: member.userId, name: member.username })),
+          })
+          const ruleStyle = conditionalStyle(
+            rules,
+            row.original.formats?.[column.id],
+            row.original.cells,
+            column.id,
+            (expression) => matchesCondition(expression, presented[column.id] ?? null, presented),
+          )
           const background =
             row.original.backgrounds?.[column.id] || row.original.color || ruleStyle.background
           const active = editing === `${row.original.id}:${column.id}`
@@ -2485,31 +2526,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
               </Button>
             </div>
           ) : null}
-          {popover.kind === 'conditional' && popoverColumn ? (
-            <div className="flex flex-col gap-2">
-              <SelectField
-                label={t('operator')}
-                value={ruleOp}
-                onValueChange={setRuleOp}
-                options={operatorsFor(popoverColumn.type).map((op) => ({ value: op, label: op }))}
-              />
-              <Input
-                aria-label={t('value')}
-                value={ruleValue}
-                onChange={(event) => setRuleValue(event.target.value)}
-              />
-              <SelectField
-                label={t('conditionalColor')}
-                value={ruleScope}
-                onValueChange={(value) => setRuleScope(value as 'cell' | 'row')}
-                options={[
-                  { value: 'cell', label: t('scopeCell') },
-                  { value: 'row', label: t('scopeRow') },
-                ]}
-              />
-              <Swatches onPick={(color) => void saveRules(popoverColumn.id, color)} />
-            </div>
-          ) : null}
           {popover.kind === 'row-color' ? (
             <Swatches
               onPick={(color) => {
@@ -2595,6 +2611,29 @@ export function TableScreen({ tableId }: { tableId: string }) {
         row={rows.find((row) => row.id === drawerRowId) ?? null}
         onClose={() => setDrawerRowId(null)}
       />
+      {formatTarget ? (
+        <ConditionalDialog
+          key={`${formatTarget.columnId}:${formatTarget.rowId ?? 'column'}`}
+          tableId={tableId}
+          columnId={formatTarget.columnId}
+          columnName={columns.find((column) => column.id === formatTarget.columnId)?.name ?? ''}
+          rowLabel={formatTarget.rowId ? `#${rows.find((row) => row.id === formatTarget.rowId)?.rowNumber ?? ''}` : undefined}
+          rules={
+            formatTarget.rowId
+              ? (rows.find((row) => row.id === formatTarget.rowId)?.formats?.[formatTarget.columnId] ?? [])
+              : rules.filter((rule) => rule.columnId === formatTarget.columnId)
+          }
+          onClose={() => setFormatTarget(null)}
+          onSave={(drafts) => {
+            if (formatTarget.rowId) {
+              const row = rows.find((item) => item.id === formatTarget.rowId)
+              if (!row) return Promise.resolve()
+              return saveCellRules(row, formatTarget.columnId, drafts)
+            }
+            return saveColumnRules(formatTarget.columnId, drafts)
+          }}
+        />
+      ) : null}
       <ConfirmDialog
         open={Boolean(confirm)}
         title={confirm?.title ?? ''}

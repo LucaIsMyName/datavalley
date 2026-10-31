@@ -15,6 +15,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@datavalley/api-client": "*",
+    "@datavalley/formula-engine": "*",
     "@datavalley/shared": "*",
     "@hookform/resolvers": "^5.1.1",
     "@lezer/highlight": "^1.2.5",
