@@ -68,7 +68,7 @@ import { ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
-import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
+import { invalidateFooter, mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { cellFormatError } from './cell-format'
 import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
 import { ConditionalDialog } from './conditional-dialog'
@@ -447,6 +447,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
     await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+    await invalidateFooter(queryClient, tableId)
     setHistoryTick((value) => value + 1)
   }
 
@@ -689,6 +690,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
           })
           void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+          void invalidateFooter(queryClient, tableId)
         }
         setNotice('')
       },

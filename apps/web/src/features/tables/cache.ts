@@ -25,3 +25,7 @@ export function readCachedRow(queryClient: QueryClient, tableId: string, rowId: 
 export function patchCachedTable(queryClient: QueryClient, tableId: string, update: (table: TableRecord) => TableRecord) {
   queryClient.setQueryData<{ table: TableRecord }>(['table', tableId], (data) => (data ? { table: update(data.table) } : data))
 }
+
+export function invalidateFooter(queryClient: QueryClient, tableId: string) {
+  return queryClient.invalidateQueries({ queryKey: ['footer', tableId] })
+}
