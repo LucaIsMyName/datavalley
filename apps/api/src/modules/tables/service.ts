@@ -19,6 +19,7 @@ import { badRequest, conflict, notFound } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
+import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } from './resolve.js'
 import { seedDemoTable } from './template.js'
 
 export type LoadedColumn = ColumnShape & {
@@ -79,6 +80,8 @@ export function presentTable(table: typeof tables.$inferSelect) {
     footerConfig: table.footerConfig,
     formatRules: table.formatRules ?? [],
     archivedAt: table.archivedAt?.toISOString() ?? null,
+    lockedAt: table.lockedAt?.toISOString() ?? null,
+    mirrorOfTableId: table.mirrorOfTableId,
     createdAt: table.createdAt.toISOString(),
     updatedAt: table.updatedAt.toISOString(),
   }
@@ -89,6 +92,85 @@ export async function requireTable(db: AppDatabase, subject: Subject, tableId: s
   if (!table) throw notFound()
   await assertCan(db, subject, action, { type: 'table', id: table.id, parents: { project: table.projectId } })
   return table
+}
+
+export async function resolveTableContext(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  action: Action = 'view',
+) {
+  const shell = await requireTable(db, subject, tableId, action)
+  if (!shell.mirrorOfTableId) {
+    return { shell, physical: shell, isMirror: false as const }
+  }
+  const physical = await requireTable(db, subject, shell.mirrorOfTableId, 'view')
+  return { shell, physical, isMirror: true as const }
+}
+
+export async function requireEditableTable(db: AppDatabase, subject: Subject, tableId: string, action: Action) {
+  const table = await requireTable(db, subject, tableId, action)
+  assertTableDataEditable(table)
+  return table
+}
+
+export async function lockTable(db: AppDatabase, subject: Subject, tableId: string) {
+  const table = await requireTable(db, subject, tableId, 'edit')
+  if (table.mirrorOfTableId) throw badRequest('Synced views cannot be locked')
+  if (table.lockedAt) return presentTable(table)
+  const [updated] = await db
+    .update(tables)
+    .set({ lockedAt: new Date(), updatedAt: new Date() })
+    .where(eq(tables.id, tableId))
+    .returning()
+  await writeAudit(db, subject, { action: 'table.lock', resourceType: 'table', resourceId: tableId })
+  return presentTable(updated)
+}
+
+export async function unlockTable(db: AppDatabase, subject: Subject, tableId: string) {
+  const table = await requireTable(db, subject, tableId, 'edit')
+  if (!table.lockedAt) return presentTable(table)
+  const [updated] = await db
+    .update(tables)
+    .set({ lockedAt: null, updatedAt: new Date() })
+    .where(eq(tables.id, tableId))
+    .returning()
+  await writeAudit(db, subject, { action: 'table.unlock', resourceType: 'table', resourceId: tableId })
+  return presentTable(updated)
+}
+
+export async function createTableMirror(
+  db: AppDatabase,
+  subject: Subject,
+  hostProjectId: string,
+  input: { sourceTableId: string; name?: string },
+) {
+  await assertCan(db, subject, 'manage_structure', { type: 'project', id: hostProjectId })
+  const source = await validateMirrorSource(db, input.sourceTableId)
+  await requireTable(db, subject, source.id, 'view')
+  const requested = input.name?.trim() ?? ''
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const name = requested || `${source.name} (view)`
+    try {
+      const position = await nextTablePosition(db, hostProjectId)
+      const [table] = await db
+        .insert(tables)
+        .values({
+          projectId: hostProjectId,
+          name,
+          description: '',
+          position,
+          mirrorOfTableId: source.id,
+          createdBy: subject.id,
+        })
+        .returning()
+      await writeAudit(db, subject, { action: 'table.mirror', resourceType: 'table', resourceId: table.id, metadata: { sourceTableId: source.id } })
+      return presentTable(table)
+    } catch (error) {
+      if (requested || attempt === 4) return uniqueOrConflict(error)
+    }
+  }
+  throw conflict('A record with that name already exists')
 }
 
 export function positionBetween(items: { id: string; position: string }[], beforeId?: string | null, afterId?: string | null) {
@@ -282,21 +364,23 @@ export async function createTableFromCsv(
 }
 
 export async function getTable(db: AppDatabase, subject: Subject, tableId: string) {
-  const table = await requireTable(db, subject, tableId, 'view')
+  const { shell, physical, isMirror } = await resolveTableContext(db, subject, tableId, 'view')
   if (subject.kind === 'user') {
     await db
       .insert(userRecentItems)
-      .values({ userId: subject.id, resourceType: 'table', resourceId: table.id, openedAt: new Date() })
+      .values({ userId: subject.id, resourceType: 'table', resourceId: shell.id, openedAt: new Date() })
       .onConflictDoUpdate({
         target: [userRecentItems.userId, userRecentItems.resourceType, userRecentItems.resourceId],
         set: { openedAt: new Date() },
       })
   }
-  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, table.id)).orderBy(asc(tableTags.name))
-  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id)).orderBy(asc(tableStatuses.position))
+  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, physical.id)).orderBy(asc(tableTags.name))
+  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, physical.id)).orderBy(asc(tableStatuses.position))
+  const mirrorSource = isMirror ? await loadMirrorSourceMeta(db, physical.id) : null
   return {
-    ...presentTable(table),
-    columns: (await loadColumns(db, table.id)).map((column) => presentColumn(column)),
+    ...presentTable(shell),
+    mirrorSource,
+    columns: (await loadColumns(db, physical.id)).map((column) => presentColumn(column)),
     tags,
     statuses,
   }
@@ -308,23 +392,27 @@ export async function updateTable(
   tableId: string,
   input: { name?: string; description?: string; icon?: string; headerConfig?: unknown; footerConfig?: unknown; formatRules?: unknown },
 ) {
-  await requireTable(db, subject, tableId, 'manage_structure')
+  const table = await requireTable(db, subject, tableId, 'manage_structure')
+  const restricted = Boolean(table.mirrorOfTableId) || Boolean(table.lockedAt)
+  if (restricted && (input.headerConfig !== undefined || input.footerConfig !== undefined || input.formatRules !== undefined)) {
+    throw conflict(table.mirrorOfTableId ? 'Synced views are read-only' : 'Table is locked')
+  }
   if (input.icon !== undefined && !isResourceIcon(input.icon)) throw badRequest('Unknown icon')
   try {
-    const [table] = await db
+    const [updated] = await db
       .update(tables)
       .set({
         name: input.name?.trim(),
         description: input.description,
         icon: input.icon,
-        headerConfig: input.headerConfig as never,
-        footerConfig: input.footerConfig as never,
-        formatRules: input.formatRules as never,
+        headerConfig: restricted ? undefined : (input.headerConfig as never),
+        footerConfig: restricted ? undefined : (input.footerConfig as never),
+        formatRules: restricted ? undefined : (input.formatRules as never),
         updatedAt: new Date(),
       })
       .where(eq(tables.id, tableId))
       .returning()
-    return presentTable(table)
+    return presentTable(updated)
   } catch (error) {
     return uniqueOrConflict(error)
   }
@@ -341,7 +429,8 @@ export async function setTableArchived(db: AppDatabase, subject: Subject, tableI
 }
 
 export async function deleteTable(db: AppDatabase, subject: Subject, tableId: string) {
-  await requireTable(db, subject, tableId, 'delete')
+  const table = await requireTable(db, subject, tableId, 'delete')
+  if (table.lockedAt) throw conflict('Unlock the table before deleting')
   await db.delete(tables).where(eq(tables.id, tableId))
   await writeAudit(db, subject, { action: 'table.delete', resourceType: 'table', resourceId: tableId })
 }
@@ -360,7 +449,7 @@ export async function addColumn(
     afterId?: string
   },
 ) {
-  await requireTable(db, subject, tableId, 'manage_structure')
+  await requireEditableTable(db, subject, tableId, 'manage_structure')
   if (!columnTypeIds.includes(input.type as never)) throw badRequest('Unknown column type')
   const existing = await loadColumns(db, tableId)
   const position = positionBetween(existing, input.beforeId, input.afterId)
@@ -400,7 +489,7 @@ export async function updateColumn(
 ) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw notFound()
-  await requireTable(db, subject, column.tableId, 'manage_structure')
+  await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   const [updated] = await db
     .update(tableColumns)
     .set({ ...input, updatedAt: new Date() })
@@ -413,13 +502,13 @@ export async function updateColumn(
 export async function deleteColumn(db: AppDatabase, subject: Subject, columnId: string) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw notFound()
-  await requireTable(db, subject, column.tableId, 'manage_structure')
+  await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   await db.delete(tableColumns).where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, { action: 'column.delete', resourceType: 'column', resourceId: columnId })
 }
 
 export async function duplicateColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
-  await requireTable(db, subject, tableId, 'manage_structure')
+  await requireEditableTable(db, subject, tableId, 'manage_structure')
   const columns = await loadColumns(db, tableId)
   const selected = columns.filter((column) => columnIds.includes(column.id))
   const created = []
@@ -456,7 +545,7 @@ export async function duplicateColumns(db: AppDatabase, subject: Subject, tableI
 }
 
 export async function reorderColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
-  await requireTable(db, subject, tableId, 'manage_structure')
+  await requireEditableTable(db, subject, tableId, 'manage_structure')
   let previous: string | null = null
   for (const columnId of columnIds) {
     previous = generateKeyBetween(previous, null)
@@ -479,7 +568,7 @@ function storedValue(parsed: CellWrite) {
 export async function convertColumn(db: AppDatabase, subject: Subject, columnId: string, type: string, dryRun = false) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw notFound()
-  await requireTable(db, subject, column.tableId, 'manage_structure')
+  await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   if (!columnTypeIds.includes(type as never)) throw badRequest('Unknown column type')
   const loaded = (await loadColumns(db, column.tableId)).find((item) => item.id === columnId)
   if (!loaded) throw notFound()
@@ -526,7 +615,7 @@ export async function attachRelation(
 ) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw notFound()
-  const table = await requireTable(db, subject, column.tableId, 'manage_structure')
+  const table = await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   await assertCan(db, subject, 'view', { type: 'table', id: input.toTableId, parents: { project: table.projectId } })
   await convertColumn(db, subject, columnId, 'relation')
   const [relation] = await db
@@ -543,14 +632,16 @@ export async function attachRelation(
 }
 
 export async function duplicateTable(db: AppDatabase, subject: Subject, tableId: string, includeData: boolean) {
-  const table = await requireTable(db, subject, tableId, 'view')
-  await assertCan(db, subject, 'manage_structure', { type: 'project', id: table.projectId })
-  const columns = await loadColumns(db, tableId)
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
+  assertTableDataEditable(shell)
+  const table = physical
+  await assertCan(db, subject, 'manage_structure', { type: 'project', id: shell.projectId })
+  const columns = await loadColumns(db, table.id)
   const [copy] = await db
     .insert(tables)
     .values({
-      projectId: table.projectId,
-      name: `${table.name} copy`,
+      projectId: shell.projectId,
+      name: `${shell.name} copy`,
       description: table.description,
       icon: table.icon,
       position: await nextTablePosition(db, table.projectId),
@@ -583,17 +674,17 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
   }
   await db.update(tables).set({ nextRowNumber: table.nextRowNumber, formatRules: remapIds(table.formatRules, columnMap) as never }).where(eq(tables.id, copy.id))
   const tagMap = new Map<string, string>()
-  for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))) {
+  for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, table.id))) {
     const [created] = await db.insert(tableTags).values({ tableId: copy.id, name: tag.name, color: tag.color }).returning()
     tagMap.set(tag.id, created.id)
   }
   const statusMap = new Map<string, string>()
-  for (const status of await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId))) {
+  for (const status of await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id))) {
     const [created] = await db.insert(tableStatuses).values({ tableId: copy.id, name: status.name, color: status.color, position: status.position }).returning()
     statusMap.set(status.id, created.id)
   }
   if (includeData) {
-    const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, tableId))
+    const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, table.id))
     for (const row of rows) {
       const [created] = await db.insert(tableRows).values({ tableId: copy.id, position: row.position, color: row.color, notes: row.notes, rowNumber: row.rowNumber, createdBy: subject.id }).returning()
       const cells = await db.select().from(tableCells).where(eq(tableCells.rowId, row.id))
@@ -654,7 +745,7 @@ function remapCatalog(value: unknown, tags: Map<string, string>, statuses: Map<s
 }
 
 export async function createTag(db: AppDatabase, subject: Subject, tableId: string, name: string) {
-  await requireTable(db, subject, tableId, 'edit')
+  await requireEditableTable(db, subject, tableId, 'edit')
   const trimmed = name.trim()
   if (!trimmed) throw badRequest('Tag name is required')
   const existing = await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))
@@ -665,7 +756,7 @@ export async function createTag(db: AppDatabase, subject: Subject, tableId: stri
 }
 
 export async function updateTag(db: AppDatabase, subject: Subject, tableId: string, tagId: string, input: { color?: string; name?: string }) {
-  await requireTable(db, subject, tableId, 'edit')
+  await requireEditableTable(db, subject, tableId, 'edit')
   const patch: { color?: string; name?: string } = {}
   if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
   if (input.name != null) {
@@ -683,7 +774,7 @@ export async function updateTag(db: AppDatabase, subject: Subject, tableId: stri
 }
 
 export async function createStatus(db: AppDatabase, subject: Subject, tableId: string, name: string) {
-  await requireTable(db, subject, tableId, 'edit')
+  await requireEditableTable(db, subject, tableId, 'edit')
   const trimmed = name.trim()
   if (!trimmed) throw badRequest('Status name is required')
   const existing = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId)).orderBy(asc(tableStatuses.position))
@@ -699,7 +790,7 @@ export async function createStatus(db: AppDatabase, subject: Subject, tableId: s
 }
 
 export async function updateStatus(db: AppDatabase, subject: Subject, tableId: string, statusId: string, input: { color?: string; name?: string }) {
-  await requireTable(db, subject, tableId, 'edit')
+  await requireEditableTable(db, subject, tableId, 'edit')
   const patch: { color?: string; name?: string } = {}
   if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
   if (input.name != null) {

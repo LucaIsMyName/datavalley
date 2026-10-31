@@ -36,7 +36,7 @@ import { badRequest } from '../../errors.js'
 import { allows, loadGrants } from '../../security/access.js'
 import { sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
-import { loadColumns, requireTable, type LoadedColumn } from '../tables/service.js'
+import { loadColumns, requireTable, resolveTableContext, type LoadedColumn } from '../tables/service.js'
 
 const textTypes = new Set(['text', 'long_text', 'mail', 'url', 'date', 'datetime'])
 
@@ -58,7 +58,8 @@ async function namesFor(db: AppDatabase, subject: Subject, tableId: string, expr
   const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
   for (const item of projectTables) {
     if (!allows(subject, grants, 'view', { type: 'table', id: item.id, parents: { project: item.projectId } })) continue
-    const columns = await loadColumns(db, item.id)
+    const dataTableId = item.mirrorOfTableId ?? item.id
+    const columns = await loadColumns(db, dataTableId)
     for (const column of columns) {
       if (item.id === tableId) names[column.name] = { columnId: column.id }
       else {
@@ -82,12 +83,14 @@ async function catalogFor(db: AppDatabase, subject: Subject, tableId: string): P
   const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
   for (const item of projectTables) {
     if (!allows(subject, grants, 'view', { type: 'table', id: item.id, parents: { project: item.projectId } })) continue
-    for (const column of await loadColumns(db, item.id)) {
+    const dataTableId = item.mirrorOfTableId ?? item.id
+    for (const column of await loadColumns(db, dataTableId)) {
       columns.push({ name: column.name, columnId: column.id, tableId: item.id, tableName: item.name })
     }
   }
   const links: BracketCatalog['relations'] = []
-  for (const column of await loadColumns(db, table.id)) {
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
+  for (const column of await loadColumns(db, physical.id)) {
     if (column.type !== 'relation') continue
     const relationId = String(column.config.relationId ?? '')
     const [relation] = relationId ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1) : []
@@ -95,7 +98,8 @@ async function catalogFor(db: AppDatabase, subject: Subject, tableId: string): P
     const [target] = await db.select().from(tables).where(eq(tables.id, relation.toTableId)).limit(1)
     if (!target) continue
     if (!allows(subject, grants, 'view', { type: 'table', id: target.id, parents: { project: target.projectId } })) continue
-    const fields = await loadColumns(db, target.id)
+    const targetDataId = target.mirrorOfTableId ?? target.id
+    const fields = await loadColumns(db, targetDataId)
     for (const field of fields) {
       if (!columns.some((item) => item.columnId === field.id)) {
         columns.push({ name: field.name, columnId: field.id, tableId: target.id, tableName: target.name })
@@ -109,7 +113,7 @@ async function catalogFor(db: AppDatabase, subject: Subject, tableId: string): P
       fields: fields.map((field) => ({ name: field.name, columnId: field.id })),
     })
   }
-  return { tableId: table.id, columns, relations: links, rows: [] }
+  return { tableId: shell.id, columns, relations: links, rows: [] }
 }
 
 async function rowsForBrackets(db: AppDatabase, asks: { tableName: string; rowNumber: number }[], catalog: BracketCatalog) {
@@ -117,10 +121,12 @@ async function rowsForBrackets(db: AppDatabase, asks: { tableName: string; rowNu
   for (const ask of asks) {
     const column = catalog.columns.find((item) => item.tableName === ask.tableName)
     if (!column) continue
+    const [meta] = await db.select({ mirrorOfTableId: tables.mirrorOfTableId }).from(tables).where(eq(tables.id, column.tableId)).limit(1)
+    const dataTableId = meta?.mirrorOfTableId ?? column.tableId
     const [row] = await db
       .select()
       .from(tableRows)
-      .where(and(eq(tableRows.tableId, column.tableId), eq(tableRows.rowNumber, ask.rowNumber)))
+      .where(and(eq(tableRows.tableId, dataTableId), eq(tableRows.rowNumber, ask.rowNumber)))
       .limit(1)
     if (row) rows.push({ tableId: row.tableId, rowNumber: row.rowNumber, rowId: row.id })
   }

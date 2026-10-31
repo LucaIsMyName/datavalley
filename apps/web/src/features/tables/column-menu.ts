@@ -105,8 +105,15 @@ export function buildColumnHeaderMenu(input: {
   checkedCount: number
   label: (key: string) => string
   onSelect: (id: string) => void
+  readOnly?: boolean
 }): MenuEntry[] {
   const { column, label, onSelect } = input
+  if (input.readOnly) {
+    return [
+      action(onSelect, { id: 'sort', label: label('sort'), icon: ArrowUpDown }),
+      action(onSelect, { id: 'filter', label: label('filter'), icon: Filter }),
+    ]
+  }
   const entries: MenuEntry[] = [{ kind: 'heading', id: 'datatypes', label: label('menuDatatypes') }]
 
   for (const type of COLUMN_TYPES) {

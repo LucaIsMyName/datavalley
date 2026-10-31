@@ -8,7 +8,16 @@ import { allows, loadGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, evaluateStored } from '../formulas/service.js'
-import { ensureTextColumns, loadColumns, positionBetween, requireTable, type LoadedColumn } from '../tables/service.js'
+import { assertTableDataEditable } from '../tables/resolve.js'
+import {
+  ensureTextColumns,
+  loadColumns,
+  positionBetween,
+  requireEditableTable,
+  requireTable,
+  resolveTableContext,
+  type LoadedColumn,
+} from '../tables/service.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 
 async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
@@ -22,6 +31,7 @@ async function assertRow(db: AppDatabase, subject: Subject, rowId: string, actio
   const [row] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
   if (!row) throw notFound()
   const table = await requireTable(db, subject, row.tableId, action === 'view' ? 'view' : action === 'delete' ? 'delete' : 'edit')
+  if (action !== 'view') assertTableDataEditable(table)
   const grants = await loadGrants(db, subject)
   if (!allows(subject, grants, action === 'delete' ? 'delete' : action === 'edit' ? 'edit' : 'view', {
     type: 'row',
@@ -83,10 +93,10 @@ export async function listRows(
   tableId: string,
   input: { limit?: number; cursor?: string | null; sort?: SortSpec | null; filter?: FilterNode | null; q?: string | null },
 ) {
-  const table = await requireTable(db, subject, tableId, 'view')
-  const columns = await visibleColumns(db, subject, table.id, table.projectId, await loadColumns(db, tableId))
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
+  const columns = await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
   const page = await queryRows(db, {
-    tableId,
+    tableId: physical.id,
     columns,
     subjectType: subject.kind,
     subjectId: subject.id,
@@ -100,7 +110,7 @@ export async function listRows(
   const rows = presentRows(columns, page.rows, cells)
   const formulaColumns = columns.filter((column) => column.type === 'formula')
   if (formulaColumns.length > 0 && rows.length > 0) {
-    const stored = await db.select().from(formulas).where(eq(formulas.tableId, table.id))
+    const stored = await db.select().from(formulas).where(eq(formulas.tableId, physical.id))
     for (const column of formulaColumns) {
       for (const row of rows) {
         const formula = stored.find((item) => item.columnId === column.id && item.rowId === row.id)
@@ -247,26 +257,27 @@ export async function createRow(
   cells: Record<string, unknown> = {},
   placement: { beforeId?: string; afterId?: string } = {},
 ) {
-  const table = await requireTable(db, subject, tableId, 'create')
-  const columns = await loadColumns(db, tableId)
+  const table = await requireEditableTable(db, subject, tableId, 'edit')
+  const dataTableId = table.mirrorOfTableId ?? table.id
+  const columns = await loadColumns(db, dataTableId)
   const existing = await db
     .select({ id: tableRows.id, position: tableRows.position })
     .from(tableRows)
-    .where(eq(tableRows.tableId, tableId))
+    .where(eq(tableRows.tableId, dataTableId))
     .orderBy(asc(tableRows.position))
   const position = positionBetween(existing, placement.beforeId, placement.afterId)
   const row = await db.transaction(async (tx) => {
     const [numbered] = await tx
       .update(tables)
       .set({ nextRowNumber: sql`${tables.nextRowNumber} + 1` })
-      .where(eq(tables.id, tableId))
+      .where(eq(tables.id, dataTableId))
       .returning({ nextRowNumber: tables.nextRowNumber })
-    const [created] = await tx.insert(tableRows).values({ tableId, position, rowNumber: numbered.nextRowNumber - 1, createdBy: subject.id }).returning()
+    const [created] = await tx.insert(tableRows).values({ tableId: dataTableId, position, rowNumber: numbered.nextRowNumber - 1, createdBy: subject.id }).returning()
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)
       if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
-      await assertReferences(tx as unknown as AppDatabase, tableId, table.projectId, column, value)
-      await writeCell(tx as unknown as AppDatabase, tableId, created.id, column, value)
+      await assertReferences(tx as unknown as AppDatabase, dataTableId, table.projectId, column, value)
+      await writeCell(tx as unknown as AppDatabase, dataTableId, created.id, column, value)
     }
     return created
   })
@@ -280,11 +291,12 @@ export async function moveRow(
   rowId: string,
   placement: { beforeId?: string; afterId?: string },
 ) {
-  await requireTable(db, subject, tableId, 'edit')
+  const table = await requireEditableTable(db, subject, tableId, 'edit')
+  const dataTableId = table.mirrorOfTableId ?? table.id
   const existing = await db
     .select({ id: tableRows.id, position: tableRows.position })
     .from(tableRows)
-    .where(eq(tableRows.tableId, tableId))
+    .where(eq(tableRows.tableId, dataTableId))
     .orderBy(asc(tableRows.position))
   if (!existing.some((row) => row.id === rowId)) throw notFound()
   const position = positionBetween(
@@ -383,13 +395,13 @@ export async function bulkPatch(
 }
 
 export async function bulkDelete(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {
-  await requireTable(db, subject, tableId, 'delete')
+  await requireEditableTable(db, subject, tableId, 'delete')
   for (const rowId of rowIds) await deleteRow(db, subject, rowId)
   await writeAudit(db, subject, { action: 'row.bulk_delete', resourceType: 'table', resourceId: tableId, metadata: { count: rowIds.length } })
 }
 
 export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {
-  await requireTable(db, subject, tableId, 'create')
+  await requireEditableTable(db, subject, tableId, 'edit')
   const created: string[] = []
   for (const rowId of rowIds) {
     const { row } = await assertRow(db, subject, rowId, 'view')
@@ -410,8 +422,9 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
 
 export async function fillDown(db: AppDatabase, subject: Subject, tableId: string, input: { columnId: string; rowIds: string[] }) {
   if (input.rowIds.length < 2) throw badRequest('Choose at least two rows')
-  const table = await requireTable(db, subject, tableId, 'edit')
-  const columns = await loadColumns(db, tableId)
+  const table = await requireEditableTable(db, subject, tableId, 'edit')
+  const dataTableId = table.mirrorOfTableId ?? table.id
+  const columns = await loadColumns(db, dataTableId)
   const column = columns.find((item) => item.id === input.columnId)
   if (!column) throw badRequest('Unknown column')
   const source = await cellsFor(db, [input.rowIds[0]])
@@ -419,20 +432,20 @@ export async function fillDown(db: AppDatabase, subject: Subject, tableId: strin
   const value = readCell(column, sourceCell)
   for (const rowId of input.rowIds.slice(1)) {
     const { row } = await assertRow(db, subject, rowId, 'edit')
-    if (row.tableId !== table.id) throw notFound()
-    await writeCell(db, tableId, rowId, column, value)
+    if (row.tableId !== dataTableId) throw notFound()
+    await writeCell(db, dataTableId, rowId, column, value)
     await db.update(tableRows).set({ version: row.version + 1, updatedAt: new Date() }).where(eq(tableRows.id, rowId))
   }
 }
 
 export async function footer(db: AppDatabase, subject: Subject, tableId: string, filter?: FilterNode | null) {
-  const table = await requireTable(db, subject, tableId, 'view')
-  const columns = await visibleColumns(db, subject, table.id, table.projectId, await loadColumns(db, tableId))
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
+  const columns = await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
   const result: Record<string, unknown> = {}
   for (const column of columns) {
     if (column.hidden) continue
     result[column.id] = await footerFor(db, {
-      tableId,
+      tableId: physical.id,
       column,
       columns,
       subjectType: subject.kind,
@@ -444,7 +457,7 @@ export async function footer(db: AppDatabase, subject: Subject, tableId: string,
 }
 
 export async function importCsv(db: AppDatabase, subject: Subject, tableId: string, csv: string, chunkSize = 500) {
-  const table = await requireTable(db, subject, tableId, 'import')
+  const table = await requireEditableTable(db, subject, tableId, 'edit')
   const parsed = csvTable(csv, true)
   if (parsed.names.length === 0) throw badRequest('CSV is empty')
   const mapping = await ensureTextColumns(db, tableId, parsed.names)
@@ -477,10 +490,10 @@ export async function importCsv(db: AppDatabase, subject: Subject, tableId: stri
 }
 
 export async function exportCsv(db: AppDatabase, subject: Subject, tableId: string, filter?: FilterNode | null) {
-  const table = await requireTable(db, subject, tableId, 'export')
-  const columns = (await visibleColumns(db, subject, table.id, table.projectId, await loadColumns(db, tableId))).filter((column) => !column.hidden)
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'export')
+  const columns = (await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))).filter((column) => !column.hidden)
   const page = await queryRows(db, {
-    tableId,
+    tableId: physical.id,
     columns,
     subjectType: subject.kind,
     subjectId: subject.id,
@@ -490,19 +503,19 @@ export async function exportCsv(db: AppDatabase, subject: Subject, tableId: stri
   const all = [...page.rows]
   let cursor = page.nextCursor
   while (cursor && all.length < 5000) {
-    const next = await queryRows(db, { tableId, columns, subjectType: subject.kind, subjectId: subject.id, limit: 100, cursor, filter })
+    const next = await queryRows(db, { tableId: physical.id, columns, subjectType: subject.kind, subjectId: subject.id, limit: 100, cursor, filter })
     all.push(...next.rows)
     cursor = next.nextCursor
   }
   const cells = await cellsFor(db, all.map((row) => row.id))
   const rendered = presentRows(columns, all, cells)
-  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, table.id))
-  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id))
+  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, physical.id))
+  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, physical.id))
   const members = await db
     .select({ userId: projectMembers.userId, username: users.username })
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
-    .where(eq(projectMembers.projectId, table.projectId))
+    .where(eq(projectMembers.projectId, shell.projectId))
   const label = (column: LoadedColumn, value: unknown) => {
     if (column.type === 'tags' && Array.isArray(value)) return value.map((id) => tags.find((tag) => tag.id === id)?.name ?? String(id)).join('|')
     if (column.type === 'status' && typeof value === 'string') return statuses.find((status) => status.id === value)?.name ?? value

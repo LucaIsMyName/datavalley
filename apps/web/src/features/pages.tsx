@@ -11,6 +11,7 @@ import { QuietInput } from '../components/quiet-input'
 import { ResourceIcon } from '../components/resource-icon'
 import { SavedRowTitle } from '../components/saved-row-title'
 import { pressMenuProps, useContextMenu } from '../components/context-menu'
+import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Checkbox } from '../components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group'
@@ -500,7 +501,10 @@ export function ProjectPage() {
   const [dropMember, setDropMember] = useState<{ userId: string; username: string } | null>(null)
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const [creatingTable, setCreatingTable] = useState(false)
-  const [tableKind, setTableKind] = useState<'blank' | 'demo' | 'csv'>('blank')
+  const [tableKind, setTableKind] = useState<'blank' | 'demo' | 'csv' | 'mirror'>('blank')
+  const [mirrorProjectId, setMirrorProjectId] = useState('')
+  const [mirrorSourceTableId, setMirrorSourceTableId] = useState('')
+  const [mirrorDisplayName, setMirrorDisplayName] = useState('')
   const [csvName, setCsvName] = useState('')
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [csvHeader, setCsvHeader] = useState(true)
@@ -508,6 +512,16 @@ export function ProjectPage() {
   const [creatingTableBusy, setCreatingTableBusy] = useState(false)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
   const tables = useQuery({ queryKey: ['tables', projectId], queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`) })
+  const allProjects = useQuery({
+    queryKey: ['projects'],
+    enabled: creatingTable && tableKind === 'mirror',
+    queryFn: () => api.request<{ projects: Project[] }>('/projects'),
+  })
+  const mirrorSourceTables = useQuery({
+    queryKey: ['tables', mirrorProjectId, 'mirror-pick'],
+    enabled: creatingTable && tableKind === 'mirror' && Boolean(mirrorProjectId),
+    queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${mirrorProjectId}/tables`),
+  })
   const members = useQuery({
     queryKey: ['members', projectId],
     enabled: membersOpen,
@@ -620,6 +634,22 @@ export function ProjectPage() {
     setCreateTableError('')
     setCreatingTableBusy(true)
     try {
+      if (tableKind === 'mirror') {
+        if (!mirrorSourceTableId) throw new Error(t('chooseMirrorSource'))
+        const payload: { sourceTableId: string; name?: string } = { sourceTableId: mirrorSourceTableId }
+        const label = mirrorDisplayName.trim()
+        if (label) payload.name = label
+        const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables/mirror`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setCreatingTable(false)
+        setMirrorProjectId('')
+        setMirrorSourceTableId('')
+        setMirrorDisplayName('')
+        await openCreatedTable(created.table, false)
+        return
+      }
       if (tableKind === 'csv') {
         if (!csvFile) throw new Error(t('chooseCsv'))
         const name = csvName.trim() || tableNameFromFile(csvFile.name)
@@ -808,19 +838,34 @@ export function ProjectPage() {
                 ) : null}
                 <IconButton name={table.icon} onChange={(icon) => void saveIcon('table', table.id, icon)} />
                 {current ? (
-                  <QuietInput
-                    fit
-                    inputRef={nameRef}
-                    label={t('tableName')}
-                    className="h-8 bg-transparent px-0 text-sm font-medium outline-none"
-                    value={table.name}
-                    onDraft={(next) => scheduleTableName(table, next)}
-                    onFlush={() => void sync.flush(`table:${table.id}:name`)}
-                    onCancel={() => sync.cancel(`table:${table.id}:name`)}
-                  />
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <QuietInput
+                      fit
+                      inputRef={nameRef}
+                      label={t('tableName')}
+                      className="h-8 bg-transparent px-0 text-sm font-medium outline-none"
+                      value={table.name}
+                      onDraft={(next) => scheduleTableName(table, next)}
+                      onFlush={() => void sync.flush(`table:${table.id}:name`)}
+                      onCancel={() => sync.cancel(`table:${table.id}:name`)}
+                    />
+                    {table.mirrorOfTableId ? (
+                      <Badge className="shrink-0 normal-case" color="slate">
+                        {t('syncedBadge')}
+                      </Badge>
+                    ) : null}
+                  </div>
                 ) : (
-                  <Link to={`/projects/${projectId}/tables/${table.id}`} className="inline-block w-max max-w-48 truncate text-sm font-medium">
-                    {table.name}
+                  <Link
+                    to={`/projects/${projectId}/tables/${table.id}`}
+                    className="inline-flex max-w-[min(20rem,calc(100vw-12rem))] min-w-0 items-center gap-1.5 text-sm font-medium"
+                  >
+                    <span className="truncate">{table.name}</span>
+                    {table.mirrorOfTableId ? (
+                      <Badge className="shrink-0 normal-case" color="slate">
+                        {t('syncedBadge')}
+                      </Badge>
+                    ) : null}
                   </Link>
                 )}
               </div>
@@ -834,6 +879,9 @@ export function ProjectPage() {
               setCsvName('')
               setCsvFile(null)
               setCsvHeader(true)
+              setMirrorProjectId('')
+              setMirrorSourceTableId('')
+              setMirrorDisplayName('')
               setCreateTableError('')
               setCreatingTable(true)
             }}
@@ -1028,6 +1076,7 @@ export function ProjectPage() {
                     ['blank', 'blankTable'],
                     ['demo', 'demoTable'],
                     ['csv', 'importCsv'],
+                    ['mirror', 'syncedTable'],
                   ] as const).map(([value, key]) => (
                     <label key={value} htmlFor={`table-kind-${value}`} className="flex cursor-pointer items-center gap-2 text-sm">
                       <RadioGroupItem value={value} id={`table-kind-${value}`} />
@@ -1062,6 +1111,62 @@ export function ProjectPage() {
                     />
                     {t('csvHasHeader')}
                   </label>
+                </>
+              ) : null}
+              {tableKind === 'mirror' ? (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="mirror-project">{t('mirrorSourceProject')}</Label>
+                    <Select
+                      value={mirrorProjectId || undefined}
+                      onValueChange={(value) => {
+                        setMirrorProjectId(value)
+                        setMirrorSourceTableId('')
+                        setMirrorDisplayName('')
+                      }}
+                    >
+                      <SelectTrigger id="mirror-project" aria-label={t('mirrorSourceProject')} />
+                      <SelectContent>
+                        {(allProjects.data?.projects ?? []).map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="mirror-table">{t('mirrorSourceTable')}</Label>
+                    <Select
+                      value={mirrorSourceTableId || undefined}
+                      disabled={!mirrorProjectId}
+                      onValueChange={(value) => {
+                        setMirrorSourceTableId(value)
+                        const source = (mirrorSourceTables.data?.tables ?? []).find((item) => item.id === value)
+                        if (source && !mirrorDisplayName.trim()) setMirrorDisplayName(source.name)
+                      }}
+                    >
+                      <SelectTrigger id="mirror-table" aria-label={t('mirrorSourceTable')} />
+                      <SelectContent>
+                        {(mirrorSourceTables.data?.tables ?? [])
+                          .filter((item) => !item.mirrorOfTableId)
+                          .map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="mirror-name">{t('mirrorDisplayName')}</Label>
+                    <Input
+                      id="mirror-name"
+                      value={mirrorDisplayName}
+                      placeholder={t('tableName')}
+                      onChange={(event) => setMirrorDisplayName(event.target.value)}
+                    />
+                  </div>
                 </>
               ) : null}
               {createTableError ? <p role="alert" className="text-sm text-danger">{createTableError}</p> : null}

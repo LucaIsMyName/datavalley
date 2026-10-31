@@ -93,6 +93,7 @@ import { NotesDrawer } from './notes'
 import { Swatches } from './swatches'
 import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
+import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import {
   historyFlags,
@@ -306,6 +307,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
     queryFn: () => api.request<{ table: TableRecord }>(`/tables/${tableId}`),
   })
   const table = tableQuery.data?.table
+  const dataReadOnly = isTableReadOnly(table)
+  const readOnlyReason = tableReadOnlyReason(table)
+  const cellWritable = (column: Column) => !dataReadOnly && writable(column)
+  const [lockPending, setLockPending] = useState(false)
   const columns = table?.columns ?? []
   const visible = columns.filter((column) => !column.hidden)
   const rules = (table?.formatRules ?? []) as FormatRule[]
@@ -323,6 +328,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   function activateCell(row: RowRecord, column: Column) {
+    if (dataReadOnly) return
     if (column.type === 'formula') {
       openFormula(row.id, column.id, column.name)
       return
@@ -604,6 +610,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function createColumn(type: string) {
+    if (dataReadOnly) return
     const beforeId = popover?.kind === 'new-column' ? popover.beforeId : undefined
     const point = popover
       ? { left: popover.left, top: popover.top, right: popover.right, bottom: popover.bottom }
@@ -644,6 +651,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function insertRow(beforeId?: string) {
+    if (dataReadOnly) return
     const created = await api.request<{ row: { id: string; version: number } }>(
       `/tables/${tableId}/rows`,
       {
@@ -659,7 +667,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       backgrounds: {},
     }
     pushCommand(tableId, { kind: 'rows-created', rows: [snap] })
-    const first = visible.find(writable)
+    const first = visible.find(cellWritable)
     if (first) setEditing(`${created.row.id}:${first.id}`)
     await refresh()
   }
@@ -674,6 +682,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   function scheduleCell(row: RowRecord, column: Column, nextValue: unknown, delay = 300) {
+    if (dataReadOnly) return
     const columnId = column.id
     const key = `cell:${row.id}:${columnId}`
     const next = nextValue === '' ? null : nextValue
@@ -1036,7 +1045,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function deleteRows(ids: string[]) {
-    if (ids.length === 0) return
+    if (dataReadOnly || ids.length === 0) return
     const removed = new Set(ids)
     const snaps = rows
       .filter((row) => removed.has(row.id))
@@ -1051,6 +1060,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function duplicateSelectedRows(ids = checked) {
+    if (dataReadOnly) return
     const ordered = rows.filter((row) => ids.includes(row.id))
     if (ordered.length === 0) return
     const result = await api.request<{ rowIds: string[] }>(`/tables/${tableId}/rows/duplicate`, {
@@ -1066,7 +1076,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function deleteColumns(ids: string[]) {
-    if (ids.length === 0) return
+    if (dataReadOnly || ids.length === 0) return
     const loaded = await loadEveryRow()
     const removed = new Set(ids)
     const snaps: ColumnSnap[] = columns
@@ -1105,6 +1115,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function duplicateSelectedColumns(ids = selectedColumns) {
+    if (dataReadOnly) return
     const selected = columns.filter((column) => ids.includes(column.id))
     if (selected.length === 0) return
     const result = await api.request<{ columns: Column[] }>(
@@ -1141,6 +1152,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function reorderColumns(nextIds: string[]) {
+    if (dataReadOnly) return
     const before = columns.map((column) => column.id)
     if (before.join() === nextIds.join()) return
     try {
@@ -1156,6 +1168,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function reorderRow(rowId: string, beforeId: string) {
+    if (dataReadOnly) return
     const index = rows.findIndex((row) => row.id === rowId)
     const beforeNextId = rows[index + 1]?.id ?? null
     try {
@@ -1171,6 +1184,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function hideColumn(column: Column, hidden: boolean) {
+    if (dataReadOnly) return
     await api.request(`/columns/${column.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ hidden }),
@@ -1185,6 +1199,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function fillDown(columnId: string) {
+    if (dataReadOnly) return
     const ordered = rows.filter((row) => checked.includes(row.id))
     if (ordered.length < 2) return
     const source = ordered[0].cells[columnId] ?? null
@@ -1214,12 +1229,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function pasteTsv(text: string) {
+    if (dataReadOnly) return
     const grid = text
       .replace(/\r/g, '')
       .split('\n')
       .filter((line) => line.length > 0)
       .map((line) => line.split('\t'))
-    const targets = visible.slice(selected.column).filter(writable)
+    const targets = visible.slice(selected.column).filter(cellWritable)
     const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
     const previous: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
     for (let rowIndex = 0; rowIndex < grid.length; rowIndex += 1) {
@@ -1262,7 +1278,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   clearCellRef.current = () => {
     const column = visible[selected.column]
     const row = rows[selected.row]
-    if (!column || !row || !writable(column)) return
+    if (!column || !row || !cellWritable(column)) return
     scheduleCell(row, column, '', 0)
     void sync.flush(`cell:${row.id}:${column.id}`)
   }
@@ -1429,6 +1445,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       buildColumnHeaderMenu({
         column,
         checkedCount: checked.length,
+        readOnly: dataReadOnly,
         label: (key) => t(key),
         onSelect: (id) => {
           if (id === 'rename') {
@@ -1504,31 +1521,45 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const point = anchor(event)
     const list = rowsRef.current
     const index = list.findIndex((item) => item.id === row.id)
-    openMenu(event, [
-      { id: 'notes', label: t('notes'), icon: StickyNote, onSelect: () => setDrawerRowId(row.id) },
-      { id: 'above', label: t('insertAbove'), icon: ArrowUpToLine, onSelect: () => void insertRow(row.id) },
-      { id: 'below', label: t('insertBelow'), icon: ArrowDownToLine, onSelect: () => void insertRow(list[index + 1]?.id) },
-      {
-        id: 'duplicate',
-        label: t('duplicate'),
-        icon: Copy,
-        onSelect: () => void duplicateSelectedRows([row.id]),
-      },
-      {
-        id: 'color',
-        label: t('rowColor'),
-        icon: Palette,
-        onSelect: () => setPopover({ kind: 'row-color', rowId: row.id, ...point }),
-      },
-      {
-        id: 'select',
-        label: t('selectRow'),
-        icon: ListChecks,
-        onSelect: () =>
-          setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
-      },
-      { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => void deleteRows([row.id]) },
-    ])
+    openMenu(
+      event,
+      dataReadOnly
+        ? [
+            { id: 'notes', label: t('notes'), icon: StickyNote, onSelect: () => setDrawerRowId(row.id) },
+            {
+              id: 'select',
+              label: t('selectRow'),
+              icon: ListChecks,
+              onSelect: () =>
+                setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
+            },
+          ]
+        : [
+            { id: 'notes', label: t('notes'), icon: StickyNote, onSelect: () => setDrawerRowId(row.id) },
+            { id: 'above', label: t('insertAbove'), icon: ArrowUpToLine, onSelect: () => void insertRow(row.id) },
+            { id: 'below', label: t('insertBelow'), icon: ArrowDownToLine, onSelect: () => void insertRow(list[index + 1]?.id) },
+            {
+              id: 'duplicate',
+              label: t('duplicate'),
+              icon: Copy,
+              onSelect: () => void duplicateSelectedRows([row.id]),
+            },
+            {
+              id: 'color',
+              label: t('rowColor'),
+              icon: Palette,
+              onSelect: () => setPopover({ kind: 'row-color', rowId: row.id, ...point }),
+            },
+            {
+              id: 'select',
+              label: t('selectRow'),
+              icon: ListChecks,
+              onSelect: () =>
+                setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
+            },
+            { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => void deleteRows([row.id]) },
+          ],
+    )
   }
 
   function openCellMenu(event: ReactMouseEvent, row: RowRecord, column: Column) {
@@ -1539,7 +1570,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         id: 'edit',
         label: t('edit'),
         icon: Pencil,
-        disabled: !writable(column) && column.type !== 'formula',
+        disabled: !cellWritable(column) && column.type !== 'formula',
         onSelect: () => activateCell(row, column),
       },
       {
@@ -1558,7 +1589,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         id: 'clear',
         label: t('clearCell'),
         icon: Eraser,
-        disabled: !writable(column),
+        disabled: !cellWritable(column),
         onSelect: () => {
           scheduleCell(row, column, '', 0)
           void sync.flush(`cell:${row.id}:${column.id}`)
@@ -1696,6 +1727,28 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
   }
 
+  async function toggleTableLock() {
+    if (!table || table.mirrorOfTableId) return
+    setLockPending(true)
+    try {
+      const endpoint = table.lockedAt ? 'unlock' : 'lock'
+      const result = await api.request<{ table: TableRecord }>(`/tables/${tableId}/${endpoint}`, { method: 'POST' })
+      queryClient.setQueryData(['table', tableId], { table: { ...table, ...result.table } })
+      queryClient.setQueryData(['tables', projectId], (current: { tables: TableRecord[] } | undefined) => {
+        if (!current) return current
+        return {
+          tables: current.tables.map((item) =>
+            item.id === tableId ? { ...item, lockedAt: result.table.lockedAt } : item,
+          ),
+        }
+      })
+    } catch (caught) {
+      showEditError(caught instanceof Error ? caught.message : t('error'))
+    } finally {
+      setLockPending(false)
+    }
+  }
+
   async function duplicateThisTable() {
     if (!projectId) return
     try {
@@ -1744,8 +1797,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
           body: t('deleteTableWarning', { name: table.name }),
           run: deleteThisTable,
         }),
+      locked: Boolean(table.lockedAt),
+      isMirror: Boolean(table.mirrorOfTableId),
+      lockPending,
+      onToggleLock: () => void toggleTableLock(),
     }
-  }, [table, tableId, t, views.data?.views])
+  }, [table, tableId, t, views.data?.views, lockPending])
 
   useRegisterTableToolbar(toolbarActions)
 
@@ -1944,7 +2001,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 <CellEditor
                   column={column}
                   row={row.original}
-                  active={active && writable(column)}
+                  active={active && cellWritable(column)}
                   text={text}
                   tableId={tableId}
                   tags={table?.tags ?? []}
@@ -2170,6 +2227,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
         }}
       />
       <div className="flex min-h-0 flex-1 flex-col border border-border bg-card">
+        {readOnlyReason === 'mirror' && table.mirrorSource ? (
+          <p className="border-b border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            {t('mirrorBanner', {
+              project: table.mirrorSource.projectName,
+              table: table.mirrorSource.tableName,
+            })}
+          </p>
+        ) : readOnlyReason === 'locked' ? (
+          <p className="border-b border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            {t('lockedTableBanner')}
+          </p>
+        ) : null}
         <div
           ref={parentRef}
           tabIndex={0}
@@ -2407,33 +2476,37 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           handle.addEventListener('pointerup', up)
                         }}
                       />
-                      <button
-                        type="button"
-                        data-header-control
-                        aria-label={t('insertColumn')}
-                        className="absolute -right-1.5 -bottom-1.5 z-40 hidden h-3 w-3 items-center justify-center border border-border bg-card max-md:flex md:group-hover:flex"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openNewColumn(
-                            columns[columns.findIndex((item) => item.id === column.id) + 1]?.id,
-                            anchor(event),
-                          )
-                        }}
-                      >
-                        <Plus className="size-3" />
-                      </button>
+                      {!dataReadOnly ? (
+                        <button
+                          type="button"
+                          data-header-control
+                          aria-label={t('insertColumn')}
+                          className="absolute -right-1.5 -bottom-1.5 z-40 hidden h-3 w-3 items-center justify-center border border-border bg-card max-md:flex md:group-hover:flex"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openNewColumn(
+                              columns[columns.findIndex((item) => item.id === column.id) + 1]?.id,
+                              anchor(event),
+                            )
+                          }}
+                        >
+                          <Plus className="size-3" />
+                        </button>
+                      ) : null}
                     </th>
                   )
                 })}
                 <th className={`p-0 align-start ${TABLE_HEADER_CELL}`} style={{ width: filler }}>
-                  <button
-                    type="button"
-                    aria-label={t('insertColumn')}
-                    className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
-                    onClick={(event) => openNewColumn(undefined, anchor(event))}
-                  >
-                    <Plus className="size-4" />
-                  </button>
+                  {!dataReadOnly ? (
+                    <button
+                      type="button"
+                      aria-label={t('insertColumn')}
+                      className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
+                      onClick={(event) => openNewColumn(undefined, anchor(event))}
+                    >
+                      <Plus className="size-4" />
+                    </button>
+                  ) : null}
                 </th>
               </tr>
             </thead>
@@ -2543,14 +2616,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
           </table>
         </div>
         <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
-          <button
-            type="button"
-            className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground"
-            onClick={() => void insertRow()}
-          >
-            <Plus className="size-3.5" />
-            {t('insertRow')}
-          </button>
+          {!dataReadOnly ? (
+            <button
+              type="button"
+              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground"
+              onClick={() => void insertRow()}
+            >
+              <Plus className="size-3.5" />
+              {t('insertRow')}
+            </button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"

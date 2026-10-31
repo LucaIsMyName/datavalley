@@ -85,6 +85,13 @@ export type Column = {
   formula?: string | null
 }
 
+export type MirrorSource = {
+  tableId: string
+  tableName: string
+  projectId: string
+  projectName: string
+}
+
 export type TableRecord = {
   id: string
   projectId: string
@@ -96,6 +103,9 @@ export type TableRecord = {
   footerConfig: Record<string, unknown>
   formatRules: FormatRule[]
   archivedAt: string | null
+  lockedAt: string | null
+  mirrorOfTableId: string | null
+  mirrorSource?: MirrorSource | null
   columns?: Column[]
   tags?: CatalogItem[]
   statuses?: CatalogItem[]

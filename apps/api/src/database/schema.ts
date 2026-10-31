@@ -148,6 +148,8 @@ export const tables = pgTable(
     formatRules: jsonb('format_rules').notNull().default([]),
     nextRowNumber: integer('next_row_number').notNull().default(1),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    mirrorOfTableId: uuid('mirror_of_table_id'),
     createdBy: uuid('created_by'),
     ...timestamps,
   },
