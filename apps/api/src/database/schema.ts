@@ -104,7 +104,7 @@ export const auditLogs = pgTable('audit_logs', {
   actorType: text('actor_type').notNull(),
   action: text('action').notNull(),
   resourceType: text('resource_type').notNull(),
-  resourceId: uuid('resource_id'),
+  resourceId: text('resource_id'),
   metadata: jsonb('metadata').notNull().default({}),
   source: text('source').notNull(),
   ip: text('ip'),

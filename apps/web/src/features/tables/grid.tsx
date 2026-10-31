@@ -62,6 +62,7 @@ import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
 import { QuietInput } from '../../components/quiet-input'
 import { SelectField } from '../../components/ui/select'
+import { Badge } from '../../components/ui/badge'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -2602,7 +2603,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         className="h-9 border-r border-t border-border px-2 text-xs text-muted-foreground"
                       >
                         {calc && stats
-                          ? `${t(calc)} ${footerValue(calc, stats)}`
+                          ? <><Badge>{t(calc)}</Badge> {footerValue(calc, stats)}</>
                           : calc && footerQuery.isLoading
                             ? t('footerLoading')
                             : ''}

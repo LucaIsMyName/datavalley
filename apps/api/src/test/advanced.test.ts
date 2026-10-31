@@ -168,7 +168,9 @@ describe('advanced crm behavior', () => {
     const removed = await admin.inject({ method: 'DELETE', url: `/api/v1/rows/${customerRow.json().row.id}` })
     expect(removed.statusCode).toBe(409)
 
-    await admin.inject({ method: 'POST', url: '/api/v1/plugins/csv/disable' })
+    const disabledPlugin = await admin.inject({ method: 'POST', url: '/api/v1/plugins/csv/disable' })
+    expect(disabledPlugin.statusCode).toBe(200)
+    expect(disabledPlugin.json().plugin).toMatchObject({ id: 'csv', enabled: false })
     const blockedImport = await admin.inject({
       method: 'POST',
       url: `/api/v1/tables/${tableId}/import`,
@@ -176,7 +178,9 @@ describe('advanced crm behavior', () => {
       payload: body,
     })
     expect(blockedImport.statusCode).toBe(403)
-    await admin.inject({ method: 'POST', url: '/api/v1/plugins/csv/enable' })
+    const enabledPlugin = await admin.inject({ method: 'POST', url: '/api/v1/plugins/csv/enable' })
+    expect(enabledPlugin.statusCode).toBe(200)
+    expect(enabledPlugin.json().plugin).toMatchObject({ id: 'csv', enabled: true })
 
     const secret = 'hook-secret'
     const [connection] = await harness.db
