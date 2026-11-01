@@ -5,8 +5,8 @@ import {
   isDateColumnType,
   isDateRangeValue,
   formatTimelineBound,
+  moveTimelineRange,
   offsetAtTime,
-  packTimelineLanes,
   parseTimelineCell,
   resizeTimelineRange,
   snapTimeline,
@@ -15,6 +15,7 @@ import {
   timelineLayout,
   timelineNow,
   timelineStep,
+  timelineWaterfallOrder,
   type TimelineDisplay,
   type TimelineSpan,
 } from '@datavalley/shared'
@@ -33,12 +34,13 @@ import { formatFormulaValue } from './formula-help'
 const DAY = 86_400_000
 const LANE = 40
 
-type DragEdge = 'start' | 'end' | 'point'
+type DragEdge = 'start' | 'end' | 'point' | 'move'
 
 type DragState = {
   rowId: string
   edge: DragEdge
   time: number
+  origin: number
 }
 
 export function TimelineView({
@@ -70,7 +72,7 @@ export function TimelineView({
   const seeded = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  const centerRef = useRef<number | null>(null)
+  const anchorRef = useRef<{ time: number; offset: number } | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const commitDragRef = useRef<(current: DragState) => void>(() => {})
@@ -147,11 +149,11 @@ export function TimelineView({
 
   useLayoutEffect(() => {
     const scroller = scrollRef.current
-    const time = centerRef.current
-    if (!scroller || time == null) return
-    centerRef.current = null
-    const x = offsetAtTime(time, layout.start, layout.end, layout.width)
-    scroller.scrollLeft = Math.max(0, x - scroller.clientWidth / 2)
+    const anchor = anchorRef.current
+    if (!scroller || !anchor) return
+    anchorRef.current = null
+    const x = offsetAtTime(anchor.time, layout.start, layout.end, layout.width)
+    scroller.scrollLeft = Math.max(0, x - anchor.offset)
   }, [layout])
 
   const items = useMemo(() => {
@@ -163,7 +165,7 @@ export function TimelineView({
       return [{ row, span: shown, title: itemTitle(row, titleColumns, i18n.language, labels) }]
     })
   }, [dateColumn, drag, i18n.language, includeTime, labels, rows, titleColumns])
-  const lanes = packTimelineLanes(items.map((item) => item.span))
+  const ordered = timelineWaterfallOrder(items.map((item) => item.span)).map((index) => items[index]).filter((item) => item != null)
   const unscheduled = dateColumn
     ? rows.filter((row) => parseTimelineCell(row.cells[dateColumn.id], includeTime) == null)
     : []
@@ -177,10 +179,13 @@ export function TimelineView({
     return snapTimeline(timeAtOffset(x, layout.start, layout.end, layout.width), step, includeTime)
   }
 
-  function rememberCenter() {
+  function rememberAnchor(clientX?: number) {
     const scroller = scrollRef.current
-    if (!scroller) return
-    centerRef.current = timeAtOffset(scroller.scrollLeft + scroller.clientWidth / 2, layout.start, layout.end, layout.width)
+    const content = contentRef.current
+    if (!scroller || !content) return
+    const localX = clientX == null ? scroller.scrollLeft + scroller.clientWidth / 2 : clientX - content.getBoundingClientRect().left
+    const offset = clientX == null ? scroller.clientWidth / 2 : clientX - scroller.getBoundingClientRect().left
+    anchorRef.current = { time: timeAtOffset(localX, layout.start, layout.end, layout.width), offset }
   }
 
   commitDragRef.current = (current) => {
@@ -190,6 +195,14 @@ export function TimelineView({
     const raw = row.cells[dateColumn.id]
     if (current.edge === 'point') {
       onWrite(row, dateColumn, formatTimelineBound(current.time, includeTime))
+      return
+    }
+    if (current.edge === 'move') {
+      if (!isDateRangeValue(raw)) return
+      const delta = current.time - current.origin
+      if (delta === 0) return
+      const moved = moveTimelineRange({ from: raw.from, to: raw.to, delta, includeTime })
+      if (moved.ok) onWrite(row, dateColumn, moved.value)
       return
     }
     if (!isDateRangeValue(raw)) return
@@ -210,7 +223,7 @@ export function TimelineView({
     event.preventDefault()
     event.stopPropagation()
     event.currentTarget.setPointerCapture(event.pointerId)
-    const next = { rowId, edge, time }
+    const next = { rowId, edge, time, origin: time }
     setDragState(next)
     function move(pointer: PointerEvent) {
       const snapped = timeFromPointer(pointer.clientX)
@@ -228,6 +241,64 @@ export function TimelineView({
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }
+
+  const zoomRef = useRef({ zoom, zoomMax, timeline, layout, ready })
+  zoomRef.current = { zoom, zoomMax, timeline, layout, ready }
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node || !ready) return
+    let bucket = 0
+    let gestureStart = zoomRef.current.zoom
+    function zoomBy(direction: number, clientX: number) {
+      const current = zoomRef.current
+      const level = Math.round(current.zoom) || 1
+      const next = Math.max(1, Math.min(current.zoomMax, level + direction))
+      if (next === level) return
+      zoomRef.current = { ...current, zoom: next }
+      const content = contentRef.current
+      const scroller = scrollRef.current
+      if (content && scroller) {
+        const localX = clientX - content.getBoundingClientRect().left
+        anchorRef.current = {
+          time: timeAtOffset(localX, current.layout.start, current.layout.end, current.layout.width),
+          offset: clientX - scroller.getBoundingClientRect().left,
+        }
+      }
+      onChangeRef.current({ ...current.timeline, zoom: next })
+    }
+    function onWheel(event: WheelEvent) {
+      const pinch = event.ctrlKey || event.metaKey
+      if (!pinch && Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+      event.preventDefault()
+      bucket += event.deltaY
+      if (Math.abs(bucket) < (pinch ? 8 : 40)) return
+      const direction = bucket < 0 ? 1 : -1
+      bucket = 0
+      zoomBy(direction, event.clientX)
+    }
+    function onGestureStart(event: Event) {
+      event.preventDefault()
+      gestureStart = zoomRef.current.zoom
+    }
+    function onGestureChange(event: Event) {
+      event.preventDefault()
+      const gesture = event as Event & { scale?: number; clientX?: number }
+      const steps = Math.round(Math.log(gesture.scale ?? 1) / Math.log(1.12))
+      const target = Math.max(1, Math.min(zoomRef.current.zoomMax, Math.round(gestureStart) + steps))
+      zoomBy(target - (Math.round(zoomRef.current.zoom) || 1), gesture.clientX ?? 0)
+    }
+    node.addEventListener('wheel', onWheel, { passive: false })
+    node.addEventListener('gesturestart', onGestureStart)
+    node.addEventListener('gesturechange', onGestureChange)
+    return () => {
+      node.removeEventListener('wheel', onWheel)
+      node.removeEventListener('gesturestart', onGestureStart)
+      node.removeEventListener('gesturechange', onGestureChange)
+    }
+  }, [ready])
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -279,7 +350,7 @@ export function TimelineView({
             disabled={!ready}
             className="h-2 w-28 accent-primary disabled:opacity-50"
             onChange={(event) => {
-              rememberCenter()
+              rememberAnchor()
               onChange({ ...timeline, zoom: Number(event.target.value) })
             }}
           />
@@ -292,7 +363,7 @@ export function TimelineView({
       ) : (
         <>
           <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto">
-            <div ref={contentRef} className="relative" style={{ width: layout.width }}>
+            <div ref={contentRef} className="relative min-w-full" style={{ width: layout.width }}>
               <div className="sticky top-0 z-20 h-8 border-b border-border bg-card">
                 {layout.ticks.map((tick) => (
                   <div
@@ -304,15 +375,15 @@ export function TimelineView({
                   </div>
                 ))}
               </div>
-              <div className="relative" style={{ height: Math.max(lanes.reduce((max, lane) => Math.max(max, lane), 0) + 1, 1) * LANE }}>
-                {items.map((item, index) => {
+              <div className="relative" style={{ height: Math.max(ordered.length, 1) * LANE }}>
+                {ordered.map((item, index) => {
                   const left = offsetAtTime(item.span.start, layout.start, layout.end, layout.width)
                   const right = offsetAtTime(item.span.point ? item.span.start : item.span.end, layout.start, layout.end, layout.width)
                   const width = Math.max(item.span.point ? 12 : 16, right - left)
-                  const top = (lanes[index] ?? 0) * LANE
+                  const top = index * LANE
                   const labelInside = !item.span.point && width >= 96
                   return (
-                    <div key={item.row.id} className="absolute right-0 left-0" style={{ top, height: LANE }}>
+                    <div key={item.row.id} className="absolute right-0 left-0 border-b border-border/40" style={{ top, height: LANE }}>
                       <div className="absolute top-2 flex h-6 items-center" style={{ left: item.span.point ? left - 6 : left }}>
                         {item.span.point ? (
                           <button
@@ -324,7 +395,15 @@ export function TimelineView({
                             onPointerCancel={() => setDragState(null)}
                           />
                         ) : (
-                          <div className="relative h-full shrink-0 border border-primary bg-primary/15" style={{ width }}>
+                          <div
+                            aria-label={t('timelineMove')}
+                            className="relative h-full shrink-0 border border-primary bg-primary/15"
+                            style={{ width, cursor: readOnly ? 'default' : 'grab' }}
+                            onPointerDown={(event) => {
+                              if ((event.target as HTMLElement).closest('button')) return
+                              beginDrag(event, item.row.id, 'move')
+                            }}
+                          >
                             {labelInside ? <span className="block truncate px-2 text-xs leading-6">{item.title}</span> : null}
                             {readOnly ? null : (
                               <>
@@ -419,6 +498,10 @@ export function TimelineView({
 function previewSpan(span: TimelineSpan, drag: DragState | null, includeTime: boolean): TimelineSpan {
   if (!drag) return span
   if (drag.edge === 'point') return { start: drag.time, end: drag.time, point: true }
+  if (drag.edge === 'move') {
+    const delta = drag.time - drag.origin
+    return { start: span.start + delta, end: span.end + delta, point: false }
+  }
   if (drag.edge === 'start') {
     const limit = includeTime ? span.end : span.end - DAY
     return { ...span, start: Math.min(drag.time, limit) }

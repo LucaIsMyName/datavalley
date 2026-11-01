@@ -133,6 +133,7 @@
   "timelineNow": "Now",
   "timelineStart": "Start",
   "timelineEnd": "End",
+  "timelineMove": "Move",
   "chartType": "Chart type",
   "chartPerRow": "Dimension per row",
   "chartLine": "Line",

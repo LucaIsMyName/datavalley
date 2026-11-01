@@ -208,22 +208,21 @@ export function resizeTimelineRange(input: {
   return result.ok ? { ok: true as const, value: result.value } : { ok: false as const }
 }
 
-export function packTimelineLanes(items: TimelineSpan[]) {
-  const order = items.map((item, index) => ({
-    index,
-    start: item.start,
-    end: item.point ? item.start + 1 : Math.max(item.end, item.start + 1),
-  }))
-  order.sort((left, right) => left.start - right.start || left.index - right.index)
-  const laneEnds: number[] = []
-  const lanes = items.map(() => 0)
-  for (const item of order) {
-    let lane = laneEnds.findIndex((end) => end <= item.start)
-    if (lane < 0) {
-      lane = laneEnds.length
-      laneEnds.push(item.end)
-    } else laneEnds[lane] = item.end
-    lanes[item.index] = lane
+export function moveTimelineRange(input: { from: string; to: string; delta: number; includeTime: boolean }) {
+  const start = boundMs(input.from, input.includeTime)
+  const end = boundMs(input.to, input.includeTime)
+  if (start == null || end == null || !Number.isFinite(input.delta)) return { ok: false as const }
+  const value = {
+    from: formatTimelineBound(start + input.delta, input.includeTime),
+    to: formatTimelineBound(end + input.delta, input.includeTime),
   }
-  return lanes
+  const result = validateDateRangePayload(value, input.includeTime ? 'datetime' : 'date')
+  return result.ok ? { ok: true as const, value: result.value } : { ok: false as const }
+}
+
+export function timelineWaterfallOrder(items: { start: number }[]) {
+  return items
+    .map((item, index) => ({ index, start: item.start }))
+    .sort((left, right) => left.start - right.start || left.index - right.index)
+    .map((item) => item.index)
 }

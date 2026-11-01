@@ -133,6 +133,7 @@
   "timelineNow": "Jetzt",
   "timelineStart": "Anfang",
   "timelineEnd": "Ende",
+  "timelineMove": "Verschieben",
   "chartType": "Diagrammtyp",
   "chartPerRow": "Dimension pro Zeile",
   "chartLine": "Linie",
