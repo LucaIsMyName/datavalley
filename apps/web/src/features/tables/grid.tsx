@@ -94,7 +94,14 @@ import {
 } from './grid-ux'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
-import { dateColumnIncludesTime, formatDateCellValue, isDateColumnType, migrateDateCell } from '@datavalley/shared'
+import {
+  dateColumnIncludesTime,
+  formatDateCellValue,
+  isDateColumnType,
+  migrateDateCell,
+  migrateSelectCell,
+  selectColumnMultiple,
+} from '@datavalley/shared'
 import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { MediaLibraryDialog } from '../media/media-library-dialog'
@@ -103,6 +110,8 @@ import { mergeMediaIntoCell } from './media-cell'
 import { NotesDrawer } from './notes'
 import { fetchMediaDetails, MEDIA_UPLOAD_ACCEPT, uploadMedia } from '../../lib/media'
 import { Swatches } from './swatches'
+import { SelectOptionsDialog } from './select-options-dialog'
+import { mergeColumnOption } from './select-options-utils'
 import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
@@ -131,6 +140,7 @@ type PopoverState = {
     | 'view'
     | 'icon'
     | 'new-column'
+    | 'select-options'
   beforeId?: string
   columnId?: string
   rowId?: string
@@ -1605,6 +1615,40 @@ export function TableScreen({ tableId }: { tableId: string }) {
     if (updates.length > 0) await refresh()
   }
 
+  async function applySelectMode(column: Column, patch: { multiple?: boolean }) {
+    const previous = selectColumnMultiple(column)
+    const next = patch.multiple ?? previous
+    if (previous === next) return
+    const saved = await saveConfig(column, { multiple: next })
+    if (!saved) return
+    const collected: RowRecord[] = []
+    let cursor: string | null = null
+    do {
+      const params = new URLSearchParams({ limit: '100' })
+      if (cursor) params.set('cursor', cursor)
+      const page = await api.request<{ rows: RowRecord[]; nextCursor: string | null }>(
+        `/tables/${tableId}/rows?${params}`,
+      )
+      collected.push(...page.rows)
+      cursor = page.nextCursor
+    } while (cursor && collected.length < 5000)
+    const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
+    for (const row of collected) {
+      const current = row.cells[column.id] ?? null
+      if (current == null || current === '') continue
+      const migrated = migrateSelectCell(current, { multiple: next })
+      if (JSON.stringify(migrated) === JSON.stringify(current)) continue
+      updates.push({ rowId: row.id, version: row.version, cells: { [column.id]: migrated } })
+    }
+    for (let index = 0; index < updates.length; index += 500) {
+      await api.request(`/tables/${tableId}/cells/bulk`, {
+        method: 'PATCH',
+        body: JSON.stringify({ updates: updates.slice(index, index + 500) }),
+      })
+    }
+    if (updates.length > 0) await refresh()
+  }
+
   async function saveConfig(column: Column, patch: Record<string, unknown>) {
     const config = { ...column.config, ...patch }
     patchCachedTable(queryClient, tableId, (current) => ({
@@ -1741,6 +1785,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
       }
       if (id === 'range-off') {
         void applyDateMode(col, { range: false })
+        return
+      }
+      if (id === 'select-multiple-on') {
+        void applySelectMode(col, { multiple: true })
+        return
+      }
+      if (id === 'select-multiple-off') {
+        void applySelectMode(col, { multiple: false })
+        return
+      }
+      if (id === 'manage-select-options') {
+        setPopover({ kind: 'select-options', columnId: col.id, ...point })
         return
       }
       if (id.startsWith('footer-')) {
@@ -2281,6 +2337,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
                               item,
                             ]
                           : current.statuses,
+                    }))
+                  }
+                  onOptionChange={(columnId, option, deleted) =>
+                    patchCachedTable(queryClient, tableId, (current) => ({
+                      ...current,
+                      columns: current.columns?.map((item) =>
+                        item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
+                      ),
                     }))
                   }
                   onMediaLibrary={(existingIds) =>
@@ -3011,6 +3075,19 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 {t('confirm')}
               </Button>
             </div>
+          ) : null}
+          {popover.kind === 'select-options' && popoverColumn ? (
+            <SelectOptionsDialog
+              column={popoverColumn}
+              readOnly={dataReadOnly}
+              onChange={(next) =>
+                patchCachedTable(queryClient, tableId, (current) => ({
+                  ...current,
+                  columns: current.columns?.map((item) => (item.id === next.id ? next : item)),
+                }))
+              }
+              onRefresh={() => void refresh()}
+            />
           ) : null}
           {popover.kind === 'filter' && popoverColumn ? (
             <div className="flex flex-col gap-2">

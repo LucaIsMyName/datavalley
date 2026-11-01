@@ -1,4 +1,11 @@
-import { formatDateCellValue, isDateColumnType, type DateRangeValue, paintSwatch } from '@datavalley/shared'
+import {
+  formatDateCellValue,
+  isDateColumnType,
+  isSelectFamilyType,
+  selectColumnMultiple,
+  type DateRangeValue,
+  paintSwatch,
+} from '@datavalley/shared'
 import { DateCellEditor } from '../../components/date-picker-field'
 import { useEffect, useRef, useState } from 'react'
 import { ApiClientError, type CatalogItem, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
@@ -59,6 +66,7 @@ export function CellEditor({
   onOpen,
   onActivate,
   onCreated,
+  onOptionChange,
   hint,
   onMediaLibrary,
   onMediaPreview,
@@ -81,6 +89,7 @@ export function CellEditor({
   onOpen: () => void
   onActivate: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
+  onOptionChange: (columnId: string, option: { id: string; label: string; color: string | null; position: string }, deleted?: boolean) => void
   hint?: string | null
   onMediaLibrary?: (existingIds: string[]) => void
   onMediaPreview?: (file: MediaFile) => void
@@ -148,6 +157,20 @@ export function CellEditor({
       />
     )
   }
+  if (isSelectFamilyType(column.type)) {
+    return (
+      <SelectEditor
+        column={column}
+        row={row}
+        active={active}
+        onEdit={onEdit}
+        onFlush={onFlush}
+        onOpen={onOpen}
+        onActivate={onActivate}
+        onOptionChange={onOptionChange}
+      />
+    )
+  }
   if (!active) {
     if (column.type === 'user') {
       const items = names(row.cells[column.id], members.map((member) => ({ id: member.userId, name: member.username, color: 'blue', tableId: '' })))
@@ -166,17 +189,9 @@ export function CellEditor({
         </button>
       )
     }
-    const optionLabel = column.options.find((option) => option.id === String(row.cells[column.id] ?? ''))?.label
-    const multiLabels = Array.isArray(row.cells[column.id])
-      ? (row.cells[column.id] as string[]).map((id) => column.options.find((option) => option.id === id)?.label ?? id).join(', ')
-      : ''
     const shown = hint
       ? text
-      : column.type === 'select' || column.type === 'radio'
-        ? optionLabel ?? text
-        : column.type === 'multi_select'
-          ? multiLabels
-          : column.type === 'number' || column.type === 'currency' || isDateColumnType(column.type)
+      : column.type === 'number' || column.type === 'currency' || isDateColumnType(column.type)
             ? formatCell(column, row.cells[column.id], i18n.language)
             : text
     const openDate = isDateColumnType(column.type)
@@ -209,12 +224,6 @@ export function CellEditor({
   }
   if (isDateColumnType(column.type)) return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} onDateMode={onDateMode} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
-  if (column.type === 'select' || column.type === 'radio') {
-    return <OptionEditor column={column} value={typeof row.cells[column.id] === 'string' ? String(row.cells[column.id]) : ''} onEdit={onEdit} onFlush={onFlush} />
-  }
-  if (column.type === 'multi_select') {
-    return <MultiOptionEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
-  }
   return (
     <div className="flex h-full min-w-0 flex-1 items-center gap-1">
       <TextEditor label={editLabel} value={text} multiline={column.type === 'long_text'} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
@@ -750,80 +759,175 @@ function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column;
   )
 }
 
-function OptionEditor({
+function SelectEditor({
   column,
-  value,
+  row,
+  active,
   onEdit,
   onFlush,
+  onOpen,
+  onActivate,
+  onOptionChange,
 }: {
   column: Column
-  value: string
-  onEdit: (value: string, delay?: number) => void
+  row: RowRecord
+  active: boolean
+  onEdit: (value: string | string[], delay?: number) => void
   onFlush: () => void
+  onOpen: () => void
+  onActivate: () => void
+  onOptionChange: (columnId: string, option: { id: string; label: string; color: string | null; position: string }, deleted?: boolean) => void
 }) {
   const { t } = useTranslation()
+  const multiple = selectColumnMultiple(column)
   const options = column.options ?? []
-  return (
-    <SelectField
-      label={t('editColumn', { name: column.name })}
-      className="h-9 border-0 bg-transparent px-0"
-      value={value}
-      onValueChange={(next) => {
-        onEdit(next, 0)
-        onFlush()
-      }}
-      options={[
-        { value: '', label: options.length === 0 ? t('noOptions') : t('none') },
-        ...options.map((option) => ({ value: option.id, label: option.label })),
-      ]}
-    />
-  )
-}
+  const raw = row.cells[column.id]
+  const selected = multiple ? (Array.isArray(raw) ? raw.map(String) : []) : typeof raw === 'string' ? raw : ''
+  const [name, setName] = useState('')
+  const [menu, setMenu] = useState<ViewportAnchor | null>(null)
 
-function MultiOptionEditor({
-  column,
-  value,
-  onEdit,
-  onFlush,
-}: {
-  column: Column
-  value: unknown
-  onEdit: (value: string[], delay?: number) => void
-  onFlush: () => void
-}) {
-  const { t } = useTranslation()
-  const selected = Array.isArray(value) ? value.map(String) : []
-  const options = column.options ?? []
-  function choose(next: string[]) {
+  async function createOption(label: string) {
+    const trimmed = label.trim()
+    if (!trimmed) return
+    const result = await api.request<{ option: { id: string; label: string; color: string | null; position: string } }>(
+      `/columns/${column.id}/options`,
+      { method: 'POST', body: JSON.stringify({ label: trimmed }) },
+    )
+    onOptionChange(column.id, result.option)
+    if (multiple) {
+      chooseMulti(selected.includes(result.option.id) ? selected : [...selected, result.option.id])
+    } else {
+      chooseSingle(result.option.id)
+    }
+    setName('')
+  }
+
+  function chooseSingle(next: string) {
+    onEdit(next, 0)
+    onFlush()
+    setMenu(null)
+  }
+
+  function chooseMulti(next: string[]) {
     onEdit(next, 0)
     onFlush()
   }
+
+  const currentSingle = !multiple && typeof selected === 'string' ? options.find((option) => option.id === selected) : null
+  const currentColor = currentSingle && palette.includes(String(currentSingle.color)) ? String(currentSingle.color) : 'slate'
+
   return (
-    <div className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden">
-      {selected.map((id) => {
-        const option = options.find((item) => item.id === id)
-        return (
-          <Badge key={id} color={option?.color ?? 'slate'}>
-            {option?.label ?? id}
-          </Badge>
-        )
-      })}
-      <SelectField
-        label={t('editColumn', { name: column.name })}
-        className="h-7 min-w-16 border-0 bg-transparent px-0"
-        value=""
-        onValueChange={(next) => {
-          if (!next) return
-          choose(selected.includes(next) ? selected.filter((id) => id !== next) : [...selected, next])
-        }}
-        options={[
-          { value: '', label: options.length === 0 ? t('noOptions') : t('add') },
-          ...options.map((option) => ({
-            value: option.id,
-            label: selected.includes(option.id) ? `− ${option.label}` : option.label,
-          })),
-        ]}
-      />
+    <div
+      className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden"
+      onClick={onOpen}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        onActivate()
+      }}
+    >
+      {multiple
+        ? selected.map((id) => {
+            const option = options.find((item) => item.id === id)
+            return (
+              <Badge key={id} color={option?.color ?? 'slate'}>
+                {option?.label ?? id}
+              </Badge>
+            )
+          })
+        : currentSingle ? (
+            <Badge color={currentSingle.color ?? 'slate'} className="gap-0.5 pr-1">
+              <span className="truncate">{currentSingle.label}</span>
+              <button
+                type="button"
+                aria-label={t('color')}
+                data-tag-chevron=""
+                className="inline-flex shrink-0"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setMenu({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+                }}
+              >
+                <ChevronDown className="size-3" />
+              </button>
+            </Badge>
+          ) : null}
+      {active ? (
+        <input
+          autoFocus
+          aria-label={t('newSelectOption')}
+          className="h-7 min-w-16 flex-1 bg-transparent outline-none"
+          value={name}
+          placeholder={t('newSelectOption')}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || !name.trim()) return
+            event.preventDefault()
+            void createOption(name)
+          }}
+        />
+      ) : null}
+      {active && multiple ? (
+        <SelectField
+          label={t('editColumn', { name: column.name })}
+          className="h-7 min-w-16 border-0 bg-transparent px-0"
+          value=""
+          onValueChange={(next) => {
+            if (!next) return
+            chooseMulti(selected.includes(next) ? selected.filter((id) => id !== next) : [...selected, next])
+          }}
+          options={[
+            { value: '', label: t('add') },
+            ...options.map((option) => ({
+              value: option.id,
+              label: selected.includes(option.id) ? `− ${option.label}` : option.label,
+            })),
+          ]}
+        />
+      ) : null}
+      {menu && !multiple && currentSingle ? (
+        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu className="w-[min(12rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-md">
+          <ul className="max-h-40 overflow-auto">
+            {options.map((option) => (
+              <li key={option.id}>
+                <button
+                  type="button"
+                  className={`block min-h-9 w-full truncate px-2 text-left text-sm hover:bg-accent ${option.id === currentSingle.id ? 'font-medium' : ''}`}
+                  onClick={() => chooseSingle(option.id)}
+                >
+                  {option.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {palette.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={t(colorLabelKey(color))}
+                className={`h-5 w-5 border border-border ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
+                style={{ background: paintSwatch(color, 'background') }}
+                onClick={() => {
+                  void api
+                    .request<{ option: { id: string; label: string; color: string | null; position: string } }>(
+                      `/columns/${column.id}/options/${currentSingle.id}`,
+                      { method: 'PATCH', body: JSON.stringify({ color }) },
+                    )
+                    .then((result) => {
+                      onOptionChange(column.id, result.option)
+                      setMenu(null)
+                    })
+                }}
+              />
+            ))}
+          </div>
+          <button type="button" className="mt-2 w-full text-left text-sm" onClick={() => chooseSingle('')}>
+            {t('clearCell')}
+          </button>
+        </AnchoredLayer>
+      ) : null}
     </div>
   )
 }

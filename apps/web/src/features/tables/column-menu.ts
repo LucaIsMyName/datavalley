@@ -31,6 +31,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
+import { isSelectFamilyType, selectColumnMultiple } from '@datavalley/shared'
 import type { MenuAccordion, MenuEntry } from '../../components/context-menu'
 import { COLUMN_ICONS, defaultIcon } from './icons'
 
@@ -187,6 +188,25 @@ export function buildColumnHeaderMenu(input: {
         }),
       )
     }
+  }
+
+  if (isSelectFamilyType(column.type)) {
+    entries.push({ kind: 'heading', id: 'selectOptions', label: label('menuSelectOptions') })
+    const multiple = selectColumnMultiple(column)
+    entries.push(
+      action(onSelect, {
+        id: multiple ? 'select-multiple-off' : 'select-multiple-on',
+        label: label(multiple ? 'selectMultipleOff' : 'selectMultipleOn'),
+        icon: ListOrdered,
+      }),
+    )
+    entries.push(
+      action(onSelect, {
+        id: 'manage-select-options',
+        label: label('manageSelectOptions'),
+        icon: ListOrdered,
+      }),
+    )
   }
 
   if (column.type === 'date' || column.type === 'datetime') {

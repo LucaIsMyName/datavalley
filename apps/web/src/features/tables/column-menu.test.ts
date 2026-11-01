@@ -95,6 +95,17 @@ describe('column header menu', () => {
     ])
   })
 
+  it('groups select options under their own heading before actions', () => {
+    const entries = menuFor({ type: 'select', config: { multiple: false } })
+    expect(headings(entries)).toEqual(['datatypes', 'selectOptions', 'actions', 'footer', 'conditions'])
+    expect(idsBetween(entries, 'selectOptions', 'actions')).toEqual([
+      'select-multiple-on',
+      'manage-select-options',
+    ])
+    const multi = menuFor({ type: 'select', config: { multiple: true } })
+    expect(idsBetween(multi, 'selectOptions', 'actions')[0]).toBe('select-multiple-off')
+  })
+
   it('groups date format options under their own heading before actions', () => {
     const entries = menuFor({ type: 'date', config: { includeTime: true, range: true } })
     expect(headings(entries)).toEqual(['datatypes', 'dateOptions', 'actions', 'footer', 'conditions'])

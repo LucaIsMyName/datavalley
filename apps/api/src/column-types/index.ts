@@ -4,6 +4,7 @@ import {
   parseMediaCellInput,
   dateColumnIncludesTime,
   dateColumnKind,
+  selectColumnMultiple,
   validateDateRangePayload,
 } from '@datavalley/shared'
 import { badRequest } from '../errors.js'
@@ -200,8 +201,13 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
     case 'checkbox':
       return one({ valueBool: input === true || input === 'true' || input === '1' || input === 'yes' })
     case 'select':
-    case 'radio':
+    case 'radio': {
+      if (selectColumnMultiple(column)) {
+        const values = Array.isArray(input) ? input.map(String) : String(input).split('|').filter(Boolean)
+        return one({ valueJsonb: { optionIds: values.map((value) => optionId(column, value)) } })
+      }
       return one({ valueJsonb: { optionId: optionId(column, String(input)) } })
+    }
     case 'multi_select': {
       const values = Array.isArray(input) ? input.map(String) : String(input).split('|').filter(Boolean)
       return one({ valueJsonb: { optionIds: values.map((value) => optionId(column, value)) } })
@@ -255,6 +261,10 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
     return value?.statusId ?? null
   }
   if (column.type === 'select' || column.type === 'radio') {
+    if (selectColumnMultiple(column)) {
+      const value = row.valueJsonb as { optionIds?: string[] } | null
+      return value?.optionIds ?? null
+    }
     const value = row.valueJsonb as { optionId?: string } | null
     return value?.optionId ?? null
   }
@@ -273,7 +283,12 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
 export function coerceImport(column: ColumnShape, raw: string): CellWrite | null {
   if (raw.trim() === '') return null
   if (column.type === 'checkbox') return parseCell(column, ['true', 'yes', '1'].includes(raw.trim().toLowerCase()))
-  if (column.type === 'multi_select' || column.type === 'tags' || column.type === 'user') return parseCell(column, raw.split('|').map((part) => part.trim()))
+  if (column.type === 'multi_select' || column.type === 'tags' || column.type === 'user') {
+    return parseCell(column, raw.split('|').map((part) => part.trim()))
+  }
+  if (column.type === 'select' && selectColumnMultiple(column)) {
+    return parseCell(column, raw.split('|').map((part) => part.trim()))
+  }
   return parseCell(column, raw.trim())
 }
 

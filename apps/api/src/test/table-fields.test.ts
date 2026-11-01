@@ -624,6 +624,71 @@ describe('table fields', () => {
     expect(empty.statusCode).toBe(400)
   })
 
+  it('creates, updates, and deletes column select options and scrubs cells', async () => {
+    const { tableId } = await blankTable('Select options')
+    const column = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Priority', type: 'select' },
+    })
+    const columnId = column.json().column.id as string
+    const first = await session.inject({
+      method: 'POST',
+      url: `/api/v1/columns/${columnId}/options`,
+      payload: { label: 'High' },
+    })
+    const second = await session.inject({
+      method: 'POST',
+      url: `/api/v1/columns/${columnId}/options`,
+      payload: { label: 'high' },
+    })
+    expect(first.statusCode).toBe(200)
+    expect(second.json().option.id).toBe(first.json().option.id)
+    const optionId = first.json().option.id as string
+    const row = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [columnId]: optionId } },
+    })
+    const rowId = row.json().row.id as string
+    const colored = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/columns/${columnId}/options/${optionId}`,
+      payload: { color: 'green', label: 'Urgent' },
+    })
+    expect(colored.json().option.label).toBe('Urgent')
+    const removed = await session.inject({
+      method: 'DELETE',
+      url: `/api/v1/columns/${columnId}/options/${optionId}`,
+    })
+    expect(removed.statusCode).toBe(200)
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    const current = (listed.json().rows as { id: string; cells: Record<string, unknown> }[]).find((item) => item.id === rowId)
+    expect(current?.cells[columnId] ?? null).toBeNull()
+    const blocked = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Title', type: 'text' },
+    })
+    const textId = blocked.json().column.id as string
+    const reject = await session.inject({
+      method: 'POST',
+      url: `/api/v1/columns/${textId}/options`,
+      payload: { label: 'Nope' },
+    })
+    expect(reject.statusCode).toBe(400)
+  })
+
+  it('rejects legacy multi_select and radio column types on create', async () => {
+    const { tableId } = await blankTable('Select legacy')
+    const multi = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Old multi', type: 'multi_select' },
+    })
+    expect(multi.statusCode).toBe(400)
+  })
+
   async function blankTable(name: string) {
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name } })
     const projectId = project.json().project.id as string

@@ -111,6 +111,16 @@ export const catalogPatchBody = Type.Object({
   name: Type.Optional(Type.String()),
 })
 
+export const columnOptionCreateBody = Type.Object({
+  label: Type.String({ minLength: 1 }),
+})
+
+export const columnOptionPatchBody = Type.Object({
+  label: Type.Optional(Type.String({ minLength: 1 })),
+  color: Type.Optional(Type.String()),
+  position: Type.Optional(Type.String()),
+})
+
 export const exportTableBody = Type.Object({
   filter: Type.Optional(Type.Unknown()),
 })

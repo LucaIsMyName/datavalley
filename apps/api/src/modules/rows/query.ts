@@ -1,4 +1,4 @@
-import { dateColumnIncludesTime, escapeLike, isFilterGroup, type FilterCondition, type FilterNode } from '@datavalley/shared'
+import { dateColumnIncludesTime, escapeLike, isFilterGroup, selectColumnMultiple, type FilterCondition, type FilterNode } from '@datavalley/shared'
 import { sql, type SQL } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
 import { badRequest } from '../../errors.js'
@@ -50,7 +50,10 @@ function sortSql(column: ColumnShape): SQL {
   if (column.type === 'number' || column.type === 'currency') return sql`sc.value_number`
   if (column.type === 'datetime' || column.type === 'date') return dateSortField(column)
   if (column.type === 'checkbox') return sql`sc.value_bool::text`
-  if (column.type === 'select' || column.type === 'radio') return sql`sc.value_jsonb->>'optionId'`
+  if (column.type === 'select' || column.type === 'radio') {
+    if (selectColumnMultiple(column)) return sql`sc.value_jsonb->'optionIds'->>0`
+    return sql`sc.value_jsonb->>'optionId'`
+  }
   return sql`sc.value_text`
 }
 

@@ -14,8 +14,10 @@ import {
   addColumn,
   attachRelation,
   convertColumn,
+  createColumnOption,
   createStatus,
   createTag,
+  deleteColumnOption,
   duplicateColumns,
   deleteColumn,
   deleteTable,
@@ -34,6 +36,7 @@ import {
   reorderTables,
   setTableArchived,
   updateColumn,
+  updateColumnOption,
   updateStatus,
   updateTable,
   updateTag,
@@ -162,6 +165,22 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.patch('/columns/:columnId', async (request) => {
     if (!request.subject) throw unauthorized()
     return { column: await updateColumn(db, request.subject, (request.params as { columnId: string }).columnId, request.body as never) }
+  })
+  app.post('/columns/:columnId/options', { schema: { body: dataSchema.columnOptionCreateBody } }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    const body = request.body as { label: string }
+    const columnId = (request.params as { columnId: string }).columnId
+    return { option: await createColumnOption(db, request.subject, columnId, body.label) }
+  })
+  app.patch('/columns/:columnId/options/:optionId', { schema: { body: dataSchema.columnOptionPatchBody } }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    const params = request.params as { columnId: string; optionId: string }
+    return { option: await updateColumnOption(db, request.subject, params.columnId, params.optionId, request.body as never) }
+  })
+  app.delete('/columns/:columnId/options/:optionId', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const params = request.params as { columnId: string; optionId: string }
+    return await deleteColumnOption(db, request.subject, params.columnId, params.optionId)
   })
   app.delete('/columns/:columnId', async (request) => {
     if (!request.subject) throw unauthorized()

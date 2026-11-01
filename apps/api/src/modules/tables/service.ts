@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
-import { csvTable, isResourceIcon, normalizeCsvDelimiter, type Action } from '@datavalley/shared'
+import { csvTable, isResourceIcon, isSelectFamilyType, normalizeCsvDelimiter, selectColumnMultiple, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
@@ -457,6 +457,7 @@ export async function addColumn(
 ) {
   await requireEditableTable(db, subject, tableId, 'manage_structure')
   if (!columnTypeIds.includes(input.type as never)) throw badRequest('Unknown column type')
+  if (input.type === 'multi_select' || input.type === 'radio') throw badRequest('Use the select column type')
   const existing = await loadColumns(db, tableId)
   const position = positionBetween(existing, input.beforeId, input.afterId)
   try {
@@ -470,6 +471,7 @@ export async function addColumn(
         config: {
           icon: defaultColumnIcon(input.type),
           ...(input.type === 'row_id' ? { style: 'sequence' } : {}),
+          ...(input.type === 'select' ? { multiple: false } : {}),
           ...(input.config ?? {}),
         },
         position,
@@ -576,6 +578,7 @@ export async function convertColumn(db: AppDatabase, subject: Subject, columnId:
   if (!column) throw notFound()
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   if (!columnTypeIds.includes(type as never)) throw badRequest('Unknown column type')
+  if (type === 'multi_select' || type === 'radio') throw badRequest('Use the select column type')
   const loaded = (await loadColumns(db, column.tableId)).find((item) => item.id === columnId)
   if (!loaded) throw notFound()
   const cells = await db.select().from(tableCells).where(eq(tableCells.columnId, columnId))
@@ -608,7 +611,25 @@ export async function convertColumn(db: AppDatabase, subject: Subject, columnId:
   for (const rewrite of rewrites) {
     await db.update(tableCells).set({ ...storedValue(rewrite.parsed), updatedAt: new Date() }).where(eq(tableCells.id, rewrite.id))
   }
-  await db.update(tableColumns).set({ type, updatedAt: new Date() }).where(eq(tableColumns.id, columnId))
+  const configPatch =
+    type === 'select'
+      ? {
+          multiple:
+            column.type === 'multi_select'
+              ? true
+              : column.type === 'radio'
+                ? false
+                : Boolean((loaded.config as Record<string, unknown>).multiple),
+        }
+      : {}
+  await db
+    .update(tableColumns)
+    .set({
+      type,
+      ...(type === 'select' ? { config: { ...(loaded.config ?? {}), ...configPatch } } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, { action: 'column.convert', resourceType: 'column', resourceId: columnId, metadata: { from: column.type, to: type, cleared } })
   return { cleared, kept }
 }
@@ -793,6 +814,124 @@ export async function createStatus(db: AppDatabase, subject: Subject, tableId: s
     position: positionBetween(existing),
   }).returning()
   return status
+}
+
+function assertOptionColumnType(type: string) {
+  if (!isSelectFamilyType(type)) throw badRequest('Column type does not support options')
+}
+
+async function rewriteSelectCell(
+  db: AppDatabase,
+  tableId: string,
+  rowId: string,
+  column: LoadedColumn,
+  value: unknown,
+  existing: typeof tableCells.$inferSelect | undefined,
+) {
+  const parsed = parseCell(column, value)
+  const kept = existing?.background ?? null
+  const rules = existing?.formatRules ?? []
+  await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
+  if (!parsed && !kept && !(Array.isArray(rules) && rules.length > 0)) return
+  await db.insert(tableCells).values({
+    tableId,
+    rowId,
+    columnId: column.id,
+    valueText: parsed?.valueText ?? null,
+    valueNumber: parsed?.valueNumber ?? null,
+    valueBool: parsed?.valueBool ?? null,
+    valueTimestamptz: parsed?.valueTimestamptz ?? null,
+    valueJsonb: (parsed?.valueJsonb ?? null) as never,
+    background: kept,
+    formatRules: rules as never,
+  })
+}
+
+export async function createColumnOption(db: AppDatabase, subject: Subject, columnId: string, label: string) {
+  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  if (!column) throw notFound()
+  assertOptionColumnType(column.type)
+  await requireEditableTable(db, subject, column.tableId, 'edit')
+  const trimmed = label.trim()
+  if (!trimmed) throw badRequest('Option label is required')
+  const loaded = (await loadColumns(db, column.tableId)).find((item) => item.id === columnId)!
+  const existing = loaded.options ?? []
+  const match = existing.find((option) => option.label.toLowerCase() === trimmed.toLowerCase())
+  if (match) return match
+  const last = existing[existing.length - 1]?.position ?? null
+  const position = generateKeyBetween(last, null)
+  const [option] = await db
+    .insert(columnOptions)
+    .values({ columnId, label: trimmed, color: nextTagColor(existing.length), position })
+    .returning()
+  await writeAudit(db, subject, {
+    action: 'column_option.create',
+    resourceType: 'column',
+    resourceId: columnId,
+    metadata: { optionId: option.id, label: trimmed },
+  })
+  return option
+}
+
+export async function updateColumnOption(
+  db: AppDatabase,
+  subject: Subject,
+  columnId: string,
+  optionId: string,
+  input: { label?: string; color?: string; position?: string },
+) {
+  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  if (!column) throw notFound()
+  assertOptionColumnType(column.type)
+  await requireEditableTable(db, subject, column.tableId, 'edit')
+  const loaded = (await loadColumns(db, column.tableId)).find((item) => item.id === columnId)!
+  const current = loaded.options?.find((option) => option.id === optionId)
+  if (!current) throw notFound()
+  const patch: { label?: string; color?: string; position?: string } = {}
+  if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
+  if (typeof input.position === 'string' && input.position.trim()) patch.position = input.position.trim()
+  if (input.label != null) {
+    const trimmed = input.label.trim()
+    if (!trimmed) throw badRequest('Option label is required')
+    const clash = loaded.options?.find((option) => option.id !== optionId && option.label.toLowerCase() === trimmed.toLowerCase())
+    if (clash) throw badRequest('An option with that label already exists')
+    patch.label = trimmed
+  }
+  if (!patch.color && !patch.label && !patch.position) throw badRequest('Nothing to update')
+  const [option] = await db.update(columnOptions).set(patch).where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId))).returning()
+  if (!option) throw notFound()
+  return option
+}
+
+export async function deleteColumnOption(db: AppDatabase, subject: Subject, columnId: string, optionId: string) {
+  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  if (!column) throw notFound()
+  assertOptionColumnType(column.type)
+  await requireEditableTable(db, subject, column.tableId, 'edit')
+  const loaded = (await loadColumns(db, column.tableId)).find((item) => item.id === columnId)!
+  const current = loaded.options?.find((option) => option.id === optionId)
+  if (!current) throw notFound()
+  const cells = await db.select().from(tableCells).where(eq(tableCells.columnId, columnId))
+  for (const cell of cells) {
+    const raw = readCell(loaded, cell)
+    let next: unknown = raw
+    if (selectColumnMultiple(loaded)) {
+      const ids = Array.isArray(raw) ? raw.map(String).filter((id) => id !== optionId) : []
+      next = ids.length ? ids : null
+    } else if (raw === optionId) {
+      next = null
+    }
+    if (JSON.stringify(next) === JSON.stringify(raw)) continue
+    await rewriteSelectCell(db, column.tableId, cell.rowId, loaded, next, cell)
+  }
+  await db.delete(columnOptions).where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId)))
+  await writeAudit(db, subject, {
+    action: 'column_option.delete',
+    resourceType: 'column',
+    resourceId: columnId,
+    metadata: { optionId, label: current.label },
+  })
+  return { ok: true }
 }
 
 export async function updateStatus(db: AppDatabase, subject: Subject, tableId: string, statusId: string, input: { color?: string; name?: string }) {
