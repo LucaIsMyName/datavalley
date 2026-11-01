@@ -4,7 +4,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 
 ## Features
 
-- **Projects and tables** — Create and organise "Projects" via Tables. A table can be any type of datalist you need. [docs/formulas.md](docs/formulas.md)
+- **Projects and tables** — Create and organise "Projects" via Tables. A table can be any type of datalist you need. Row notes open from the gutter, show that row’s column values, and edit as live markdown blocks (headings, lists, and inline formatting).
 - **Formulas** — Per-cell expressions with cross-table references, aggregates, and conditional formatting. Function reference: [docs/formulas.md](docs/formulas.md).
 - **Access control** — Grant-based permissions; admins manage users, API keys, and audit logs.
 - **Media** — Organization file library with table attachments and MIME-validated uploads.

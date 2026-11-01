@@ -132,7 +132,7 @@ import {
   type RowSnap,
 } from './history'
 
-const GUTTER_WIDTH = 60
+const GUTTER_WIDTH = 84
 const TABLE_GRID_DIVIDER = 'border-b border-r border-border'
 const TABLE_HEADER_CELL = 'bg-card'
 const ADD_COLUMN_WIDTH = 40
@@ -2247,9 +2247,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
               type="button"
               aria-label={t('insertRow')}
               className="hidden text-muted-foreground md:inline-flex md:opacity-0 md:group-hover:opacity-100"
-              onClick={() => void insertRow(rowsRef.current[row.index + 1]?.id)}
+              onClick={(event) => {
+                event.stopPropagation()
+                void insertRow(rowsRef.current[row.index + 1]?.id)
+              }}
             >
               <Plus className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label={t('notes')}
+              className={`inline-flex shrink-0 ${row.original.notes?.trim() ? 'text-foreground' : 'text-muted-foreground'}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                setDrawerRowId(row.original.id)
+              }}
+            >
+              <StickyNote className="size-3.5" />
             </button>
           </div>
         ),
@@ -3332,6 +3346,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
       <NotesDrawer
         tableId={tableId}
         row={rows.find((row) => row.id === drawerRowId) ?? null}
+        columns={columns}
+        tags={table?.tags ?? []}
+        statuses={table?.statuses ?? []}
+        members={membersQuery.data?.members ?? []}
+        readOnly={dataReadOnly}
         onClose={() => setDrawerRowId(null)}
       />
       <MediaLibraryDialog
