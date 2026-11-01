@@ -242,6 +242,12 @@ function valuesEqual(left: FormulaValue, right: FormulaValue) {
   return left === right
 }
 
+function matchesCriterion(item: FormulaValue, condition: FormulaValue) {
+  if (valuesEqual(item, condition)) return true
+  if (!Array.isArray(item) || Array.isArray(condition) || isFormulaError(condition)) return false
+  return item.some((entry) => valuesEqual(entry, condition))
+}
+
 function dateOf(value: FormulaScalar | null) {
   if (typeof value !== 'string' || value.trim() === '') return null
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -355,7 +361,7 @@ function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number
       if (isFormulaError(list)) return list
       if (isFormulaError(condition)) return condition
       const items = Array.isArray(list) ? list : [list]
-      return items.filter((item) => valuesEqual(item, condition)).length
+      return items.filter((item) => matchesCriterion(item, condition)).length
     }
     if (name === 'SUMIF') {
       if (args.length !== 3) return err('#VALUE')
@@ -369,7 +375,7 @@ function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number
       const amounts = Array.isArray(numbers) ? numbers : [numbers]
       let sum = 0
       criteria.forEach((item, index) => {
-        if (!valuesEqual(item, condition)) return
+        if (!matchesCriterion(item, condition)) return
         const numeric = asNumber(amounts[index] ?? null)
         if (typeof numeric === 'number') sum += numeric
       })

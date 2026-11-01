@@ -73,20 +73,20 @@ SUM([Rechnungen -> Betrag (Netto)])
 **AVERAGE** is the mean of the numbers. No numbers is `#DIV/0`.
 
 ```text
-AVERAGE([Rechnungen -> Betrag (Netto)])
+AVERAGE([Rechnungen -> Betrag])
 ```
 
 **MIN** and **MAX** return the smallest or largest number. No numbers returns `0`.
 
 ```text
-MIN([Rechnungen -> Betrag (Netto)])
-MAX([Rechnungen -> Betrag (Netto)])
+MIN([Rechnungen -> Betrag])
+MAX([Rechnungen -> Betrag])
 ```
 
 **COUNT** counts numbers only. Text and blanks are ignored.
 
 ```text
-COUNT([Rechnungen -> Betrag (Netto)])
+COUNT([Rechnungen -> Betrag])
 ```
 
 **COUNTA** counts values that are not blank and not an empty list.
@@ -98,13 +98,13 @@ COUNTA([Rechnungen -> Kostenstelle])
 **ROUND** rounds a number to the given digits (`0` through `10`). The second argument is optional and defaults to `0`.
 
 ```text
-ROUND([Betrag (Netto)], 2)
+ROUND([Betrag], 2)
 ```
 
 **ABS** returns the absolute value of a number.
 
 ```text
-ABS([Betrag (Netto)])
+ABS([Betrag])
 ```
 
 ### Logic
@@ -151,13 +151,13 @@ SUM(FOR([Rechnungen -> Betrag (Netto)], IF(IT > 0, IT, 0)))
 CONTAINS([Tags], "Lead")
 ```
 
-**COUNTIF** counts rows whose first column equals the second argument. The match is exact and case-sensitive. A multi-value cell matches only when the whole cell equals that one value, not when the label is one of several.
+**COUNTIF** counts rows whose first column equals the second argument. The match is exact and case-sensitive. A multi-select, tag, or people cell matches when that label is one of its values.
 
 ```text
 COUNTIF([Rechnungen -> Kostenstelle], "EDV Kosten")
 ```
 
-**SUMIF** adds the third column on rows where the first column equals the second argument. Same match rules as `COUNTIF`. The two columns are aligned by row order.
+**SUMIF** adds the third column on rows where the first column equals the second argument. Same match rules as `COUNTIF`, including a multi-select cell that contains the label. The two columns are aligned by row order.
 
 ```text
 SUMIF([Rechnungen -> Kostenstelle], "EDV Kosten", [Rechnungen -> Betrag (Netto)])
@@ -224,7 +224,7 @@ A link is not a function call. `[Customer -> Price]` follows this row's Customer
 SUM([Rechnungen -> Betrag (Netto)])
 ```
 
-**Sum where a single select matches.** `SUMIF` walks Kostenstelle and Betrag together, one row at a time, and adds the amount only when the label is exactly `EDV Kosten`.
+**Sum where a select matches.** `SUMIF` walks Kostenstelle and Betrag together, one row at a time, and adds the amount when the cell is exactly `EDV Kosten` or, for a multi-select, when that label is one of the selected values.
 
 ```text
 SUMIF([Rechnungen -> Kostenstelle], "EDV Kosten", [Rechnungen -> Betrag (Netto)])

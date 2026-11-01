@@ -643,17 +643,26 @@ type StampExpansion = {
   statusTableIds: Set<string>
   tagTableIds: Set<string>
   usesClock: boolean
+  usesListCriterion: boolean
 }
 
 function astUsesClock(node: AstNode): boolean {
+  return astHasCall(node, (name) => name === 'TODAY' || name === 'NOW')
+}
+
+function astUsesListCriterion(node: AstNode): boolean {
+  return astHasCall(node, (name) => name === 'SUMIF' || name === 'COUNTIF')
+}
+
+function astHasCall(node: AstNode, match: (name: string) => boolean): boolean {
   switch (node.type) {
     case 'call':
-      if (node.name === 'TODAY' || node.name === 'NOW') return true
-      return node.args.some((arg) => astUsesClock(arg))
+      if (match(node.name)) return true
+      return node.args.some((arg) => astHasCall(arg, match))
     case 'unary':
-      return astUsesClock(node.expr)
+      return astHasCall(node.expr, match)
     case 'binary':
-      return astUsesClock(node.left) || astUsesClock(node.right)
+      return astHasCall(node.left, match) || astHasCall(node.right, match)
     default:
       return false
   }
@@ -668,6 +677,7 @@ function emptyExpansion(): StampExpansion {
     statusTableIds: new Set(),
     tagTableIds: new Set(),
     usesClock: false,
+    usesListCriterion: false,
   }
 }
 
@@ -687,6 +697,7 @@ async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; r
     const current = queue.shift()!
     expanded.rowIds.add(current.rowId)
     if (astUsesClock(current.ast)) expanded.usesClock = true
+    if (astUsesListCriterion(current.ast)) expanded.usesListCriterion = true
     const refs = collectRefs(current.ast)
     const cellTargets: { columnId: string; rowId: string }[] = []
     const wholeColumnIds: string[] = []
@@ -795,7 +806,8 @@ function composeVersionHash(
     ...[...expanded.tagTableIds].sort().map((id) => `tag:${tagStamps.get(id) ?? ''}`),
   ].join(',')
   const clock = expanded.usesClock ? day : ''
-  return `${base}|${labels}|${clock}:${updatedAt}`
+  const listMatch = expanded.usesListCriterion ? 'list' : ''
+  return `${base}|${labels}|${clock}|${listMatch}:${updatedAt}`
 }
 
 function crossesOtherTables(expanded: StampExpansion, tableId: string) {

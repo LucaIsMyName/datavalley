@@ -133,6 +133,8 @@ describe('formula engine', () => {
     expect(run('DAY("2026-01-02T03:04:05.000Z")')).toBe(2)
     expect(run(`COUNTIF({${column}}, "Open")`, { [column]: ['Open', 'Done', 'Open'] })).toBe(2)
     expect(run(`SUMIF({${column}}, "Open", {${other}})`, { [column]: ['Open', 'Done'], [other]: [4, 9] })).toBe(4)
+    expect(run(`SUMIF({${column}}, "Open", {${other}})`, { [column]: [['Open', 'Later'], ['Done']], [other]: [4, 9] })).toBe(4)
+    expect(run(`COUNTIF({${column}}, "Open")`, { [column]: [['Open'], ['Done'], ['Open', 'Later']] })).toBe(2)
     expect(run('ISBLANK("")')).toBe(true)
   })
 
