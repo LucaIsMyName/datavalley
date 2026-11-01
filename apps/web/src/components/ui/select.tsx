@@ -5,6 +5,16 @@ import { cn } from '../../lib/utils'
 
 const EMPTY = '__dv_empty__'
 
+/** Shared styling for select controls inside table cells. */
+export const cellSelectTriggerClassName =
+  'flex h-9 w-full min-w-0 items-center justify-between gap-2 border-0 bg-transparent px-0 text-left text-sm shadow-none outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary'
+
+export const selectDropdownPanelClassName =
+  'z-[200] max-h-72 min-w-[var(--radix-popover-trigger-width)] w-[var(--radix-popover-trigger-width)] max-w-[min(20rem,calc(100vw-2rem))] overflow-auto border border-border bg-card p-1 text-sm shadow-md'
+
+export const selectDropdownItemClassName =
+  'relative flex min-h-9 w-full cursor-pointer items-center py-1.5 pr-8 pl-2 text-left outline-none select-none hover:bg-accent focus:bg-accent'
+
 function toRadix(value: string | undefined) {
   if (value === '') return EMPTY
   return value
@@ -24,7 +34,7 @@ export function Select({ value, onValueChange, ...props }: ComponentProps<typeof
   )
 }
 
-export function SelectTrigger({ className, ...props }: ComponentProps<typeof SelectPrimitive.Trigger>) {
+export function SelectTrigger({ className, children, ...props }: ComponentProps<typeof SelectPrimitive.Trigger>) {
   return (
     <SelectPrimitive.Trigger
       type="button"
@@ -34,7 +44,7 @@ export function SelectTrigger({ className, ...props }: ComponentProps<typeof Sel
       )}
       {...props}
     >
-      <SelectPrimitive.Value />
+      {children ?? <SelectPrimitive.Value />}
       <SelectPrimitive.Icon asChild>
         <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
       </SelectPrimitive.Icon>

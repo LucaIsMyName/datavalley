@@ -247,6 +247,7 @@
   "selectMultipleOn": "Allow multiple",
   "selectMultipleOff": "Single choice only",
   "newSelectOption": "New option",
+  "selectPlaceholder": "Select…",
   "manageSelectOptions": "Manage options",
   "addSelectOption": "Add",
   "deleteSelectOptionConfirm": "Delete option \"{{label}}\"? Cells using it will be cleared.",

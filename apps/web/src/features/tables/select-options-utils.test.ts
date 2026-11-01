@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { mergeColumnOption, sortOptionsByPosition } from './select-options-utils.js'
+import { formatSelectCellSummary, mergeColumnOption, sortOptionsByPosition } from './select-options-utils.js'
 
 describe('select options utils', () => {
+  it('formats selected labels comma-separated', () => {
+    const options = [
+      { id: '1', label: 'High', color: null, position: 'a' },
+      { id: '2', label: 'Low', color: null, position: 'b' },
+    ]
+    expect(formatSelectCellSummary(options, '1', false)).toBe('High')
+    expect(formatSelectCellSummary(options, ['2', '1'], true)).toBe('Low, High')
+    expect(formatSelectCellSummary(options, [], true)).toBe('')
+  })
+
   it('sorts by fractional position', () => {
     const sorted = sortOptionsByPosition([
       { id: 'b', label: 'B', color: null, position: 'b' },

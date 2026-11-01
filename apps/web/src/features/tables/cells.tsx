@@ -9,12 +9,25 @@ import {
 import { DateCellEditor } from '../../components/date-picker-field'
 import { useEffect, useRef, useState } from 'react'
 import { ApiClientError, type CatalogItem, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
-import { ChevronDown, CircleAlert, X } from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { Badge } from '../../components/ui/badge'
 import { Checkbox } from '../../components/ui/checkbox'
-import { SelectField } from '../../components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  cellSelectTriggerClassName,
+  selectDropdownItemClassName,
+  selectDropdownPanelClassName,
+  SelectField,
+} from '../../components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
+import { Input } from '../../components/ui/input'
+import { Button } from '../../components/ui/button'
+import { formatSelectCellSummary, sortOptionsByPosition } from './select-options-utils'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { beginRename, colorLabelKey, finishRename } from './grid-ux'
@@ -759,6 +772,46 @@ function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column;
   )
 }
 
+function SelectOptionCreateFooter({
+  value,
+  onChange,
+  onCreate,
+  busy,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onCreate: () => void
+  busy: boolean
+}) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className="border-t border-border p-1"
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex gap-1">
+        <Input
+          aria-label={t('newSelectOption')}
+          className="h-8 min-w-0 flex-1"
+          value={value}
+          placeholder={t('newSelectOption')}
+          disabled={busy}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            onCreate()
+          }}
+        />
+        <Button type="button" className="h-8 shrink-0 px-2" disabled={busy || !value.trim()} onClick={onCreate}>
+          {t('addSelectOption')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function SelectEditor({
   column,
   row,
@@ -779,155 +832,135 @@ function SelectEditor({
   onOptionChange: (columnId: string, option: { id: string; label: string; color: string | null; position: string }, deleted?: boolean) => void
 }) {
   const { t } = useTranslation()
+  const editLabel = t('editColumn', { name: column.name })
   const multiple = selectColumnMultiple(column)
   const options = column.options ?? []
+  const sorted = sortOptionsByPosition(options)
   const raw = row.cells[column.id]
   const selected = multiple ? (Array.isArray(raw) ? raw.map(String) : []) : typeof raw === 'string' ? raw : ''
-  const [name, setName] = useState('')
-  const [menu, setMenu] = useState<ViewportAnchor | null>(null)
+  const summary = formatSelectCellSummary(options, selected, multiple)
+  const placeholder = t('selectPlaceholder')
+  const [createDraft, setCreateDraft] = useState('')
+  const [createBusy, setCreateBusy] = useState(false)
 
-  async function createOption(label: string) {
-    const trimmed = label.trim()
-    if (!trimmed) return
-    const result = await api.request<{ option: { id: string; label: string; color: string | null; position: string } }>(
-      `/columns/${column.id}/options`,
-      { method: 'POST', body: JSON.stringify({ label: trimmed }) },
-    )
-    onOptionChange(column.id, result.option)
-    if (multiple) {
-      chooseMulti(selected.includes(result.option.id) ? selected : [...selected, result.option.id])
-    } else {
-      chooseSingle(result.option.id)
+  async function createOption() {
+    const trimmed = createDraft.trim()
+    if (!trimmed || createBusy) return
+    setCreateBusy(true)
+    try {
+      const result = await api.request<{ option: { id: string; label: string; color: string | null; position: string } }>(
+        `/columns/${column.id}/options`,
+        { method: 'POST', body: JSON.stringify({ label: trimmed }) },
+      )
+      onOptionChange(column.id, result.option)
+      if (multiple) {
+        const next = selected.includes(result.option.id) ? selected : [...selected, result.option.id]
+        onEdit(next, 0)
+      } else {
+        onEdit(result.option.id, 0)
+      }
+      onFlush()
+      setCreateDraft('')
+    } finally {
+      setCreateBusy(false)
     }
-    setName('')
   }
 
-  function chooseSingle(next: string) {
-    onEdit(next, 0)
-    onFlush()
-    setMenu(null)
+  function stopGrid(event: React.SyntheticEvent) {
+    event.stopPropagation()
   }
 
-  function chooseMulti(next: string[]) {
-    onEdit(next, 0)
-    onFlush()
+  const triggerLabel = summary || placeholder
+
+  if (!active) {
+    return (
+      <button
+        type="button"
+        className="h-9 w-full min-w-0 truncate text-left leading-9"
+        aria-label={editLabel}
+        onClick={onOpen}
+        onDoubleClick={(event) => {
+          event.preventDefault()
+          onActivate()
+        }}
+      >
+        {triggerLabel}
+      </button>
+    )
   }
 
-  const currentSingle = !multiple && typeof selected === 'string' ? options.find((option) => option.id === selected) : null
-  const currentColor = currentSingle && palette.includes(String(currentSingle.color)) ? String(currentSingle.color) : 'slate'
+  if (multiple) {
+    const selectedIds = selected
+    return (
+      <div className="h-full w-full min-w-0" onPointerDown={stopGrid} onClick={stopGrid}>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button type="button" aria-label={editLabel} className={cellSelectTriggerClassName}>
+              <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" sideOffset={4} className={`${selectDropdownPanelClassName} p-0`}>
+            <div className="max-h-60 overflow-auto p-1">
+              {sorted.map((option) => {
+                const picked = selectedIds.includes(option.id)
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={selectDropdownItemClassName}
+                    onClick={() => {
+                      const next = picked ? selectedIds.filter((id) => id !== option.id) : [...selectedIds, option.id]
+                      onEdit(next, 0)
+                      onFlush()
+                    }}
+                  >
+                    <span className="truncate">{option.label}</span>
+                    {picked ? <Check className="absolute right-2 size-4" aria-hidden /> : null}
+                  </button>
+                )
+              })}
+            </div>
+            <SelectOptionCreateFooter
+              value={createDraft}
+              onChange={setCreateDraft}
+              busy={createBusy}
+              onCreate={() => void createOption()}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+    )
+  }
 
+  const singleValue = typeof selected === 'string' ? selected : ''
   return (
-    <div
-      className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden"
-      onClick={onOpen}
-      onDoubleClick={(event) => {
-        event.preventDefault()
-        onActivate()
-      }}
-    >
-      {multiple
-        ? selected.map((id) => {
-            const option = options.find((item) => item.id === id)
-            return (
-              <Badge key={id} color={option?.color ?? 'slate'}>
-                {option?.label ?? id}
-              </Badge>
-            )
-          })
-        : currentSingle ? (
-            <Badge color={currentSingle.color ?? 'slate'} className="gap-0.5 pr-1">
-              <span className="truncate">{currentSingle.label}</span>
-              <button
-                type="button"
-                aria-label={t('color')}
-                data-tag-chevron=""
-                className="inline-flex shrink-0"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  const rect = event.currentTarget.getBoundingClientRect()
-                  setMenu({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
-                }}
-              >
-                <ChevronDown className="size-3" />
-              </button>
-            </Badge>
-          ) : null}
-      {active ? (
-        <input
-          autoFocus
-          aria-label={t('newSelectOption')}
-          className="h-7 min-w-16 flex-1 bg-transparent outline-none"
-          value={name}
-          placeholder={t('newSelectOption')}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || !name.trim()) return
-            event.preventDefault()
-            void createOption(name)
-          }}
-        />
-      ) : null}
-      {active && multiple ? (
-        <SelectField
-          label={t('editColumn', { name: column.name })}
-          className="h-7 min-w-16 border-0 bg-transparent px-0"
-          value=""
-          onValueChange={(next) => {
-            if (!next) return
-            chooseMulti(selected.includes(next) ? selected.filter((id) => id !== next) : [...selected, next])
-          }}
-          options={[
-            { value: '', label: t('add') },
-            ...options.map((option) => ({
-              value: option.id,
-              label: selected.includes(option.id) ? `− ${option.label}` : option.label,
-            })),
-          ]}
-        />
-      ) : null}
-      {menu && !multiple && currentSingle ? (
-        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu className="w-[min(12rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-md">
-          <ul className="max-h-40 overflow-auto">
-            {options.map((option) => (
-              <li key={option.id}>
-                <button
-                  type="button"
-                  className={`block min-h-9 w-full truncate px-2 text-left text-sm hover:bg-accent ${option.id === currentSingle.id ? 'font-medium' : ''}`}
-                  onClick={() => chooseSingle(option.id)}
-                >
-                  {option.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {palette.map((color) => (
-              <button
-                key={color}
-                type="button"
-                aria-label={t(colorLabelKey(color))}
-                className={`h-5 w-5 border border-border ${color === currentColor ? 'ring-2 ring-foreground' : ''}`}
-                style={{ background: paintSwatch(color, 'background') }}
-                onClick={() => {
-                  void api
-                    .request<{ option: { id: string; label: string; color: string | null; position: string } }>(
-                      `/columns/${column.id}/options/${currentSingle.id}`,
-                      { method: 'PATCH', body: JSON.stringify({ color }) },
-                    )
-                    .then((result) => {
-                      onOptionChange(column.id, result.option)
-                      setMenu(null)
-                    })
-                }}
-              />
-            ))}
-          </div>
-          <button type="button" className="mt-2 w-full text-left text-sm" onClick={() => chooseSingle('')}>
-            {t('clearCell')}
-          </button>
-        </AnchoredLayer>
-      ) : null}
+    <div className="h-full w-full min-w-0" onPointerDown={stopGrid} onClick={stopGrid}>
+      <Select
+        value={singleValue}
+        onValueChange={(next) => {
+          onEdit(next, 0)
+          onFlush()
+        }}
+      >
+        <SelectTrigger aria-label={editLabel} className={cellSelectTriggerClassName}>
+          <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">{t('none')}</SelectItem>
+          {sorted.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.label}
+            </SelectItem>
+          ))}
+          <SelectOptionCreateFooter
+            value={createDraft}
+            onChange={setCreateDraft}
+            busy={createBusy}
+            onCreate={() => void createOption()}
+          />
+        </SelectContent>
+      </Select>
     </div>
   )
 }

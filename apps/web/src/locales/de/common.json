@@ -247,6 +247,7 @@
   "selectMultipleOn": "Mehrfachauswahl",
   "selectMultipleOff": "Nur Einfachauswahl",
   "newSelectOption": "Neue Option",
+  "selectPlaceholder": "Auswählen…",
   "manageSelectOptions": "Optionen verwalten",
   "addSelectOption": "Hinzufügen",
   "deleteSelectOptionConfirm": "Option \"{{label}}\" löschen? Zellen mit dieser Option werden geleert.",
