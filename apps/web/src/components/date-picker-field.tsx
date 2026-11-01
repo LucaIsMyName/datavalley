@@ -13,6 +13,7 @@ import { calendarLocale, parseDateOnly, splitDatetime, toDateOnlyString } from '
 import type { ViewportAnchor } from '../lib/place-in-viewport'
 import { cn } from '../lib/utils'
 import { AnchoredLayer } from './anchored-layer'
+import { monthToShowAfterRangeSelect } from './date-picker-month'
 import { Calendar } from './ui/calendar'
 import { Input } from './ui/input'
 
@@ -149,10 +150,10 @@ function DatePickerLayer({
 }) {
   useEffect(() => {
     if (!open) return
+    const inside = (target: EventTarget | null) =>
+      target instanceof Element && Boolean(target.closest('[data-date-picker-trigger], [data-date-picker-layer]'))
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('[data-date-picker-trigger]')) return
-      if (target?.closest('[data-date-picker-layer]')) return
+      if (inside(event.target)) return
       onClose()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
@@ -322,12 +323,13 @@ export function DateRangePickerField({
           month={month}
           onMonthChange={setMonth}
           selected={range}
-          onSelect={(next) => {
+          onSelect={(next, clicked) => {
             if (!next?.from) {
               pendingFrom.current = null
               return
             }
-            setMonth(next.to ?? next.from)
+            const shown = monthToShowAfterRangeSelect(clicked, next)
+            if (shown) setMonth(shown)
             if (!next.to) {
               pendingFrom.current = next.from
               return

@@ -359,6 +359,8 @@ function DateEditor({ column, value, onEdit, onFlush, onDateMode }: { column: Co
       className="flex h-full min-w-0 items-center gap-1"
       onBlur={(event) => {
         if (calendarOpen) return
+        const next = event.relatedTarget instanceof Element ? event.relatedTarget : document.activeElement
+        if (next instanceof Element && next.closest('[data-date-picker-layer], [data-date-picker-trigger]')) return
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush()
       }}
     >

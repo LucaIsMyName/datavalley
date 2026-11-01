@@ -3,6 +3,7 @@ import type { ButtonHTMLAttributes, MouseEvent } from 'react'
 import { DayPicker, type DayPickerProps } from 'react-day-picker'
 import { cn } from '../../lib/utils'
 import { calendarBounds } from './calendar-bounds'
+import { CalendarDropdown } from './calendar-dropdown'
 
 export type CalendarProps = DayPickerProps
 
@@ -61,6 +62,7 @@ export function Calendar({ className, classNames, showOutsideDays = true, startM
         ...classNames,
       }}
       components={{
+        Dropdown: CalendarDropdown,
         PreviousMonthButton: NavButton,
         NextMonthButton: NavButton,
         Chevron: ({ orientation }) => {
