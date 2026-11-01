@@ -1,4 +1,9 @@
-import { MAX_MEDIA_FILES_PER_CELL, normalizeMediaCellValue, parseMediaCellInput } from '@datavalley/shared'
+import {
+  MAX_MEDIA_FILES_PER_CELL,
+  normalizeMediaCellValue,
+  parseMediaCellInput,
+  validateDateRangePayload,
+} from '@datavalley/shared'
 import { badRequest } from '../errors.js'
 
 export const columnTypeIds = [
@@ -108,6 +113,42 @@ function optionId(column: ColumnShape, labelOrId: string) {
   return match.id
 }
 
+function dateRangeEnabled(column: ColumnShape) {
+  return Boolean(column.config.range) && (column.type === 'date' || column.type === 'datetime')
+}
+
+function parseSingleDate(column: ColumnShape, input: unknown): CellWrite {
+  const value = String(input)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+    throw badRequest(`${column.name} must be a YYYY-MM-DD date`)
+  }
+  return one({ valueText: value })
+}
+
+function parseSingleDatetime(column: ColumnShape, input: unknown): CellWrite {
+  const raw = String(input)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return one({ valueText: raw })
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) throw badRequest(`${column.name} must be a date and time`)
+  return one({ valueTimestamptz: date })
+}
+
+function parseDateRange(column: ColumnShape, input: unknown): CellWrite {
+  const kind = column.type === 'datetime' ? 'datetime' : 'date'
+  const checked = validateDateRangePayload(input, kind)
+  if (!checked.ok) {
+    if (checked.reason === 'endNotAfterStart') throw badRequest(`${column.name}: end must be after start`)
+    throw badRequest(`${column.name} must be a valid date range`)
+  }
+  return one({ valueJsonb: checked.value })
+}
+
+function readDateRangeJsonb(row: Partial<CellWrite>): { from: string; to: string } | null {
+  const value = row.valueJsonb as { from?: string; to?: string } | null
+  if (value?.from && value?.to) return { from: value.from, to: value.to }
+  return null
+}
+
 export function parseCell(column: ColumnShape, input: unknown): CellWrite | null {
   if (!isWritable(column.type)) throw badRequest(`${column.name} is calculated`)
   if (input == null || input === '') return null
@@ -139,18 +180,12 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
       return one({ valueNumber: numeric.toFixed(4) })
     }
     case 'date': {
-      const value = String(input)
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
-        throw badRequest(`${column.name} must be a YYYY-MM-DD date`)
-      }
-      return one({ valueText: value })
+      if (dateRangeEnabled(column)) return parseDateRange(column, input)
+      return parseSingleDate(column, input)
     }
     case 'datetime': {
-      const raw = String(input)
-      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return one({ valueText: raw })
-      const date = new Date(raw)
-      if (Number.isNaN(date.getTime())) throw badRequest(`${column.name} must be a date and time`)
-      return one({ valueTimestamptz: date })
+      if (dateRangeEnabled(column)) return parseDateRange(column, input)
+      return parseSingleDatetime(column, input)
     }
     case 'tags': {
       const values = Array.isArray(input) ? input.map(String) : String(input).split('|').map((part) => part.trim()).filter(Boolean)
@@ -198,9 +233,14 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
   if (column.type === 'number' || column.type === 'currency') {
     return row.valueNumber == null ? null : Number(row.valueNumber)
   }
-  if (column.type === 'datetime') {
-    if (row.valueText) return row.valueText
-    return row.valueTimestamptz ? new Date(row.valueTimestamptz).toISOString() : null
+  if (column.type === 'date' || column.type === 'datetime') {
+    const range = readDateRangeJsonb(row)
+    if (range) return range
+    if (column.type === 'datetime') {
+      if (row.valueText) return row.valueText
+      return row.valueTimestamptz ? new Date(row.valueTimestamptz).toISOString() : null
+    }
+    return row.valueText ?? null
   }
   if (column.type === 'tags') {
     const value = row.valueJsonb as { tagIds?: string[] } | null

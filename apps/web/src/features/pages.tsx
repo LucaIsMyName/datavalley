@@ -262,7 +262,7 @@ function SavedRows({ items, empty }: { items: SavedHit[]; empty: string }) {
 }
 
 export function DashboardPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.request<{ projects: Project[] }>('/projects') })
   const recents = useQuery({ queryKey: ['recents'], queryFn: () => api.request<{ recents: SavedHit[] }>('/recents') })
   const favorites = useQuery({ queryKey: ['favorites'], queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites') })
@@ -287,7 +287,7 @@ export function DashboardPage() {
                             <span className="truncate">{project.name}</span>
                           </span>
                           <span className="pl-6 text-xs text-muted-foreground">
-                            {t('lastEdited', { date: formatDateTime(project.lastEditedAt) })}
+                            {t('lastEdited', { date: formatDateTime(project.lastEditedAt, i18n.language) })}
                           </span>
                         </Link>
                       </td>
@@ -316,7 +316,7 @@ export function DashboardPage() {
 }
 
 export function ProjectsPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const user = useSession((state) => state.user)
   const navigate = useNavigate()
   const openMenu = useContextMenu()
@@ -391,7 +391,7 @@ export function ProjectsPage() {
                 </button>
               </div>
               <p className="text-sm text-muted-foreground">
-                {t('projectTableCount', { count: project.tableCount })} · {t('lastEdited', { date: formatDateTime(project.lastEditedAt) })}
+                {t('projectTableCount', { count: project.tableCount })} · {t('lastEdited', { date: formatDateTime(project.lastEditedAt, i18n.language) })}
               </p>
             </Card>
           </Link>

@@ -40,17 +40,23 @@ async function many<T extends Record<string, unknown>>(db: AppDatabase, query: S
   return ((result as { rows?: T[] }).rows ?? []) as T[]
 }
 
-function sortSql(type: string): SQL {
-  if (type === 'number' || type === 'currency') return sql`sc.value_number`
-  if (type === 'datetime') return sql`sc.value_timestamptz`
-  if (type === 'checkbox') return sql`sc.value_bool::text`
-  if (type === 'select' || type === 'radio') return sql`sc.value_jsonb->>'optionId'`
+function dateSortField(column: ColumnShape): SQL {
+  if (column.config.range) return sql`sc.value_jsonb->>'from'`
+  if (column.type === 'datetime') return sql`COALESCE(sc.value_timestamptz::text, sc.value_text)`
   return sql`sc.value_text`
 }
 
-function bindSort(type: string, value: string): SQL {
-  if (type === 'number' || type === 'currency') return sql`${value}::numeric`
-  if (type === 'datetime') return sql`${value}::timestamptz`
+function sortSql(column: ColumnShape): SQL {
+  if (column.type === 'number' || column.type === 'currency') return sql`sc.value_number`
+  if (column.type === 'datetime' || column.type === 'date') return dateSortField(column)
+  if (column.type === 'checkbox') return sql`sc.value_bool::text`
+  if (column.type === 'select' || column.type === 'radio') return sql`sc.value_jsonb->>'optionId'`
+  return sql`sc.value_text`
+}
+
+function bindSort(column: ColumnShape, value: string): SQL {
+  if (column.type === 'number' || column.type === 'currency') return sql`${value}::numeric`
+  if (column.type === 'datetime' && !column.config.range) return sql`${value}::timestamptz`
   return sql`${value}`
 }
 
@@ -94,13 +100,18 @@ function comparison(column: ColumnShape, condition: FilterCondition): SQL | null
       return sql`c.value_number >= ${String(value)}::numeric AND c.value_number <= ${String(valueTo)}::numeric`
     }
   }
-  if (column.type === 'datetime') {
-    if (condition.op === 'eq') return sql`c.value_timestamptz = ${String(value)}::timestamptz`
-    if (condition.op === 'neq') return sql`c.value_timestamptz <> ${String(value)}::timestamptz`
-    if (condition.op === 'gt') return sql`c.value_timestamptz > ${String(value)}::timestamptz`
-    if (condition.op === 'lt') return sql`c.value_timestamptz < ${String(value)}::timestamptz`
+  if (column.type === 'date' || column.type === 'datetime') {
+    const field = column.config.range
+      ? sql`c.value_jsonb->>'from'`
+      : column.type === 'datetime'
+        ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
+        : sql`c.value_text`
+    if (condition.op === 'eq') return sql`${field} = ${String(value ?? '')}`
+    if (condition.op === 'neq') return sql`${field} <> ${String(value ?? '')}`
+    if (condition.op === 'gt') return sql`${field} > ${String(value ?? '')}`
+    if (condition.op === 'lt') return sql`${field} < ${String(value ?? '')}`
     if (condition.op === 'between') {
-      return sql`c.value_timestamptz >= ${String(value)}::timestamptz AND c.value_timestamptz <= ${String(valueTo)}::timestamptz`
+      return sql`${field} >= ${String(value ?? '')} AND ${field} <= ${String(valueTo ?? '')}`
     }
   }
   if (column.type === 'checkbox') {
@@ -134,14 +145,14 @@ function compileFilter(filter: FilterNode | null | undefined, columns: Map<strin
   return compileNode(filter, columns) ?? sql`TRUE`
 }
 
-function keyset(cursor: Cursor | null, sort: { type: string; direction: 'asc' | 'desc' } | null): SQL {
+function keyset(cursor: Cursor | null, sort: { column: ColumnShape; direction: 'asc' | 'desc' } | null): SQL {
   if (!cursor) return sql`TRUE`
   if (!sort) return sql`(r.position, r.id) > (${cursor.position}, ${cursor.id}::uuid)`
-  const field = sortSql(sort.type)
+  const field = sortSql(sort.column)
   if (cursor.sortNull) {
     return sql`(${field} IS NULL AND (r.position, r.id) > (${cursor.position}, ${cursor.id}::uuid))`
   }
-  const bound = bindSort(sort.type, cursor.sort ?? '')
+  const bound = bindSort(sort.column, cursor.sort ?? '')
   if (sort.direction === 'asc') {
     return sql`(${field} > ${bound} OR (${field} = ${bound} AND (r.position, r.id) > (${cursor.position}, ${cursor.id}::uuid)) OR ${field} IS NULL)`
   }
@@ -189,21 +200,21 @@ export async function queryRows(
       AND g.effect = 'deny'
   )`
   const order = sortColumn
-    ? sql`${sortSql(sortColumn.type)} ${sql.raw(input.sort?.direction === 'desc' ? 'DESC' : 'ASC')} NULLS LAST, r.position ASC, r.id ASC`
+    ? sql`${sortSql(sortColumn)} ${sql.raw(input.sort?.direction === 'desc' ? 'DESC' : 'ASC')} NULLS LAST, r.position ASC, r.id ASC`
     : sql`r.position ASC, r.id ASC`
   const join = sortColumn
     ? sql`LEFT JOIN table_cells sc ON sc.row_id = r.id AND sc.column_id = ${sortColumn.id}::uuid`
     : sql``
   const rows = await many<{ id: string; position: string; version: number; color: string | null; notes: string | null; row_number: number | null; sort_value: string | null }>(
     db,
-    sql`SELECT r.id, r.position, r.version::int AS version, r.color, r.notes, r.row_number::int AS row_number, ${sortColumn ? sortSql(sortColumn.type) : sql`NULL`} AS sort_value
+    sql`SELECT r.id, r.position, r.version::int AS version, r.color, r.notes, r.row_number::int AS row_number, ${sortColumn ? sortSql(sortColumn) : sql`NULL`} AS sort_value
         FROM table_rows r
         ${join}
         WHERE r.table_id = ${input.tableId}::uuid
           AND ${filter}
           AND ${search}
           AND ${denied}
-          AND ${keyset(cursor, sortColumn ? { type: sortColumn.type, direction: input.sort?.direction ?? 'asc' } : null)}
+          AND ${keyset(cursor, sortColumn ? { column: sortColumn, direction: input.sort?.direction ?? 'asc' } : null)}
         ORDER BY ${order}
         LIMIT ${limit + 1}`,
   )
@@ -256,8 +267,12 @@ export async function footerFor(
       ? sql`c.value_jsonb::text`
       : input.column.type === 'checkbox'
         ? sql`c.value_bool::text`
-        : input.column.type === 'datetime'
-          ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
+        : input.column.type === 'datetime' || input.column.type === 'date'
+          ? input.column.config.range
+            ? sql`c.value_jsonb->>'from'`
+            : input.column.type === 'datetime'
+              ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
+              : sql`c.value_text`
           : sql`c.value_text`
   const [row] = await many<{ count: number; filled: number; sum: string | null; avg: string | null; min: string | null; max: string | null; median: string | null; unique: number }>(
     db,

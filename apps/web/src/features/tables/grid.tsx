@@ -61,6 +61,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
+import { DatePickerField } from '../../components/date-picker-field'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { useContextMenu } from '../../components/context-menu'
 import { QuietInput } from '../../components/quiet-input'
@@ -93,6 +94,7 @@ import {
 } from './grid-ux'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
+import { formatDateCellValue } from '@datavalley/shared'
 import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { MediaLibraryDialog } from '../media/media-library-dialog'
@@ -149,6 +151,13 @@ type SavedView = {
 
 function showCell(value: unknown) {
   return formatFormulaValue(value)
+}
+
+function displayCellValue(column: Column, value: unknown, language: string) {
+  if (column.type === 'date' || column.type === 'datetime') {
+    return formatDateCellValue(value, column, language)
+  }
+  return showCell(value)
 }
 
 function writable(column: Column) {
@@ -260,7 +269,7 @@ function ColumnTitle({ name, type, onClick }: { name: string; type: string; onCl
 }
 
 export function TableScreen({ tableId }: { tableId: string }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const openMenu = useContextMenu()
   const queryClient = useQueryClient()
@@ -705,10 +714,17 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   function cellDraftUnchanged(column: Column, draft: unknown, previous: unknown) {
     if (draft === previous) return true
-    if (column.type === 'media') {
+    if (column.type === 'media' || column.type === 'date' || column.type === 'datetime') {
       return JSON.stringify(draft ?? null) === JSON.stringify(previous ?? null)
     }
     return false
+  }
+
+  function cellDraftLabel(column: Column, value: unknown) {
+    if (column.type === 'date' || column.type === 'datetime') {
+      return formatDateCellValue(value, column, i18n.language)
+    }
+    return value == null ? '' : String(value)
   }
 
   function warnReadOnlyEdit() {
@@ -728,7 +744,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       sync.discard(key)
       setInvalidCells((current) => ({
         ...current,
-        [key]: { text: next == null ? '' : String(next), message: t(formatKey) },
+        [key]: { text: cellDraftLabel(column, next), message: t(formatKey) },
       }))
       return
     }
@@ -791,7 +807,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         if (message) {
           setInvalidCells((current) => ({
             ...current,
-            [key]: { text: next == null ? '' : String(next), message },
+            [key]: { text: cellDraftLabel(column, next), message },
           }))
           return
         }
@@ -1426,7 +1442,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const column = visible[selected.column]
     const row = rows[selected.row]
     if (!column || !row) return
-    void navigator.clipboard.writeText(showCell(row.cells[column.id]))
+    void navigator.clipboard.writeText(displayCellValue(column, row.cells[column.id], i18n.language))
   }
   clearCellRef.current = () => {
     const column = visible[selected.column]
@@ -1654,6 +1670,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
             void saveConfig(column, { style: id.slice('style-'.length) })
             return
           }
+          if (id === 'range-on') {
+            void saveConfig(column, { range: true })
+            return
+          }
+          if (id === 'range-off') {
+            void saveConfig(column, { range: false })
+            return
+          }
           if (id.startsWith('footer-')) {
             void setFooterCalc(column.id, id.slice('footer-'.length))
             return
@@ -1729,7 +1753,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         id: 'copy',
         label: t('copy'),
         icon: Copy,
-        onSelect: () => void navigator.clipboard.writeText(showCell(row.cells[column.id])),
+        onSelect: () => void navigator.clipboard.writeText(displayCellValue(column, row.cells[column.id], i18n.language)),
       },
       {
         id: 'paste',
@@ -2096,7 +2120,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const stripe = !cellPaint && rowColor ? paintSwatch(rowColor, 'background') : undefined
           const active = editing === `${row.original.id}:${column.id}`
           const invalid = invalidCells[`cell:${row.original.id}:${column.id}`]
-          const text = invalid?.text ?? showCell(value)
+          const text = invalid?.text ?? displayCellValue(column, value, i18n.language)
           const mono =
             column.type === 'number' ||
             column.type === 'currency' ||
@@ -2936,21 +2960,41 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   label: t(filterOperatorKey(op)),
                 }))}
               />
-              <Input
-                aria-label={t('value')}
-                value={filterInput[popoverColumn.id]?.value ?? ''}
-                onChange={(event) => {
-                  const next = {
-                    ...filterInput,
-                    [popoverColumn.id]: {
-                      op: filterInput[popoverColumn.id]?.op ?? 'eq',
-                      value: event.target.value,
-                    },
-                  }
-                  setFilterInput(next)
-                  sync.watch(`filter:${tableId}`, 300, () => setFilters(next))
-                }}
-              />
+              {popoverColumn.type === 'date' || popoverColumn.type === 'datetime' ? (
+                <DatePickerField
+                  label={t('value')}
+                  kind={popoverColumn.type === 'datetime' ? 'datetime' : 'date'}
+                  language={i18n.language}
+                  value={String(filterInput[popoverColumn.id]?.value ?? '')}
+                  onChange={(value) => {
+                    const next = {
+                      ...filterInput,
+                      [popoverColumn.id]: {
+                        op: filterInput[popoverColumn.id]?.op ?? 'eq',
+                        value,
+                      },
+                    }
+                    setFilterInput(next)
+                    sync.watch(`filter:${tableId}`, 300, () => setFilters(next))
+                  }}
+                />
+              ) : (
+                <Input
+                  aria-label={t('value')}
+                  value={filterInput[popoverColumn.id]?.value ?? ''}
+                  onChange={(event) => {
+                    const next = {
+                      ...filterInput,
+                      [popoverColumn.id]: {
+                        op: filterInput[popoverColumn.id]?.op ?? 'eq',
+                        value: event.target.value,
+                      },
+                    }
+                    setFilterInput(next)
+                    sync.watch(`filter:${tableId}`, 300, () => setFilters(next))
+                  }}
+                />
+              )}
               <Button
                 type="button"
                 variant="ghost"

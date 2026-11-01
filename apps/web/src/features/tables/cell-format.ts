@@ -1,3 +1,5 @@
+import { isDateRangeValue, validateDateRangePayload } from '@datavalley/shared'
+
 export type CellFormatKey =
   | 'invalidMail'
   | 'invalidUrl'
@@ -5,6 +7,8 @@ export type CellFormatKey =
   | 'invalidInteger'
   | 'invalidDate'
   | 'invalidDatetime'
+  | 'invalidDateRange'
+  | 'rangeEndBeforeStart'
 
 export function cellFormatError(
   column: { type: string; config?: Record<string, unknown> },
@@ -32,12 +36,23 @@ export function cellFormatError(
     if (variant === 'integer' && !Number.isInteger(numeric)) return 'invalidInteger'
     return null
   }
-  if (column.type === 'date') {
-    const value = String(input)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return 'invalidDate'
-    return null
-  }
-  if (column.type === 'datetime') {
+  if (column.type === 'date' || column.type === 'datetime') {
+    const kind = column.type === 'datetime' ? 'datetime' : 'date'
+    if (column.config?.range) {
+      if (input == null || input === '') return null
+      if (!isDateRangeValue(input)) return 'invalidDateRange'
+      const checked = validateDateRangePayload(input, kind)
+      if (!checked.ok) {
+        if (checked.reason === 'endNotAfterStart') return 'rangeEndBeforeStart'
+        return 'invalidDateRange'
+      }
+      return null
+    }
+    if (column.type === 'date') {
+      const value = String(input)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return 'invalidDate'
+      return null
+    }
     const raw = String(input)
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
     if (Number.isNaN(new Date(raw).getTime())) return 'invalidDatetime'

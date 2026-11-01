@@ -30,4 +30,12 @@ describe('column types', () => {
     expect(readCell(mail, parseCell(mail, 'john@doe.com')!)).toBe('john@doe.com')
     expect(() => parseCell(mail, 'john')).toThrow(/email/)
   })
+
+  it('stores and reads a date range when column config.range is enabled', () => {
+    const period: ColumnShape = { id: 'p', name: 'Period', type: 'date', config: { range: true } }
+    const stored = parseCell(period, { from: '2026-01-01', to: '2026-01-15' })!
+    expect(stored.valueJsonb).toEqual({ from: '2026-01-01', to: '2026-01-15' })
+    expect(readCell(period, stored)).toEqual({ from: '2026-01-01', to: '2026-01-15' })
+    expect(() => parseCell(period, { from: '2026-01-15', to: '2026-01-01' })).toThrow(/after start/)
+  })
 })

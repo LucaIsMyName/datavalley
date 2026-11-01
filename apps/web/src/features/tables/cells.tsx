@@ -1,4 +1,5 @@
-import { paintSwatch } from '@datavalley/shared'
+import { formatDateCellValue, type DateRangeValue, paintSwatch } from '@datavalley/shared'
+import { DateCellEditor } from '../../components/date-picker-field'
 import { useEffect, useRef, useState } from 'react'
 import { ApiClientError, type CatalogItem, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
 import { ChevronDown, CircleAlert, X } from 'lucide-react'
@@ -9,14 +10,17 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
-import { beginRename, colorLabelKey, composeDateValue, finishRename } from './grid-ux'
+import { beginRename, colorLabelKey, finishRename } from './grid-ux'
 import { MediaEditor } from './media-cell'
 
 const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
 
-export function formatCell(column: Column, value: unknown) {
+export function formatCell(column: Column, value: unknown, language = 'en') {
   if (value == null || value === '') return ''
+  if (column.type === 'date' || column.type === 'datetime') {
+    return formatDateCellValue(value, column, language)
+  }
   if (column.type === 'number' || column.type === 'currency') {
     const numeric = Number(value)
     if (!Number.isFinite(numeric)) return String(value)
@@ -27,11 +31,6 @@ export function formatCell(column: Column, value: unknown) {
       return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(numeric)
     }
     return String(numeric)
-  }
-  if (column.type === 'datetime' && typeof value === 'string' && value.includes('T')) {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleString()
   }
   return String(value)
 }
@@ -75,7 +74,7 @@ export function CellEditor({
   tags: CatalogItem[]
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
-  onEdit: (value: string | string[] | boolean | { fileIds: string[] } | null, delay?: number) => void
+  onEdit: (value: string | string[] | boolean | DateRangeValue | { fileIds: string[] } | null, delay?: number) => void
   onFlush: () => void
   onCancel: () => void
   onOpen: () => void
@@ -88,7 +87,7 @@ export function CellEditor({
   onMediaUploading?: boolean
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const editLabel = t('editColumn', { name: column.name })
   if (column.type === 'row_id') {
     const shown = column.config.style === 'uuid' ? row.id : String(row.rowNumber || '')
@@ -175,8 +174,8 @@ export function CellEditor({
         ? optionLabel ?? text
         : column.type === 'multi_select'
           ? multiLabels
-          : column.type === 'number' || column.type === 'currency' || column.type === 'datetime'
-            ? formatCell(column, row.cells[column.id])
+          : column.type === 'number' || column.type === 'currency' || column.type === 'date' || column.type === 'datetime'
+            ? formatCell(column, row.cells[column.id], i18n.language)
             : text
     return (
       <div className="flex h-full min-w-0 flex-1 items-center gap-1">
@@ -319,18 +318,11 @@ function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; va
   )
 }
 
-function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: string, delay?: number) => void; onFlush: () => void }) {
+function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: string | DateRangeValue | null, delay?: number) => void; onFlush: () => void }) {
   const { t } = useTranslation()
-  const raw = typeof value === 'string' ? value : ''
-  const [date, setDate] = useState(raw.includes('T') ? raw.slice(0, 10) : raw)
-  const [time, setTime] = useState(raw.includes('T') ? raw.slice(11, 16) : '')
-  function commit(nextDate: string, nextTime: string) {
-    onEdit(composeDateValue(column.type, nextDate, nextTime), 0)
-  }
+  const filled = value != null && value !== ''
   function clear() {
-    setDate('')
-    setTime('')
-    onEdit('', 0)
+    onEdit(null, 0)
     onFlush()
   }
   return (
@@ -340,31 +332,8 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush()
       }}
     >
-      <input
-        aria-label={t('editColumn', { name: column.name })}
-        type="date"
-        className="h-9 min-w-0 bg-transparent outline-none"
-        value={date}
-        onChange={(event) => {
-          const nextDate = event.target.value
-          setDate(nextDate)
-          commit(nextDate, time)
-        }}
-      />
-      {column.type === 'datetime' ? (
-        <input
-          aria-label={t('timeField', { name: column.name })}
-          type="time"
-          className="h-9 bg-transparent outline-none"
-          value={time}
-          onChange={(event) => {
-            const nextTime = event.target.value
-            setTime(nextTime)
-            commit(date, nextTime)
-          }}
-        />
-      ) : null}
-      {date || time ? (
+      <DateCellEditor column={column} value={value} onEdit={onEdit} />
+      {filled ? (
         <button type="button" aria-label={t('clearCell')} className="shrink-0 text-muted-foreground" onClick={clear}>
           <X className="size-3.5" />
         </button>

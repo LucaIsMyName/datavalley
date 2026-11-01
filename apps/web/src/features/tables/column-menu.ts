@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Binary,
+  CalendarRange,
   Circle,
   CircleDot,
   Coins,
@@ -152,6 +153,17 @@ export function buildColumnHeaderMenu(input: {
         }),
       )
     }
+  }
+
+  if (column.type === 'date' || column.type === 'datetime') {
+    const range = Boolean(column.config.range)
+    entries.push(
+      action(onSelect, {
+        id: range ? 'range-off' : 'range-on',
+        label: label(range ? 'dateRangeOff' : 'dateRangeOn'),
+        icon: CalendarRange,
+      }),
+    )
   }
 
   if (column.type === 'row_id') {

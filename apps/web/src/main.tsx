@@ -8,6 +8,7 @@ import '@fontsource-variable/jetbrains-mono'
 import { restoreSession, router } from './routes/router'
 import { applyTheme } from './stores/session'
 import './styles/globals.css'
+import 'react-day-picker/style.css'
 
 applyTheme((localStorage.getItem('theme') as 'light' | 'dark' | 'system' | null) ?? 'system')
 void restoreSession()
