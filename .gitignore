@@ -3,7 +3,10 @@ dist
 .env
 .env.*
 !.env.*.example
-data
+# Local runtime only (pglite, media); not apps/api/src/modules/data/
+/data/
+/apps/api/data/
+apps/api/src/media/
 coverage
 playwright-report
 test-results
