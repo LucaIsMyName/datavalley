@@ -1,4 +1,36 @@
-import { isChartDimensionType, type ChartDimensionType } from './state.js'
+import { isChartDimensionType, type ChartDimensionType, type ChartType } from './state.js'
+
+/** Tailwind 600 hues. Categories walk this list and then repeat. */
+export const chartCategoryPalette = [
+  '#dc2626',
+  '#ea580c',
+  '#d97706',
+  '#ca8a04',
+  '#65a30d',
+  '#16a34a',
+  '#059669',
+  '#0d9488',
+  '#0891b2',
+  '#0284c7',
+  '#2563eb',
+  '#4f46e5',
+  '#7c3aed',
+  '#9333ea',
+  '#c026d3',
+  '#db2777',
+  '#e11d48',
+] as const
+
+export type ChartMarkColor =
+  | { kind: 'primary' }
+  | { kind: 'primary-comparison' }
+  | { kind: 'palette'; color: string; comparison: boolean }
+
+export function chartMarkColor(input: { type: ChartType; categoryIndex: number; seriesIndex: number }): ChartMarkColor {
+  if (input.type === 'line') return input.seriesIndex === 0 ? { kind: 'primary' } : { kind: 'primary-comparison' }
+  const color = chartCategoryPalette[Math.abs(input.categoryIndex) % chartCategoryPalette.length] ?? chartCategoryPalette[0]
+  return { kind: 'palette', color, comparison: input.seriesIndex > 0 }
+}
 
 export const displayRowCap = 5000
 

@@ -41,6 +41,8 @@
   --border: #c5c5c5;
   --primary: #1c0f6e;
   --primary-foreground: #dedede;
+  --chart-comparison: color-mix(in srgb, var(--primary) 55%, white);
+  --chart-mix: white;
   --accent: #f1f1f1;
   --danger: #9f2d2d;
   --swatch-amber-bg: #fde68a;
@@ -75,6 +77,8 @@
   --border: #3d3d3d;
   --primary: #7c68ff;
   --primary-foreground: #1b1923;
+  --chart-comparison: color-mix(in srgb, var(--primary) 70%, black);
+  --chart-mix: black;
   --accent: #343434;
   --danger: #cf6a6a;
   --swatch-amber-bg: #78350f;

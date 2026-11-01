@@ -7,11 +7,13 @@ import { scalePoint } from '@tanstack/charts/scales/point'
 import { tooltip } from '@tanstack/charts/tooltip'
 import {
   aggregateChart,
+  chartMarkColor,
   chartTypes,
   isChartDimensionType,
   isChartValueType,
   type ChartDimensionInput,
   type ChartDisplay,
+  type ChartMarkColor,
   type ChartType,
 } from '@datavalley/shared'
 import { ChevronDown } from 'lucide-react'
@@ -21,21 +23,6 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { Label } from '../../components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../../components/ui/select'
-
-const seriesPalette = ['#1c0f6e', '#0f766e', '#b45309', '#9f2d2d', '#1d4ed8', '#6d28d9', '#be185d', '#3f6212']
-
-const swatchFill: Record<string, string> = {
-  amber: '#d97706',
-  green: '#15803d',
-  blue: '#1d4ed8',
-  red: '#b91c1c',
-  violet: '#6d28d9',
-  orange: '#c2410c',
-  pink: '#be185d',
-  teal: '#0f766e',
-  slate: '#475569',
-  yellow: '#a16207',
-}
 
 type PlotPoint = {
   category: string
@@ -47,9 +34,11 @@ type PlotPoint = {
 
 type Catalog = { id: string; name: string; color: string; position?: string }
 
-function paint(color: string | null, seriesIndex: number) {
-  if (color && swatchFill[color]) return swatchFill[color]
-  return seriesPalette[seriesIndex % seriesPalette.length]
+function markFill(mark: ChartMarkColor) {
+  if (mark.kind === 'primary') return 'var(--primary)'
+  if (mark.kind === 'primary-comparison') return 'var(--chart-comparison)'
+  if (!mark.comparison) return mark.color
+  return `color-mix(in srgb, ${mark.color} 65%, var(--chart-mix))`
 }
 
 function formatAmount(value: number, locale: string) {
@@ -229,7 +218,6 @@ export function ChartView({
     })
   }, [chart.perRow, dimensions, ready, rows, selectedDimensions, selectedValues, statuses, t, tags, values])
 
-  const categoryColor = Boolean(aggregate?.categories.some((category) => category.color))
   const points = useMemo<PlotPoint[]>(() => {
     if (!aggregate) return []
     return aggregate.series.flatMap((series, seriesIndex) =>
@@ -238,21 +226,21 @@ export function ChartView({
         label: category.label,
         series: series.name,
         amount: series.values[index] ?? 0,
-        fill: paint(category.color, seriesIndex),
+        fill: markFill(chartMarkColor({ type: chart.type, categoryIndex: index, seriesIndex })),
       })),
     )
-  }, [aggregate])
+  }, [aggregate, chart.type])
   const legend = useMemo(() => {
     const seen = new Set<string>()
-    const items: { label: string; fill: string }[] = []
+    const items: { key: string; label: string; fill: string }[] = []
     for (const point of points) {
-      const label = categoryColor ? point.label : point.series
-      if (seen.has(label)) continue
-      seen.add(label)
-      items.push({ label, fill: point.fill })
+      const key = chart.type === 'line' ? point.series : point.category
+      if (seen.has(key)) continue
+      seen.add(key)
+      items.push({ key, label: chart.type === 'line' ? point.series : point.label, fill: point.fill })
     }
     return items.length > 1 && items.length <= 16 ? items : []
-  }, [categoryColor, points])
+  }, [chart.type, points])
 
   const message =
     dimensions.length === 0
@@ -304,7 +292,7 @@ export function ChartView({
       {legend.length > 0 && !message ? (
         <ul className="flex shrink-0 flex-wrap gap-x-4 gap-y-2 border-b border-border px-3 py-2">
           {legend.map((item) => (
-            <li key={item.label} className="flex items-center gap-2 text-sm">
+            <li key={item.key} className="flex items-center gap-2 text-sm">
               <span className="size-3 shrink-0" style={{ backgroundColor: item.fill }} />
               {item.label}
             </li>

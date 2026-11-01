@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateChart } from './chart.js'
+import { aggregateChart, chartCategoryPalette, chartMarkColor } from './chart.js'
 import { defaultTableDisplay, normalizeTableDisplay, sanitizeTableDisplay } from './state.js'
 
 const status = {
@@ -124,6 +124,28 @@ describe('chart aggregation', () => {
       ['Open', 'amber'],
     ])
     expect(chart.series[0].values).toEqual([2, 5])
+  })
+})
+
+describe('chart mark colors', () => {
+  it('walks the Tailwind palette and repeats after the last hue', () => {
+    const first = chartMarkColor({ type: 'bar', categoryIndex: 0, seriesIndex: 0 })
+    const repeated = chartMarkColor({ type: 'doughnut', categoryIndex: chartCategoryPalette.length, seriesIndex: 0 })
+    expect(first).toEqual({ kind: 'palette', color: chartCategoryPalette[0], comparison: false })
+    expect(repeated).toEqual(first)
+  })
+
+  it('uses the app primary for a line and a comparison shade for later values', () => {
+    expect(chartMarkColor({ type: 'line', categoryIndex: 3, seriesIndex: 0 })).toEqual({ kind: 'primary' })
+    expect(chartMarkColor({ type: 'line', categoryIndex: 3, seriesIndex: 1 })).toEqual({ kind: 'primary-comparison' })
+    expect(chartMarkColor({ type: 'line', categoryIndex: 0, seriesIndex: 2 })).toEqual({ kind: 'primary-comparison' })
+  })
+
+  it('keeps a bar comparison series on the same category hue', () => {
+    const solid = chartMarkColor({ type: 'bar', categoryIndex: 2, seriesIndex: 0 })
+    const comparison = chartMarkColor({ type: 'bar', categoryIndex: 2, seriesIndex: 1 })
+    expect(solid).toEqual({ kind: 'palette', color: chartCategoryPalette[2], comparison: false })
+    expect(comparison).toEqual({ kind: 'palette', color: chartCategoryPalette[2], comparison: true })
   })
 })
 
