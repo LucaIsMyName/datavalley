@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Bookmark, Copy, Download, Lock, LockOpen, MoreHorizontal, Search, Trash2, Upload } from 'lucide-react'
+import { Bookmark, ChartColumn, Check, Copy, Download, Lock, LockOpen, MoreHorizontal, Search, Table2, Trash2, Upload } from 'lucide-react'
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
@@ -14,6 +14,8 @@ export type TableToolbarActions = {
   find: (anchor: HTMLElement) => void
   exportCsv: () => void
   importCsv: () => void
+  displayMode: 'grid' | 'chart'
+  setDisplayMode: (mode: 'grid' | 'chart') => void
   views: TableToolbarView[]
   saveView: (anchor: HTMLElement) => void
   duplicateTable: () => void
@@ -100,6 +102,30 @@ export function TableToolbarRow() {
           <Upload className="size-4" />
         </Button>
       ) : null}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger
+          type="button"
+          className="inline-flex size-9 shrink-0 items-center justify-center hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          aria-label={t('display')}
+          title={t('display')}
+        >
+          {actions.displayMode === 'chart' ? <ChartColumn className="size-4" /> : <Table2 className="size-4" />}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content className="z-50 min-w-44 border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
+            {(['grid', 'chart'] as const).map((mode) => (
+              <DropdownMenu.Item
+                key={mode}
+                className="flex min-h-9 cursor-pointer items-center justify-between gap-3 px-2 text-sm outline-none data-[highlighted]:bg-accent"
+                onSelect={() => actions.setDisplayMode(mode)}
+              >
+                {t(mode === 'grid' ? 'displayGrid' : 'displayChart')}
+                {actions.displayMode === mode ? <Check className="size-3.5" aria-hidden /> : null}
+              </DropdownMenu.Item>
+            ))}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger
           ref={viewsTriggerRef}

@@ -11,13 +11,17 @@ import {
 import { matchesCondition } from '@datavalley/formula-engine'
 import {
   conditionalStyle,
+  defaultTableDisplay,
+  displayRowCap,
   mergeMediaFileIds,
   moveSelection,
   normalizeMediaCellValue,
+  normalizeTableDisplay,
   paintSwatch,
   type FilterNode,
   type FilterOperator,
   type FormatRule,
+  type TableDisplayState,
 } from '@datavalley/shared'
 import {
   ArrowDown,
@@ -116,6 +120,7 @@ import { countSelectRowsWithMultipleValues, mergeColumnOption } from './select-o
 import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
+import { ChartView } from './chart-view'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import {
   historyFlags,
@@ -301,6 +306,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const appliedLink = useRef('')
   const flashTimer = useRef<number | null>(null)
   const [sort, setSort] = useState<{ columnId: string; direction: 'asc' | 'desc' } | null>(null)
+  const [display, setDisplay] = useState<TableDisplayState>(defaultTableDisplay)
   const [filterInput, setFilterInput] = useState<Record<string, { op: string; value: string }>>({})
   const [filters, setFilters] = useState<Record<string, { op: string; value: string }>>({})
   const cellBaseline = useRef(new Map<string, unknown>())
@@ -406,6 +412,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
   })
   const rowPages = rowsQuery.data?.pages
   const rows = useMemo(() => rowPages?.flatMap((page) => page.rows) ?? [], [rowPages])
+  useEffect(() => {
+    if (display.mode !== 'chart') return
+    if (rowsQuery.isError || rowsQuery.isFetchingNextPage || !rowsQuery.hasNextPage) return
+    if (rows.length >= displayRowCap) return
+    void rowsQuery.fetchNextPage()
+  }, [display.mode, rows.length, rowsQuery.isError, rowsQuery.isFetchingNextPage, rowsQuery.hasNextPage, rowsQuery.fetchNextPage])
   const rowsRef = useRef(rows)
   rowsRef.current = rows
   const widthKey = `dv-col-widths:${tableId}`
@@ -461,6 +473,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       api.request<{
         sort: { columnId: string; direction: 'asc' | 'desc' } | null
         filter: FilterNode | null
+        display: unknown
       }>(`/tables/${tableId}/state`),
   })
   useEffect(() => {
@@ -479,6 +492,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const next = filtersFrom(tableState.data.filter)
     setFilters(next)
     setFilterInput(next)
+    setDisplay(normalizeTableDisplay(tableState.data.display, table.columns ?? []))
     setStateReady(true)
   }, [table, tableId, tableState.data, tableState.isSuccess])
   useEffect(() => {
@@ -487,12 +501,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
       void api
         .request(`/tables/${tableId}/state`, {
           method: 'PUT',
-          body: JSON.stringify({ sort, filter }),
+          body: JSON.stringify({ sort, filter, display }),
         })
         .catch(() => showEditError(t('error')))
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [filter, sort, stateReady, t, tableId])
+  }, [display, filter, sort, stateReady, t, tableId])
   const projectTables = useQuery({
     queryKey: ['tables', projectId],
     enabled: Boolean(projectId),
@@ -2102,6 +2116,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       find: (el: HTMLElement) => setPopover({ kind: 'find', ...viewportAnchorFrom(el) }),
       exportCsv: () => void exportCsv(),
       importCsv: () => setCsvImportOpen(true),
+      displayMode: (display.mode === 'chart' ? 'chart' : 'grid') as 'grid' | 'chart',
+      setDisplayMode: (mode: 'grid' | 'chart') => setDisplay((current) => (current.mode === mode ? current : { ...current, mode })),
       views: (views.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
@@ -2120,7 +2136,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       lockPending,
       onToggleLock: () => void toggleTableLock(),
     }
-  }, [table, tableId, t, views.data?.views, lockPending])
+  }, [display.mode, table, tableId, t, views.data?.views, lockPending])
 
   useRegisterTableToolbar(toolbarActions)
 
@@ -2510,7 +2526,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
     parent.addEventListener('scroll', load, { passive: true })
     return () => parent.removeEventListener('scroll', load)
-  }, [gridReady])
+  }, [display.mode, gridReady])
   useEffect(() => {
     const parent = parentRef.current
     if (!parent) return
@@ -2519,7 +2535,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const observer = new ResizeObserver(measure)
     observer.observe(parent)
     return () => observer.disconnect()
-  }, [gridReady])
+  }, [display.mode, gridReady])
 
   if (tableQuery.isLoading || rowsQuery.isLoading)
     return (
@@ -2584,6 +2600,18 @@ export function TableScreen({ tableId }: { tableId: string }) {
             {t('lockedTableBanner')}
           </p>
         ) : null}
+        {display.mode === 'chart' ? (
+          <ChartView
+            columns={columns}
+            rows={rows}
+            tags={table.tags ?? []}
+            statuses={table.statuses ?? []}
+            chart={display.chart}
+            truncated={rows.length >= displayRowCap && Boolean(rowsQuery.hasNextPage)}
+            loading={Boolean(rowsQuery.hasNextPage) && rows.length < displayRowCap}
+            onChange={(chart) => setDisplay((current) => ({ ...current, chart }))}
+          />
+        ) : (
         <div
           ref={parentRef}
           tabIndex={0}
@@ -2966,6 +2994,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
             </tbody>
           </table>
         </div>
+        )}
+        {display.mode === 'chart' ? null : (
         <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
           {!dataReadOnly ? (
             <button
@@ -3078,6 +3108,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             </div>
           ) : null}
         </div>
+        )}
       </div>
       {popover ? (
         <AnchoredLayer

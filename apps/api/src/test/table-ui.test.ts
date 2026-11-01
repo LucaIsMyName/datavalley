@@ -1,3 +1,4 @@
+import { defaultTableDisplay } from '@datavalley/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ApiSession, createHarness, createUser, login, type Harness } from './harness.js'
 
@@ -228,18 +229,58 @@ describe('table interactions', () => {
     const nameId = (detail.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Name')!.id
     const empty = await session.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}/state` })
     expect(empty.statusCode).toBe(200)
-    expect(empty.json()).toEqual({ sort: null, filter: null })
+    expect(empty.json()).toEqual({ sort: null, filter: null, display: defaultTableDisplay() })
     const saved = await session.inject({
       method: 'PUT',
       url: `/api/v1/tables/${people?.id}/state`,
       payload: { sort: { columnId: nameId, direction: 'desc' }, filter: { op: 'contains', columnId: nameId, value: 'Ada' } },
     })
     expect(saved.statusCode).toBe(200)
-    const again = await session.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}/state` })
-    expect(again.json()).toEqual({
+    const chart = {
+      ...defaultTableDisplay(),
+      mode: 'chart',
+      chart: { type: 'line', dimensionIds: [nameId], valueIds: [] },
+    }
+    const withChart = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/tables/${people?.id}/state`,
+      payload: { display: chart },
+    })
+    expect(withChart.statusCode).toBe(200)
+    expect(withChart.json()).toEqual({
       sort: { columnId: nameId, direction: 'desc' },
       filter: { op: 'contains', columnId: nameId, value: 'Ada' },
+      display: chart,
     })
+    const again = await session.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}/state` })
+    expect(again.json()).toEqual(withChart.json())
+  })
+
+  it('keeps a mirror display separate from the source table', async () => {
+    const sourceProject = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Chart source' } })
+    const sourceProjectId = sourceProject.json().project.id as string
+    const source = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${sourceProjectId}/tables`,
+      payload: { name: 'Inventory' },
+    })
+    const sourceId = source.json().table.id as string
+    const host = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Chart host' } })
+    const hostId = host.json().project.id as string
+    const mirror = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${hostId}/tables/mirror`,
+      payload: { sourceTableId: sourceId, name: 'Inventory view' },
+    })
+    const mirrorId = mirror.json().table.id as string
+    const sourceDisplay = { ...defaultTableDisplay(), mode: 'chart', chart: { type: 'bar', dimensionIds: [], valueIds: [] } }
+    const mirrorDisplay = { ...defaultTableDisplay(), mode: 'chart', chart: { type: 'doughnut', dimensionIds: [], valueIds: [] } }
+    expect((await session.inject({ method: 'PUT', url: `/api/v1/tables/${sourceId}/state`, payload: { display: sourceDisplay } })).statusCode).toBe(200)
+    expect((await session.inject({ method: 'PUT', url: `/api/v1/tables/${mirrorId}/state`, payload: { display: mirrorDisplay } })).statusCode).toBe(200)
+    const sourceState = await session.inject({ method: 'GET', url: `/api/v1/tables/${sourceId}/state` })
+    const mirrorState = await session.inject({ method: 'GET', url: `/api/v1/tables/${mirrorId}/state` })
+    expect(sourceState.json().display).toEqual(sourceDisplay)
+    expect(mirrorState.json().display).toEqual(mirrorDisplay)
   })
 
   it('orders tables, seeds demo data, and imports a CSV as a new table', async () => {

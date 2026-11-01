@@ -1,6 +1,15 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
-import { csvTable, isResourceIcon, isSelectFamilyType, normalizeCsvDelimiter, selectColumnMultiple, type Action } from '@datavalley/shared'
+import {
+  csvTable,
+  defaultTableDisplay,
+  isResourceIcon,
+  isSelectFamilyType,
+  normalizeCsvDelimiter,
+  sanitizeTableDisplay,
+  selectColumnMultiple,
+  type Action,
+} from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
@@ -969,28 +978,56 @@ function storedFilter(value: unknown) {
   return null
 }
 
+function presentUserTableState(row: { sort: unknown; filter: unknown; display: unknown } | undefined) {
+  return {
+    sort: storedSort(row?.sort),
+    filter: storedFilter(row?.filter),
+    display: sanitizeTableDisplay(row?.display ?? {}),
+  }
+}
+
 export async function readUserTableState(db: AppDatabase, subject: Subject, tableId: string) {
   await requireTable(db, subject, tableId, 'view')
-  if (subject.kind !== 'user') return { sort: null, filter: null }
+  if (subject.kind !== 'user') return presentUserTableState(undefined)
   const [row] = await db
     .select()
     .from(userTableState)
     .where(and(eq(userTableState.userId, subject.id), eq(userTableState.tableId, tableId)))
     .limit(1)
-  return { sort: row?.sort ?? null, filter: row?.filter ?? null }
+  return presentUserTableState(row)
 }
 
-export async function saveUserTableState(db: AppDatabase, subject: Subject, tableId: string, input: { sort?: unknown; filter?: unknown }) {
+export async function saveUserTableState(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  input: { sort?: unknown; filter?: unknown; display?: unknown },
+) {
   await requireTable(db, subject, tableId, 'view')
-  if (subject.kind !== 'user') return { sort: null, filter: null }
-  const sort = storedSort(input.sort)
-  const filter = storedFilter(input.filter)
+  if (subject.kind !== 'user') return presentUserTableState(undefined)
+  const patch: { sort?: ReturnType<typeof storedSort>; filter?: ReturnType<typeof storedFilter>; display?: ReturnType<typeof sanitizeTableDisplay>; updatedAt: Date } = {
+    updatedAt: new Date(),
+  }
+  if (input.sort !== undefined) patch.sort = storedSort(input.sort)
+  if (input.filter !== undefined) patch.filter = storedFilter(input.filter)
+  if (input.display !== undefined) patch.display = sanitizeTableDisplay(input.display)
   await db
     .insert(userTableState)
-    .values({ userId: subject.id, tableId, sort, filter })
+    .values({
+      userId: subject.id,
+      tableId,
+      sort: patch.sort ?? null,
+      filter: patch.filter ?? null,
+      display: patch.display ?? defaultTableDisplay(),
+    })
     .onConflictDoUpdate({
       target: [userTableState.userId, userTableState.tableId],
-      set: { sort, filter, updatedAt: new Date() },
+      set: patch,
     })
-  return { sort, filter }
+  const [row] = await db
+    .select()
+    .from(userTableState)
+    .where(and(eq(userTableState.userId, subject.id), eq(userTableState.tableId, tableId)))
+    .limit(1)
+  return presentUserTableState(row)
 }

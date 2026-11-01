@@ -322,7 +322,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.put('/tables/:tableId/state', async (request) => {
     if (!request.subject) throw unauthorized()
-    return saveUserTableState(db, request.subject, (request.params as { tableId: string }).tableId, (request.body ?? {}) as { sort?: unknown; filter?: unknown })
+    return saveUserTableState(db, request.subject, (request.params as { tableId: string }).tableId, (request.body ?? {}) as { sort?: unknown; filter?: unknown; display?: unknown })
   })
   app.get('/tables/:tableId/views', async (request) => {
     if (!request.subject) throw unauthorized()

@@ -247,6 +247,7 @@ export const userTableState = pgTable(
     tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
     sort: jsonb('sort'),
     filter: jsonb('filter'),
+    display: jsonb('display').notNull().default({}),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.tableId] })],
