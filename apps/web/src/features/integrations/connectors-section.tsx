@@ -71,7 +71,10 @@ export function DataConnectorsSection() {
       await api.ensureCsrf()
       return api.request(`/connectors/${id}/sync`, { method: 'POST', body: JSON.stringify({}) })
     },
-    onSuccess: () => toast.success(t('connectorSyncQueued')),
+    onSuccess: () => {
+      toast.success(t('connectorSyncQueued'))
+      void queryClient.invalidateQueries({ queryKey: ['rows'] })
+    },
     onError: (error) => toast.error(error instanceof Error ? error.message : t('error')),
   })
 
@@ -180,9 +183,11 @@ function ConnectorEditorDialog(props: {
   const [previewKeys, setPreviewKeys] = useState<string[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [draftConnectorId, setDraftConnectorId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    setDraftConnectorId(connector?.id ?? null)
     setName(connector?.name ?? '')
     setIcon(connector?.icon ?? 'Globe')
     setScope(connector?.projectId ? 'project' : 'org')
@@ -248,10 +253,12 @@ function ConnectorEditorDialog(props: {
     setBusy(true)
     try {
       await api.ensureCsrf()
-      if (connector) {
-        await api.request(`/connectors/${connector.id}`, { method: 'PATCH', body: JSON.stringify(payload()) })
+      const existingId = connector?.id ?? draftConnectorId
+      if (existingId) {
+        await api.request(`/connectors/${existingId}`, { method: 'PATCH', body: JSON.stringify(payload()) })
       } else {
-        await api.request('/connectors', { method: 'POST', body: JSON.stringify(payload()) })
+        const created = await api.request<{ connector: ConnectorRecord }>('/connectors', { method: 'POST', body: JSON.stringify(payload()) })
+        setDraftConnectorId(created.connector.id)
       }
       onSaved()
       toast.success(t('connectorSaved'))
@@ -267,10 +274,11 @@ function ConnectorEditorDialog(props: {
     setBusy(true)
     try {
       await api.ensureCsrf()
-      let id = connector?.id
+      let id = connector?.id ?? draftConnectorId
       if (!id) {
         const created = await api.request<{ connector: ConnectorRecord }>('/connectors', { method: 'POST', body: JSON.stringify(payload()) })
         id = created.connector.id
+        setDraftConnectorId(id)
       } else {
         await api.request(`/connectors/${id}`, { method: 'PATCH', body: JSON.stringify(payload()) })
       }

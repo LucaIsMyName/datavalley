@@ -30,7 +30,7 @@ import { dispatchBackgroundJob } from '../../jobs/process.js'
 import { enqueueBackgroundJob } from '../../jobs/queue.js'
 import { defaultColumnIcon } from '../../column-types/index.js'
 import { generateKeyBetween } from 'fractional-indexing'
-import { nextTableName, nextTablePosition, presentTable } from '../tables/service.js'
+import { loadColumns, nextTableName, nextTablePosition, presentTable } from '../tables/service.js'
 import { fetchConnectorPayload, type ConnectorAuthConfig } from './fetch.js'
 
 type ConnectorRow = typeof dataConnectors.$inferSelect
@@ -278,7 +278,8 @@ export async function queueConnectorSync(db: AppDatabase, env: Env, subject: Sub
     { type: 'connector.sync', connectorId, tableId, actorUserId: subject.id, syncJobId: syncJob.id },
     subject.id,
   )
-  const queued = await enqueueBackgroundJob(env, job.id)
+  const queueInRedis = Boolean(env.REDIS_URL?.trim()) && env.NODE_ENV === 'production'
+  const queued = queueInRedis ? await enqueueBackgroundJob(env, job.id) : false
   if (!queued) {
     try {
       await dispatchBackgroundJob(db, env, job.id)
@@ -319,6 +320,41 @@ export async function patchTableBinding(
     .where(eq(tableConnectorBindings.id, binding.id))
     .returning()
   return updated
+}
+
+export async function bindConnectorToTable(
+  db: AppDatabase,
+  env: Env,
+  subject: Subject,
+  connectorId: string,
+  tableId: string,
+) {
+  const [connector] = await db.select().from(dataConnectors).where(eq(dataConnectors.id, connectorId)).limit(1)
+  if (!connector) throw notFound()
+  await assertConnectorVisible(db, subject, connector)
+  const projectId = await tableProjectId(db, tableId)
+  await assertCan(db, subject, 'manage_structure', { type: 'table', id: tableId, parents: { project: projectId } })
+  const [existingBinding] = await db.select().from(tableConnectorBindings).where(eq(tableConnectorBindings.tableId, tableId)).limit(1)
+  if (existingBinding) throw badRequest('This table is already linked to a connector')
+  const parse = normalizeConnectorParseConfig(connector.parse)
+  if (parse.fields.length === 0) throw badRequest('Connector has no field mappings')
+  const columns = await loadColumns(db, tableId)
+  const columnMap: Record<string, string> = {}
+  for (const field of parse.fields) {
+    const label = (field.targetLabel ?? field.targetFieldKey).trim()
+    const column =
+      columns.find((item) => item.name.toLowerCase() === label.toLowerCase()) ??
+      columns.find((item) => item.name.toLowerCase() === field.targetFieldKey.toLowerCase())
+    if (!column) throw badRequest(`Table is missing a column named “${label}”`)
+    columnMap[field.targetFieldKey] = column.id
+  }
+  const syncMode = parse.externalIdPath ? 'upsert' : 'append_only'
+  const [binding] = await db
+    .insert(tableConnectorBindings)
+    .values({ tableId, connectorId, columnMap, syncMode })
+    .returning()
+  await queueConnectorSync(db, env, subject, connectorId, tableId)
+  return { binding: { id: binding.id, tableId, connectorId, columnMap, syncMode } }
 }
 
 export async function createTableFromConnector(

@@ -23,6 +23,16 @@ describe('connector extract', () => {
     expect(rows).toEqual([{ email: 'a@x.com' }])
   })
 
+  it('auto-detects rss item path when recordsPath omitted', () => {
+    const parse = normalizeConnectorParseConfig({
+      version: 1,
+      fields: [{ sourceKey: 'title', targetFieldKey: 'title' }],
+    })
+    const body = '<rss><channel><item><title>A</title></item></channel></rss>'
+    const rows = extractRecordsFromPayload('xml', body, parse)
+    expect(rows).toEqual([{ title: 'A' }])
+  })
+
   it('extracts simple xml records', () => {
     const parse = normalizeConnectorParseConfig({
       version: 1,

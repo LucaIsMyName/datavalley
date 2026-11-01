@@ -58,7 +58,9 @@ async function runConnectorSync(
   const parse = normalizeConnectorParseConfig(connector.parse)
   validateRetention(parse, connector.retention as { mode: string; missingAfterDays?: number })
   const bindings = await listBindings(db, input.connectorId, input.tableId)
-  if (bindings.length === 0) throw badRequest('Connector has no table bindings')
+  if (bindings.length === 0) {
+    throw badRequest('Connector has no linked tables. Create a table via “From connector” or link an existing table.')
+  }
   const auth = connector.auth as ConnectorAuthConfig
   const apiKey = connectorApiKey(env, connector)
   const body = await fetchConnectorPayload(connector.source as never, auth, apiKey)

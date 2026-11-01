@@ -50,6 +50,10 @@ export const syncConnectorBody = Type.Object({
   tableId: Type.Optional(Type.String({ format: 'uuid' })),
 })
 
+export const bindConnectorBody = Type.Object({
+  tableId: Type.String({ format: 'uuid' }),
+})
+
 export const tableIdParams = Type.Object({ tableId: Type.String({ format: 'uuid' }) })
 
 export const patchBindingBody = Type.Object({

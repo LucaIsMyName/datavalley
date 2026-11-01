@@ -175,7 +175,8 @@ export function sampleFieldKeysFromRecords(records: unknown[], limit = 20): stri
 }
 
 function extractXmlRecords(body: string, parse: ConnectorParseConfig): MappedRecord[] {
-  const recordsPath = parse.recordsPath?.trim()
+  let recordsPath = parse.recordsPath?.trim()
+  if (!recordsPath && /<item[\s>]/i.test(body)) recordsPath = 'item'
   if (!recordsPath) {
     return [{ text: body.slice(0, 5000) }]
   }

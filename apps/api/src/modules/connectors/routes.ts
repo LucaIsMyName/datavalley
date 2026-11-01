@@ -3,6 +3,7 @@ import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import { unauthorized } from '../../errors.js'
 import {
+  bindConnectorToTable,
   connectorHistory,
   createConnector,
   createTableFromConnector,
@@ -24,6 +25,7 @@ import {
   patchConnectorBody,
   previewConnectorBody,
   syncConnectorBody,
+  bindConnectorBody,
   tableIdParams,
 } from './schema.js'
 
@@ -64,6 +66,13 @@ export function registerConnectorRoutes(app: FastifyInstance, db: AppDatabase, e
     if (!request.subject) throw unauthorized()
     const body = (request.body ?? {}) as { tableId?: string }
     return queueConnectorSync(db, env, request.subject, (request.params as { id: string }).id, body.tableId)
+  })
+
+  app.post('/connectors/:id/bind-table', { schema: { params: connectorIdParams, body: bindConnectorBody } }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    const params = request.params as { id: string }
+    const body = request.body as { tableId: string }
+    return bindConnectorToTable(db, env, request.subject, params.id, body.tableId)
   })
 
   app.get('/connectors/:id/history', { schema: { params: connectorIdParams } }, async (request) => {

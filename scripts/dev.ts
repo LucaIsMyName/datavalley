@@ -22,9 +22,10 @@ function run(command: string, args: string[]) {
 await run('node_modules/.bin/tsx', ['scripts/seed-admin.ts'])
 await run('node_modules/.bin/concurrently', [
   '-n',
-  'api,web',
+  'api,web,worker',
   '-c',
-  'blue,green',
+  'blue,green,magenta',
   'npm run dev -w @datavalley/api',
   'npm run dev -w @datavalley/web',
+  'npm run dev -w @datavalley/worker',
 ])
