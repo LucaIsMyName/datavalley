@@ -1,5 +1,5 @@
 import { Check, Pencil } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -48,23 +48,38 @@ export function SelectOptionCreateFooter({
   )
 }
 
-function SelectOptionRenameButton({
+function SelectOptionRow({
   columnId,
   option,
+  picked,
   disabled,
   busy,
+  onSelect,
   onRenamed,
+  onDelete,
 }: {
   columnId: string
   option: ColumnOption
+  picked: boolean
   disabled?: boolean
   busy?: boolean
+  onSelect: () => void
   onRenamed: (option: ColumnOption) => void
+  onDelete: () => Promise<void>
 }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(option.label)
   const [pending, setPending] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!editing) setDraft(option.label)
+  }, [option.label, editing])
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
 
   async function commit() {
     const label = draft.trim()
@@ -83,50 +98,87 @@ function SelectOptionRenameButton({
     }
   }
 
-  if (editing) {
-    return (
-      <Input
-        aria-label={t('renameSelectOption')}
-        className="h-7 min-w-0 flex-1"
-        value={draft}
-        disabled={pending || busy}
-        autoFocus
-        onPointerDown={stopBubble}
-        onClick={stopBubble}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => void commit()}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            setEditing(false)
-            setDraft(option.label)
-            return
-          }
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            void commit()
-          }
-        }}
-      />
-    )
-  }
+  const inputLocked = !editing
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      className="h-7 w-7 shrink-0 px-0"
-      disabled={disabled || busy}
-      aria-label={t('renameSelectOption')}
-      onPointerDown={stopBubble}
-      onClick={(event) => {
-        stopBubble(event)
-        setDraft(option.label)
-        setEditing(true)
-      }}
-    >
-      <Pencil className="size-3.5" aria-hidden />
-    </Button>
+    <div className="flex min-w-0 items-center gap-0.5 py-0.5">
+      <button
+        type="button"
+        className="flex h-8 w-7 shrink-0 items-center justify-center rounded-sm outline-none hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+        aria-label={option.label}
+        disabled={editing}
+        onClick={() => {
+          if (!editing) onSelect()
+        }}
+      >
+        {picked ? <Check className="size-4" aria-hidden /> : null}
+      </button>
+      <div
+        className={`min-w-0 flex-1 ${inputLocked ? 'cursor-pointer' : ''}`}
+        onClick={() => {
+          if (inputLocked) onSelect()
+        }}
+      >
+        <Input
+          ref={inputRef}
+          aria-label={t('renameSelectOption')}
+          className={`h-8 min-w-0 border-0 px-2 shadow-none focus-visible:ring-1 ${
+            inputLocked ? 'pointer-events-none cursor-pointer bg-muted/40 text-foreground' : 'bg-transparent'
+          }`}
+          value={draft}
+          readOnly={inputLocked}
+          disabled={pending || (busy && !inputLocked)}
+          onPointerDown={stopBubble}
+          onClick={(event) => {
+            stopBubble(event)
+            if (inputLocked) onSelect()
+          }}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            if (editing) void commit()
+          }}
+          onKeyDown={(event) => {
+            stopBubble(event)
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setEditing(false)
+              setDraft(option.label)
+              return
+            }
+            if (event.key === 'Enter' && editing) {
+              event.preventDefault()
+              void commit()
+            }
+          }}
+        />
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-8 w-8 shrink-0 px-0"
+        disabled={disabled || busy || pending}
+        aria-label={t('renameSelectOption')}
+        aria-pressed={editing}
+        onPointerDown={stopBubble}
+        onClick={(event) => {
+          stopBubble(event)
+          if (editing) {
+            void commit()
+            return
+          }
+          setDraft(option.label)
+          setEditing(true)
+        }}
+      >
+        <Pencil className="size-3.5" aria-hidden />
+      </Button>
+      <SelectOptionDeleteButton
+        option={option}
+        disabled={disabled}
+        busy={busy || pending}
+        onConfirm={onDelete}
+      />
+    </div>
   )
 }
 
@@ -192,32 +244,20 @@ export function SelectCellOptionsPanel({
         {options.map((option) => {
           const picked = multiple ? selectedIds.includes(option.id) : singleSelected === option.id
           return (
-            <div key={option.id} className="flex min-w-0 items-center gap-0.5">
-              <button
-                type="button"
-                className={`${selectDropdownItemClassName} min-h-8 flex-1 py-1`}
-                onClick={() => {
-                  if (multiple) onToggleMulti(option.id, picked)
-                  else onPickSingle(option.id)
-                }}
-              >
-                <span className="truncate">{option.label}</span>
-                {picked ? <Check className="absolute right-2 size-4" aria-hidden /> : null}
-              </button>
-              <SelectOptionRenameButton
-                columnId={columnId}
-                option={option}
-                disabled={disabled}
-                busy={rowBusy || createBusy}
-                onRenamed={(next) => onOptionChange(next)}
-              />
-              <SelectOptionDeleteButton
-                option={option}
-                disabled={disabled}
-                busy={rowBusy || createBusy}
-                onConfirm={() => deleteOption(option)}
-              />
-            </div>
+            <SelectOptionRow
+              key={option.id}
+              columnId={columnId}
+              option={option}
+              picked={picked}
+              disabled={disabled}
+              busy={rowBusy || createBusy}
+              onSelect={() => {
+                if (multiple) onToggleMulti(option.id, picked)
+                else onPickSingle(option.id)
+              }}
+              onRenamed={(next) => onOptionChange(next)}
+              onDelete={() => deleteOption(option)}
+            />
           )
         })}
       </div>
