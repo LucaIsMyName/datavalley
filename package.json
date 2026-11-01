@@ -1,6 +1,6 @@
 {
   "name": "datavalley",
-  "version": "0.0.74",
+  "version": "0.0.75",
   "private": true,
   "type": "module",
   "description": "Self-hosted modular CRM",

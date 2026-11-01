@@ -65,4 +65,25 @@ describe('password reset', () => {
     expect(login.statusCode).toBe(200)
     await harness.close()
   })
+
+  it('rate limits reset-password attempts', async () => {
+    const limit = 5
+    const harness = await createHarness({ LOGIN_RATE_LIMIT_MAX: limit })
+    const session = await new ApiSession(harness.app).prepare()
+    for (let attempt = 0; attempt < limit; attempt++) {
+      const response = await session.inject({
+        method: 'POST',
+        url: '/api/v1/auth/reset-password',
+        payload: { token: 'not-a-valid-token', newPassword: 'replacement-password' },
+      })
+      expect(response.statusCode).toBe(400)
+    }
+    const blocked = await session.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token: 'not-a-valid-token', newPassword: 'replacement-password' },
+    })
+    expect(blocked.statusCode).toBe(429)
+    await harness.close()
+  })
 })

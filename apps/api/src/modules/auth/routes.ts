@@ -49,7 +49,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: AppDatabase, env: E
     return requestPasswordReset(db, env, body.email)
   })
 
-  app.post('/auth/reset-password', { schema: { body: resetPasswordBody } }, async (request) => {
+  app.post('/auth/reset-password', { schema: { body: resetPasswordBody }, config: { rateLimit: { max: env.LOGIN_RATE_LIMIT_MAX, timeWindow: '15 minutes' } } }, async (request) => {
     const body = request.body as { token: string; newPassword: string }
     await resetPasswordWithToken(db, env, body.token, body.newPassword)
     return { ok: true }
