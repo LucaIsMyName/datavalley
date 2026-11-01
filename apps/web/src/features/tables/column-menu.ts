@@ -31,7 +31,7 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import type { MenuEntry } from '../../components/context-menu'
+import type { MenuAccordion, MenuEntry } from '../../components/context-menu'
 import { COLUMN_ICONS, defaultIcon } from './icons'
 
 export const COLUMN_TYPES = [
@@ -97,9 +97,32 @@ function footerChoices(type: string) {
 
 function action(
   onSelect: (id: string) => void,
-  item: { id: string; label: string; icon: LucideIcon; disabled?: boolean; danger?: boolean },
+  item: { id: string; label: string; icon: LucideIcon; disabled?: boolean; danger?: boolean; dismissMenu?: boolean },
 ): MenuEntry {
   return { ...item, onSelect: () => onSelect(item.id) }
+}
+
+function currencyAccordion(
+  onSelect: (id: string) => void,
+  column: { config: Record<string, unknown> },
+  label: (key: string) => string,
+  expanded: boolean,
+): MenuAccordion {
+  return {
+    kind: 'accordion',
+    id: 'currencyAccordion',
+    label: label('menuCurrency'),
+    icon: Coins,
+    expanded,
+    items: CURRENCIES.map((currency) =>
+      action(onSelect, {
+        id: `currency-${currency}`,
+        label: currency,
+        icon: CURRENCY_ICONS[currency],
+        disabled: String(column.config.currency ?? 'USD') === currency,
+      }),
+    ),
+  }
 }
 
 export function buildColumnHeaderMenu(input: {
@@ -108,6 +131,7 @@ export function buildColumnHeaderMenu(input: {
   label: (key: string) => string
   onSelect: (id: string) => void
   readOnly?: boolean
+  expandCurrency?: boolean
 }): MenuEntry[] {
   const { column, label, onSelect } = input
   if (input.readOnly) {
@@ -129,28 +153,25 @@ export function buildColumnHeaderMenu(input: {
     )
   }
 
-  if (column.type === 'number') {
-    for (const variant of NUMBER_VARIANTS) {
-      entries.push(
-        action(onSelect, {
-          id: `variant-${variant}`,
-          label: label(variant),
-          icon: VARIANT_ICONS[variant],
-          disabled: String(column.config.variant ?? 'float') === variant,
-        }),
-      )
+  if (column.type === 'number' || column.type === 'currency') {
+    entries.push({ kind: 'heading', id: 'numberOptions', label: label('menuNumber') })
+    if (column.type === 'number') {
+      for (const variant of NUMBER_VARIANTS) {
+        const isMoney = variant === 'money'
+        entries.push(
+          action(onSelect, {
+            id: `variant-${variant}`,
+            label: label(variant),
+            icon: VARIANT_ICONS[variant],
+            disabled: String(column.config.variant ?? 'float') === variant,
+            dismissMenu: isMoney ? false : undefined,
+          }),
+        )
+      }
     }
-  }
-
-  if (column.type === 'currency' || column.config.variant === 'money') {
-    for (const currency of CURRENCIES) {
+    if (column.type === 'currency' || column.config.variant === 'money') {
       entries.push(
-        action(onSelect, {
-          id: `currency-${currency}`,
-          label: currency,
-          icon: CURRENCY_ICONS[currency],
-          disabled: String(column.config.currency ?? 'USD') === currency,
-        }),
+        currencyAccordion(onSelect, column, label, Boolean(input.expandCurrency) || column.type === 'currency'),
       )
     }
   }

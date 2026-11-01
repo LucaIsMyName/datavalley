@@ -271,7 +271,7 @@ function ColumnTitle({ name, type, onClick }: { name: string; type: string; onCl
 export function TableScreen({ tableId }: { tableId: string }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
-  const openMenu = useContextMenu()
+  const { open: openMenu, replace: replaceMenu } = useContextMenu()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const columnParam = searchParams.get('column') ?? ''
@@ -1647,99 +1647,114 @@ export function TableScreen({ tableId }: { tableId: string }) {
     await queryClient.invalidateQueries({ queryKey: ['footer', tableId] })
   }
 
-  function openColumnMenu(event: ReactMouseEvent, column: Column) {
+  function openColumnMenu(event: ReactMouseEvent, column: Column, expandCurrency?: boolean) {
     event.stopPropagation()
     const point = anchor(event)
-    openMenu(
-      event,
-      buildColumnHeaderMenu({
-        column,
+
+    function entriesFor(col: Column, expand?: boolean) {
+      return buildColumnHeaderMenu({
+        column: col,
         checkedCount: checked.length,
         readOnly: dataReadOnly,
         label: (key) => t(key),
-        onSelect: (id) => {
-          if (id === 'rename') {
-            setRenamingColumn(column.id)
-            return
-          }
-          if (id.startsWith('type-')) {
-            const type = id.slice('type-'.length)
-            if (type === 'relation') {
-              setRelationTarget('')
-              setPopover({ kind: 'relation', columnId: column.id, ...point })
-              return
-            }
-            void applyType(column, type)
-            return
-          }
-          if (id === 'sort') {
-            cycleSort(column.id)
-            return
-          }
-          if (id === 'filter') {
-            setPopover({ kind: 'filter', columnId: column.id, ...point })
-            return
-          }
-          if (id === 'left') {
-            openNewColumn(column.id, point)
-            return
-          }
-          if (id === 'right') {
-            openNewColumn(columns[columns.findIndex((item) => item.id === column.id) + 1]?.id, point)
-            return
-          }
-          if (id === 'duplicate') {
-            void duplicateSelectedColumns([column.id])
-            return
-          }
-          if (id === 'fill') {
-            void fillDown(column.id)
-            return
-          }
-          if (id === 'conditional') {
-            setFormatTarget({ columnId: column.id })
-            return
-          }
-          if (id.startsWith('variant-')) {
-            void saveConfig(column, { variant: id.slice('variant-'.length) })
-            return
-          }
-          if (id.startsWith('currency-')) {
-            void saveConfig(column, { currency: id.slice('currency-'.length) })
-            return
-          }
-          if (id.startsWith('style-')) {
-            void saveConfig(column, { style: id.slice('style-'.length) })
-            return
-          }
-          if (id === 'include-time-on') {
-            void applyDateMode(column, { includeTime: true })
-            return
-          }
-          if (id === 'include-time-off') {
-            void applyDateMode(column, { includeTime: false })
-            return
-          }
-          if (id === 'range-on') {
-            void applyDateMode(column, { range: true })
-            return
-          }
-          if (id === 'range-off') {
-            void applyDateMode(column, { range: false })
-            return
-          }
-          if (id.startsWith('footer-')) {
-            void setFooterCalc(column.id, id.slice('footer-'.length))
-            return
-          }
-          if (id === 'hide') {
-            void hideColumn(column, true)
-            return
-          }
-          if (id === 'delete') void deleteColumns([column.id])
-        },
-      }),
-    )
+        expandCurrency: expand,
+        onSelect: (id) => onColumnMenuSelect(col, id, expand),
+      })
+    }
+
+    function onColumnMenuSelect(col: Column, id: string, expand?: boolean) {
+      if (id === 'rename') {
+        setRenamingColumn(col.id)
+        return
+      }
+      if (id.startsWith('type-')) {
+        const type = id.slice('type-'.length)
+        if (type === 'relation') {
+          setRelationTarget('')
+          setPopover({ kind: 'relation', columnId: col.id, ...point })
+          return
+        }
+        void applyType(col, type)
+        return
+      }
+      if (id === 'sort') {
+        cycleSort(col.id)
+        return
+      }
+      if (id === 'filter') {
+        setPopover({ kind: 'filter', columnId: col.id, ...point })
+        return
+      }
+      if (id === 'left') {
+        openNewColumn(col.id, point)
+        return
+      }
+      if (id === 'right') {
+        openNewColumn(columns[columns.findIndex((item) => item.id === col.id) + 1]?.id, point)
+        return
+      }
+      if (id === 'duplicate') {
+        void duplicateSelectedColumns([col.id])
+        return
+      }
+      if (id === 'fill') {
+        void fillDown(col.id)
+        return
+      }
+      if (id === 'conditional') {
+        setFormatTarget({ columnId: col.id })
+        return
+      }
+      if (id.startsWith('variant-')) {
+        const variant = id.slice('variant-'.length)
+        if (variant === 'money' && String(col.config.variant ?? 'float') !== 'money') {
+          void saveConfig(col, { variant: 'money' }).then((ok) => {
+            if (!ok) return
+            replaceMenu(
+              entriesFor({ ...col, config: { ...col.config, variant: 'money' } }, true),
+            )
+          })
+          return
+        }
+        void saveConfig(col, { variant })
+        return
+      }
+      if (id.startsWith('currency-')) {
+        void saveConfig(col, { currency: id.slice('currency-'.length) })
+        return
+      }
+      if (id.startsWith('style-')) {
+        void saveConfig(col, { style: id.slice('style-'.length) })
+        return
+      }
+      if (id === 'include-time-on') {
+        void applyDateMode(col, { includeTime: true })
+        return
+      }
+      if (id === 'include-time-off') {
+        void applyDateMode(col, { includeTime: false })
+        return
+      }
+      if (id === 'range-on') {
+        void applyDateMode(col, { range: true })
+        return
+      }
+      if (id === 'range-off') {
+        void applyDateMode(col, { range: false })
+        return
+      }
+      if (id.startsWith('footer-')) {
+        void setFooterCalc(col.id, id.slice('footer-'.length))
+        return
+      }
+      if (id === 'hide') {
+        void hideColumn(col, true)
+        return
+      }
+      if (id === 'delete') void deleteColumns([col.id])
+    }
+
+    openMenu(event, entriesFor(column, expandCurrency))
   }
 
   function openRowMenu(event: ReactMouseEvent, row: RowRecord) {

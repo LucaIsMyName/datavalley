@@ -1,12 +1,17 @@
 import { DollarSign, EyeOff, Palette, Pencil, Trash2, Type } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
-import type { MenuEntry, MenuItem } from '../../components/context-menu.js'
+import { isMenuAccordion, type MenuEntry, type MenuItem } from '../../components/context-menu.js'
 import { buildColumnHeaderMenu } from './column-menu.js'
 
-function menuFor(column: { type: string; config?: Record<string, unknown> }, checkedCount = 0) {
+function menuFor(
+  column: { type: string; config?: Record<string, unknown> },
+  checkedCount = 0,
+  expandCurrency?: boolean,
+) {
   return buildColumnHeaderMenu({
     column: { type: column.type, config: column.config ?? {} },
     checkedCount,
+    expandCurrency,
     label: (key) => key,
     onSelect: () => undefined,
   })
@@ -24,6 +29,11 @@ function idsBetween(entries: MenuEntry[], start: string, end?: string) {
   const startAt = entries.findIndex((entry) => entry.id === start)
   const endAt = end ? entries.findIndex((entry) => entry.id === end) : entries.length
   return entries.slice(startAt + 1, endAt).map((entry) => entry.id)
+}
+
+function currencyAccordionItems(entries: MenuEntry[]) {
+  const accordion = entries.find((entry) => isMenuAccordion(entry) && entry.id === 'currencyAccordion')
+  return accordion && isMenuAccordion(accordion) ? accordion.items.map((item) => item.id) : []
 }
 
 describe('column header menu', () => {
@@ -92,12 +102,45 @@ describe('column header menu', () => {
     expect(idsBetween(entries, 'datatypes', 'dateOptions').every((id) => !id.startsWith('include-time') && !id.startsWith('range-'))).toBe(true)
   })
 
+  it('groups number variants under numberOptions and currencies in an accordion', () => {
+    const floatCol = menuFor({ type: 'number', config: { variant: 'float' } })
+    expect(headings(floatCol)).toEqual(['datatypes', 'numberOptions', 'actions', 'footer', 'conditions'])
+    expect(idsBetween(floatCol, 'datatypes', 'numberOptions').every((id) => !id.startsWith('variant-'))).toBe(true)
+    expect(idsBetween(floatCol, 'numberOptions', 'actions')).toEqual([
+      'variant-float',
+      'variant-integer',
+      'variant-money',
+    ])
+    expect(currencyAccordionItems(floatCol)).toEqual([])
+
+    const money = menuFor({ type: 'number', config: { variant: 'money', currency: 'EUR' } })
+    expect(currencyAccordionItems(money)).toEqual([
+      'currency-USD',
+      'currency-EUR',
+      'currency-GBP',
+      'currency-CHF',
+      'currency-JPY',
+    ])
+    const accordion = money.find((entry) => isMenuAccordion(entry) && entry.id === 'currencyAccordion')
+    expect(accordion).toMatchObject({ label: 'menuCurrency' })
+    expect(
+      accordion && isMenuAccordion(accordion) ? accordion.items.find((item) => item.id === 'currency-EUR')?.disabled : false,
+    ).toBe(true)
+    expect(items(money).find((entry) => entry.id === 'variant-money')?.dismissMenu).toBe(false)
+  })
+
+  it('expands the currency accordion when expandCurrency is set', () => {
+    const entries = menuFor({ type: 'number', config: { variant: 'money' } }, 0, true)
+    const accordion = entries.find((entry) => isMenuAccordion(entry) && entry.id === 'currencyAccordion')
+    expect(accordion && isMenuAccordion(accordion) ? accordion.expanded : false).toBe(true)
+  })
+
   it('puts format options in data types and conditional color in conditions', () => {
     const money = menuFor({ type: 'number', config: { variant: 'money' } })
-    expect(idsBetween(money, 'datatypes', 'actions')).toContain('variant-money')
-    expect(idsBetween(money, 'datatypes', 'actions')).toContain('currency-EUR')
+    expect(idsBetween(money, 'numberOptions', 'actions')).toContain('variant-money')
     expect(items(money).find((entry) => entry.id === 'variant-money')?.disabled).toBe(true)
-    expect(items(money).find((entry) => entry.id === 'currency-USD')?.icon).toBe(DollarSign)
+    const accordion = money.find((entry) => isMenuAccordion(entry) && entry.id === 'currencyAccordion')
+    expect(accordion && isMenuAccordion(accordion) ? accordion.items[0]?.icon : null).toBe(DollarSign)
     expect(idsBetween(money, 'conditions')).toEqual(['conditional'])
     expect(items(money).find((entry) => entry.id === 'conditional')).toMatchObject({
       label: 'conditionalColor',
@@ -115,6 +158,11 @@ describe('column header menu', () => {
     ]
     for (const entries of columns) {
       for (const entry of items(entries)) expect(entry.icon).toBeTruthy()
+      for (const entry of entries) {
+        if (isMenuAccordion(entry)) {
+          for (const item of entry.items) expect(item.icon).toBeTruthy()
+        }
+      }
     }
   })
 })
