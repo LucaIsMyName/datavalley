@@ -18,6 +18,15 @@ export function formatSelectCellSummary(options: ColumnOption[], selected: strin
   return ids.map((id) => byId.get(id) ?? id).join(', ')
 }
 
+export function countSelectRowsWithMultipleValues(rows: { cells: Record<string, unknown> }[], columnId: string) {
+  let count = 0
+  for (const row of rows) {
+    const current = row.cells[columnId]
+    if (Array.isArray(current) && current.length > 1) count += 1
+  }
+  return count
+}
+
 export function mergeColumnOption(column: Column, option: ColumnOption, deleted = false): Column {
   if (deleted) {
     return { ...column, options: column.options.filter((item) => item.id !== option.id) }

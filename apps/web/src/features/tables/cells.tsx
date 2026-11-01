@@ -9,24 +9,16 @@ import {
 import { DateCellEditor } from '../../components/date-picker-field'
 import { useEffect, useRef, useState } from 'react'
 import { ApiClientError, type CatalogItem, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
-import { Check, ChevronDown, CircleAlert, X } from 'lucide-react'
+import { ChevronDown, CircleAlert, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { Badge } from '../../components/ui/badge'
 import { Checkbox } from '../../components/ui/checkbox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  cellSelectTriggerClassName,
-  selectDropdownItemClassName,
-  selectDropdownPanelClassName,
-  SelectField,
-} from '../../components/ui/select'
+import { cellSelectTriggerClassName, selectDropdownPanelClassName, SelectField } from '../../components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
 import { Input } from '../../components/ui/input'
 import { Button } from '../../components/ui/button'
+import { createColumnOption, SelectCellOptionsPanel } from './select-cell-options-panel'
 import { formatSelectCellSummary, sortOptionsByPosition } from './select-options-utils'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
@@ -80,6 +72,7 @@ export function CellEditor({
   onActivate,
   onCreated,
   onOptionChange,
+  onSelectEditorClose,
   hint,
   onMediaLibrary,
   onMediaPreview,
@@ -103,6 +96,7 @@ export function CellEditor({
   onActivate: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
   onOptionChange: (columnId: string, option: { id: string; label: string; color: string | null; position: string }, deleted?: boolean) => void
+  onSelectEditorClose?: () => void
   hint?: string | null
   onMediaLibrary?: (existingIds: string[]) => void
   onMediaPreview?: (file: MediaFile) => void
@@ -177,8 +171,7 @@ export function CellEditor({
         row={row}
         active={active}
         onEdit={onEdit}
-        onFlush={onFlush}
-        onOpen={onOpen}
+        onCommitAndClose={onSelectEditorClose ?? onFlush}
         onActivate={onActivate}
         onOptionChange={onOptionChange}
       />
@@ -772,53 +765,12 @@ function UserEditor({ column, row, members, onEdit, onFlush }: { column: Column;
   )
 }
 
-function SelectOptionCreateFooter({
-  value,
-  onChange,
-  onCreate,
-  busy,
-}: {
-  value: string
-  onChange: (value: string) => void
-  onCreate: () => void
-  busy: boolean
-}) {
-  const { t } = useTranslation()
-  return (
-    <div
-      className="border-t border-border p-1"
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div className="flex gap-1">
-        <Input
-          aria-label={t('newSelectOption')}
-          className="h-8 min-w-0 flex-1"
-          value={value}
-          placeholder={t('newSelectOption')}
-          disabled={busy}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return
-            event.preventDefault()
-            onCreate()
-          }}
-        />
-        <Button type="button" className="h-8 shrink-0 px-2" disabled={busy || !value.trim()} onClick={onCreate}>
-          {t('addSelectOption')}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
 function SelectEditor({
   column,
   row,
   active,
   onEdit,
-  onFlush,
-  onOpen,
+  onCommitAndClose,
   onActivate,
   onOptionChange,
 }: {
@@ -826,8 +778,7 @@ function SelectEditor({
   row: RowRecord
   active: boolean
   onEdit: (value: string | string[], delay?: number) => void
-  onFlush: () => void
-  onOpen: () => void
+  onCommitAndClose: () => void
   onActivate: () => void
   onOptionChange: (columnId: string, option: { id: string; label: string; color: string | null; position: string }, deleted?: boolean) => void
 }) {
@@ -837,29 +788,33 @@ function SelectEditor({
   const options = column.options ?? []
   const sorted = sortOptionsByPosition(options)
   const raw = row.cells[column.id]
-  const selected = multiple ? (Array.isArray(raw) ? raw.map(String) : []) : typeof raw === 'string' ? raw : ''
-  const summary = formatSelectCellSummary(options, selected, multiple)
+  const selectedIds = multiple ? (Array.isArray(raw) ? raw.map(String) : []) : []
+  const singleSelected = multiple ? '' : typeof raw === 'string' ? raw : ''
+  const summary = formatSelectCellSummary(options, multiple ? selectedIds : singleSelected, multiple)
   const placeholder = t('selectPlaceholder')
   const [createDraft, setCreateDraft] = useState('')
   const [createBusy, setCreateBusy] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (active) setOpen(true)
+    else setOpen(false)
+  }, [active])
 
   async function createOption() {
     const trimmed = createDraft.trim()
     if (!trimmed || createBusy) return
     setCreateBusy(true)
     try {
-      const result = await api.request<{ option: { id: string; label: string; color: string | null; position: string } }>(
-        `/columns/${column.id}/options`,
-        { method: 'POST', body: JSON.stringify({ label: trimmed }) },
-      )
+      const result = await createColumnOption(column.id, trimmed)
       onOptionChange(column.id, result.option)
       if (multiple) {
-        const next = selected.includes(result.option.id) ? selected : [...selected, result.option.id]
+        const next = selectedIds.includes(result.option.id) ? selectedIds : [...selectedIds, result.option.id]
         onEdit(next, 0)
       } else {
         onEdit(result.option.id, 0)
+        setOpen(false)
       }
-      onFlush()
       setCreateDraft('')
     } finally {
       setCreateBusy(false)
@@ -870,6 +825,11 @@ function SelectEditor({
     event.stopPropagation()
   }
 
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (!next) onCommitAndClose()
+  }
+
   const triggerLabel = summary || placeholder
 
   if (!active) {
@@ -878,9 +838,8 @@ function SelectEditor({
         type="button"
         className="h-9 w-full min-w-0 truncate text-left leading-9"
         aria-label={editLabel}
-        onClick={onOpen}
-        onDoubleClick={(event) => {
-          event.preventDefault()
+        onClick={(event) => {
+          event.stopPropagation()
           onActivate()
         }}
       >
@@ -889,78 +848,42 @@ function SelectEditor({
     )
   }
 
-  if (multiple) {
-    const selectedIds = selected
-    return (
-      <div className="h-full w-full min-w-0" onPointerDown={stopGrid} onClick={stopGrid}>
-        <Popover>
-          <PopoverTrigger asChild>
-            <button type="button" aria-label={editLabel} className={cellSelectTriggerClassName}>
-              <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
-              <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" sideOffset={4} className={`${selectDropdownPanelClassName} p-0`}>
-            <div className="max-h-60 overflow-auto p-1">
-              {sorted.map((option) => {
-                const picked = selectedIds.includes(option.id)
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={selectDropdownItemClassName}
-                    onClick={() => {
-                      const next = picked ? selectedIds.filter((id) => id !== option.id) : [...selectedIds, option.id]
-                      onEdit(next, 0)
-                      onFlush()
-                    }}
-                  >
-                    <span className="truncate">{option.label}</span>
-                    {picked ? <Check className="absolute right-2 size-4" aria-hidden /> : null}
-                  </button>
-                )
-              })}
-            </div>
-            <SelectOptionCreateFooter
-              value={createDraft}
-              onChange={setCreateDraft}
-              busy={createBusy}
-              onCreate={() => void createOption()}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-    )
-  }
-
-  const singleValue = typeof selected === 'string' ? selected : ''
   return (
     <div className="h-full w-full min-w-0" onPointerDown={stopGrid} onClick={stopGrid}>
-      <Select
-        value={singleValue}
-        onValueChange={(next) => {
-          onEdit(next, 0)
-          onFlush()
-        }}
-      >
-        <SelectTrigger aria-label={editLabel} className={cellSelectTriggerClassName}>
-          <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">{t('none')}</SelectItem>
-          {sorted.map((option) => (
-            <SelectItem key={option.id} value={option.id}>
-              {option.label}
-            </SelectItem>
-          ))}
-          <SelectOptionCreateFooter
-            value={createDraft}
-            onChange={setCreateDraft}
-            busy={createBusy}
-            onCreate={() => void createOption()}
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>
+          <button type="button" aria-label={editLabel} className={cellSelectTriggerClassName}>
+            <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" sideOffset={4} className={`${selectDropdownPanelClassName} p-0`}>
+          <SelectCellOptionsPanel
+            columnId={column.id}
+            options={sorted}
+            multiple={multiple}
+            selectedIds={selectedIds}
+            singleSelected={singleSelected}
+            createDraft={createDraft}
+            createBusy={createBusy}
+            onCreateDraftChange={setCreateDraft}
+            onCreateOption={() => void createOption()}
+            onOptionChange={(option, deleted) => onOptionChange(column.id, option, deleted)}
+            onToggleMulti={(optionId, picked) => {
+              const next = picked ? selectedIds.filter((id) => id !== optionId) : [...selectedIds, optionId]
+              onEdit(next, 0)
+            }}
+            onPickSingle={(optionId) => {
+              onEdit(optionId, 0)
+              setOpen(false)
+            }}
+            onPickNone={() => {
+              onEdit('', 0)
+              setOpen(false)
+            }}
           />
-        </SelectContent>
-      </Select>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

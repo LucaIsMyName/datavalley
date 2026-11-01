@@ -1,5 +1,5 @@
 import { generateKeyBetween } from 'fractional-indexing'
-import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Column } from '@datavalley/api-client'
@@ -7,8 +7,9 @@ import { ApiClientError } from '@datavalley/api-client'
 import { paintSwatch } from '@datavalley/shared'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { api } from '../../lib/api'
 import { colorLabelKey } from './grid-ux'
+import { deleteColumnOptionApi, patchColumnOption, postColumnOption } from './select-option-api'
+import { SelectOptionDeleteButton } from './select-option-delete-button'
 import { mergeColumnOption, sortOptionsByPosition } from './select-options-utils'
 
 const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
@@ -36,10 +37,7 @@ export function SelectOptionsDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await api.request<{ option: Column['options'][number] }>(`/columns/${column.id}/options`, {
-        method: 'POST',
-        body: JSON.stringify({ label }),
-      })
+      const result = await postColumnOption(column.id, label)
       onChange(mergeColumnOption(column, result.option))
       setDraft('')
     } catch (err) {
@@ -54,10 +52,7 @@ export function SelectOptionsDialog({
     setBusy(true)
     setError(null)
     try {
-      const result = await api.request<{ option: Column['options'][number] }>(
-        `/columns/${column.id}/options/${option.id}`,
-        { method: 'PATCH', body: JSON.stringify(patch) },
-      )
+      const result = await patchColumnOption(column.id, option.id, patch)
       onChange(mergeColumnOption(column, result.option))
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : t('error'))
@@ -68,11 +63,10 @@ export function SelectOptionsDialog({
 
   async function removeOption(option: Column['options'][number]) {
     if (readOnly) return
-    if (!window.confirm(t('deleteSelectOptionConfirm', { label: option.label }))) return
     setBusy(true)
     setError(null)
     try {
-      await api.request(`/columns/${column.id}/options/${option.id}`, { method: 'DELETE' })
+      await deleteColumnOptionApi(column.id, option.id)
       onChange(mergeColumnOption(column, option, true))
       await onRefresh()
     } catch (err) {
@@ -140,9 +134,12 @@ export function SelectOptionsDialog({
             >
               <ArrowDown className="size-3.5" />
             </Button>
-            <Button type="button" variant="ghost" className="h-7 w-7 px-0 text-danger" disabled={readOnly || busy} onClick={() => void removeOption(option)}>
-              <Trash2 className="size-3.5" />
-            </Button>
+            <SelectOptionDeleteButton
+              option={option}
+              disabled={readOnly}
+              busy={busy}
+              onConfirm={() => removeOption(option)}
+            />
           </li>
         ))}
       </ul>

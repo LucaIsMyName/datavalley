@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatSelectCellSummary, mergeColumnOption, sortOptionsByPosition } from './select-options-utils.js'
+import {
+  countSelectRowsWithMultipleValues,
+  formatSelectCellSummary,
+  mergeColumnOption,
+  sortOptionsByPosition,
+} from './select-options-utils.js'
 
 describe('select options utils', () => {
   it('formats selected labels comma-separated', () => {
@@ -18,6 +23,16 @@ describe('select options utils', () => {
       { id: 'a', label: 'A', color: null, position: 'a' },
     ])
     expect(sorted.map((item) => item.id)).toEqual(['a', 'b'])
+  })
+
+  it('counts rows with multiple select values', () => {
+    const rows = [
+      { cells: { c1: ['a', 'b'] } },
+      { cells: { c1: ['a'] } },
+      { cells: { c1: null } },
+      { cells: { c1: ['x', 'y', 'z'] } },
+    ]
+    expect(countSelectRowsWithMultipleValues(rows, 'c1')).toBe(2)
   })
 
   it('merges and removes options on a column', () => {

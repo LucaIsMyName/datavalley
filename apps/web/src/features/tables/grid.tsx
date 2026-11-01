@@ -99,6 +99,7 @@ import {
   formatDateCellValue,
   isDateColumnType,
   migrateDateCell,
+  isSelectFamilyType,
   migrateSelectCell,
   selectColumnMultiple,
 } from '@datavalley/shared'
@@ -111,7 +112,7 @@ import { NotesDrawer } from './notes'
 import { fetchMediaDetails, MEDIA_UPLOAD_ACCEPT, uploadMedia } from '../../lib/media'
 import { Swatches } from './swatches'
 import { SelectOptionsDialog } from './select-options-dialog'
-import { mergeColumnOption } from './select-options-utils'
+import { countSelectRowsWithMultipleValues, mergeColumnOption } from './select-options-utils'
 import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
@@ -1615,12 +1616,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     if (updates.length > 0) await refresh()
   }
 
-  async function applySelectMode(column: Column, patch: { multiple?: boolean }) {
-    const previous = selectColumnMultiple(column)
-    const next = patch.multiple ?? previous
-    if (previous === next) return
-    const saved = await saveConfig(column, { multiple: next })
-    if (!saved) return
+  async function collectRowsForColumnMigration(limit = 5000) {
     const collected: RowRecord[] = []
     let cursor: string | null = null
     do {
@@ -1631,22 +1627,47 @@ export function TableScreen({ tableId }: { tableId: string }) {
       )
       collected.push(...page.rows)
       cursor = page.nextCursor
-    } while (cursor && collected.length < 5000)
-    const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
-    for (const row of collected) {
-      const current = row.cells[column.id] ?? null
-      if (current == null || current === '') continue
-      const migrated = migrateSelectCell(current, { multiple: next })
-      if (JSON.stringify(migrated) === JSON.stringify(current)) continue
-      updates.push({ rowId: row.id, version: row.version, cells: { [column.id]: migrated } })
+    } while (cursor && collected.length < limit)
+    return collected
+  }
+
+  async function applySelectMode(column: Column, patch: { multiple?: boolean }) {
+    const previous = selectColumnMultiple(column)
+    const next = patch.multiple ?? previous
+    if (previous === next) return
+    const collected = await collectRowsForColumnMigration()
+    const affected =
+      previous && !next ? countSelectRowsWithMultipleValues(collected, column.id) : 0
+
+    const run = async () => {
+      const saved = await saveConfig(column, { multiple: next })
+      if (!saved) return
+      const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
+      for (const row of collected) {
+        const current = row.cells[column.id] ?? null
+        if (current == null || current === '') continue
+        const migrated = migrateSelectCell(current, { multiple: next })
+        if (JSON.stringify(migrated) === JSON.stringify(current)) continue
+        updates.push({ rowId: row.id, version: row.version, cells: { [column.id]: migrated } })
+      }
+      for (let index = 0; index < updates.length; index += 500) {
+        await api.request(`/tables/${tableId}/cells/bulk`, {
+          method: 'PATCH',
+          body: JSON.stringify({ updates: updates.slice(index, index + 500) }),
+        })
+      }
+      if (updates.length > 0) await refresh()
     }
-    for (let index = 0; index < updates.length; index += 500) {
-      await api.request(`/tables/${tableId}/cells/bulk`, {
-        method: 'PATCH',
-        body: JSON.stringify({ updates: updates.slice(index, index + 500) }),
+
+    if (affected > 0) {
+      setConfirm({
+        title: t('selectModeSingleTitle'),
+        body: t('selectModeSingleBody', { count: affected }),
+        run,
       })
+      return
     }
-    if (updates.length > 0) await refresh()
+    await run()
   }
 
   async function saveConfig(column: Column, patch: Record<string, unknown>) {
@@ -2271,6 +2292,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
               onContextMenu={(event) => openCellMenu(event, row.original, column)}
               onClick={(event) => {
                 focusCell(row.index, columnIndex)
+                if (isSelectFamilyType(column.type) && cellWritable(column) && !dataReadOnly) {
+                  activateCell(row.original, column)
+                  return
+                }
                 if (event.detail >= 2) activateCell(row.original, column)
               }}
             >
@@ -2323,6 +2348,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   }}
                   onOpen={() => focusCell(row.index, columnIndex)}
                   onActivate={() => activateCell(row.original, column)}
+                  onSelectEditorClose={() => {
+                    void sync
+                      .flush(`cell:${row.original.id}:${column.id}`)
+                      .catch((error: unknown) => {
+                        const message = editFailureMessage(error, t('error'), { cell: true })
+                        if (message) showEditError(message)
+                      })
+                      .finally(() => setEditing(null))
+                  }}
                   onCreated={(kind, item) =>
                     patchCachedTable(queryClient, tableId, (current) => ({
                       ...current,
@@ -2339,14 +2373,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           : current.statuses,
                     }))
                   }
-                  onOptionChange={(columnId, option, deleted) =>
+                  onOptionChange={(columnId, option, deleted) => {
                     patchCachedTable(queryClient, tableId, (current) => ({
                       ...current,
                       columns: current.columns?.map((item) =>
                         item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
                       ),
                     }))
-                  }
+                    if (deleted) void refresh()
+                  }}
                   onMediaLibrary={(existingIds) =>
                     setMediaLibrary({ rowId: row.original.id, columnId: column.id, existingIds })
                   }
