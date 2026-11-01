@@ -207,8 +207,8 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
 
   return (
     <div
-      className="fixed z-50 flex flex-col border border-border bg-card shadow-md"
-      style={{ left: x, top: y, width, height }}
+      className="fixed z-[80] flex flex-col border border-border bg-card shadow-md"
+      style={{ left: x, top: y, width, height, pointerEvents: 'auto' }}
       ref={panelRef}
       role="dialog"
       aria-label={title}
@@ -346,7 +346,7 @@ function BadgeMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[80] flex max-h-72 w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto border border-border bg-card p-2 shadow-md"
+      className="fixed z-[100] flex max-h-72 w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto border border-border bg-card p-2 shadow-md"
       style={{ left, top }}
       onPointerDown={(event) => event.stopPropagation()}
     >

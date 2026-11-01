@@ -66,7 +66,7 @@ export function CalendarDropdown({ options, value, onChange, disabled, 'aria-lab
               data-date-picker-layer
               aria-label={ariaLabel}
               className="fixed z-[260] overflow-y-auto border border-border bg-card py-1 shadow-md"
-              style={{ top: place.top, left: place.left, maxHeight: place.maxHeight, minWidth: rootRef.current?.offsetWidth }}
+              style={{ top: place.top, left: place.left, maxHeight: place.maxHeight, minWidth: rootRef.current?.offsetWidth, pointerEvents: 'auto' }}
             >
               {options?.map((option) => {
                 const chosen = String(option.value) === String(value)

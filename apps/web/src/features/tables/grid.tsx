@@ -3122,6 +3122,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
         onOpenFormula={(rowId, columnId, columnName) => {
           setEditing(null)
           openFormula(rowId, columnId, columnName)
+          const drawer = document.querySelector('[data-notes-drawer]')
+          if (!drawer) return
+          const edge = drawer.getBoundingClientRect().left
+          const frame = useFormulaWindow.getState()
+          if (frame.x + frame.width > edge - 8) {
+            useFormulaWindow.getState().move(Math.max(8, edge - frame.width - 12), frame.y)
+          }
         }}
         onClose={() => setDrawerRowId(null)}
       />

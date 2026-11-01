@@ -5,7 +5,7 @@ describe('isNotesDialogOutsideTarget', () => {
   it('matches portaled cell popover markers', () => {
     const menu = {
       closest(selector: string) {
-        return selector.includes('data-tag-menu') ? menu : null
+        return selector.includes('data-tag-menu') || selector.includes('data-formula-window') ? menu : null
       },
     }
     expect(isNotesDialogOutsideTarget(menu)).toBe(true)

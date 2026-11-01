@@ -52,17 +52,18 @@ export function SelectTrigger({ className, children, ...props }: ComponentProps<
   )
 }
 
-export function SelectContent({ className, children, ...props }: ComponentProps<typeof SelectPrimitive.Content>) {
+export function SelectContent({ className, children, style, ...props }: ComponentProps<typeof SelectPrimitive.Content>) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         position="popper"
         sideOffset={4}
         className={cn(
-          'z-50 max-h-72 w-[var(--radix-select-trigger-width)] min-w-32 max-w-[min(20rem,calc(100vw-2rem))] overflow-auto  border border-border bg-card p-1 text-base shadow-md md:text-sm',
+          'pointer-events-auto z-[200] max-h-72 w-[var(--radix-select-trigger-width)] min-w-32 max-w-[min(20rem,calc(100vw-2rem))] overflow-auto  border border-border bg-card p-1 text-base shadow-md md:text-sm',
           className,
         )}
         {...props}
+        style={{ ...style, pointerEvents: 'auto' }}
       >
         <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
       </SelectPrimitive.Content>

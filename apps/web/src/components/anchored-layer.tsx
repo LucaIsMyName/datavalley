@@ -67,6 +67,7 @@ export const AnchoredLayer = forwardRef<HTMLDivElement, AnchoredLayerProps>(func
         maxHeight: pos?.maxHeight,
         overflowY: 'auto',
         visibility: pos ? 'visible' : 'hidden',
+        pointerEvents: role === 'tooltip' ? 'none' : 'auto',
       }}
     >
       {children}

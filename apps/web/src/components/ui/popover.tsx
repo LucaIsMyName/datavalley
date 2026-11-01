@@ -9,17 +9,18 @@ const PopoverAnchor = PopoverPrimitive.Anchor
 const PopoverContent = forwardRef<
   ElementRef<typeof PopoverPrimitive.Content>,
   ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = 'start', sideOffset = 4, ...props }, ref) => (
+>(({ className, align = 'start', sideOffset = 4, style, ...props }, ref) => (
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 border border-border bg-card p-2 text-foreground shadow-md outline-none',
+        'pointer-events-auto z-50 border border-border bg-card p-2 text-foreground shadow-md outline-none',
         className,
       )}
       {...props}
+      style={{ ...style, pointerEvents: 'auto' }}
     />
   </PopoverPrimitive.Portal>
 ))

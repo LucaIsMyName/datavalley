@@ -525,6 +525,7 @@ export function NotesDrawer({
 
   return (
     <Dialog.Root
+      modal={false}
       open={Boolean(row)}
       onOpenChange={(open) => {
         if (!open) {
@@ -534,8 +535,9 @@ export function NotesDrawer({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/20" />
+        <div className="fixed inset-0 z-40 bg-black/20" />
         <Dialog.Content
+          data-notes-drawer=""
           className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col gap-3 border-l border-border bg-card p-4 shadow-lg"
           onPointerDownOutside={(event) => {
             if (isNotesDialogOutsideTarget(event.target)) event.preventDefault()
