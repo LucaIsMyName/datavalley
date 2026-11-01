@@ -49,6 +49,10 @@
                   },
                   "totpCode": {
                     "type": "string"
+                  },
+                  "recoveryCode": {
+                    "minLength": 6,
+                    "type": "string"
                   }
                 }
               }
@@ -326,6 +330,24 @@
     },
     "/users": {
       "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -448,6 +470,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -462,9 +486,69 @@
         }
       },
       "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "admin"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "user"
+                        ]
+                      }
+                    ]
+                  },
+                  "locale": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "theme": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "light"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "dark"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "system"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -482,6 +566,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -498,9 +584,30 @@
     },
     "/users/{id}/reset-password": {
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "password"
+                ],
+                "properties": {
+                  "password": {
+                    "minLength": 12,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -520,6 +627,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -539,6 +648,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -555,9 +666,142 @@
     },
     "/users/{id}/permissions": {
       "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "grants"
+                ],
+                "properties": {
+                  "grants": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "action",
+                        "effect"
+                      ],
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "view"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "create"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "edit"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "delete"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "export"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "import"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "share"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_permissions"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_structure"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_users"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_settings"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_plugins"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_api_keys"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "view_audit"
+                              ]
+                            }
+                          ]
+                        },
+                        "effect": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "allow"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "deny"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -574,6 +818,16 @@
     },
     "/projects": {
       "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "includeArchived",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -628,6 +882,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -642,9 +898,37 @@
         }
       },
       "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "icon": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -662,6 +946,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -681,6 +967,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -700,6 +988,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -721,6 +1011,16 @@
             "schema": {
               "type": "string"
             },
+            "in": "query",
+            "name": "q",
+            "required": false
+          },
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
             "in": "path",
             "name": "id",
             "required": true
@@ -738,6 +1038,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -752,9 +1054,30 @@
         }
       },
       "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "username"
+                ],
+                "properties": {
+                  "username": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -771,9 +1094,29 @@
     },
     "/projects/{id}/members/{userId}": {
       "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "disabled"
+                ],
+                "properties": {
+                  "disabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -782,6 +1125,8 @@
           },
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -799,6 +1144,8 @@
         "parameters": [
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -807,6 +1154,8 @@
           },
           {
             "schema": {
+              "minLength": 36,
+              "maxLength": 36,
               "type": "string"
             },
             "in": "path",
@@ -823,13 +1172,1073 @@
     },
     "/projects/{id}/permissions": {
       "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "grants"
+                ],
+                "properties": {
+                  "userId": {
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "type": "string"
+                  },
+                  "grants": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "action",
+                        "effect"
+                      ],
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "view"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "create"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "edit"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "delete"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "export"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "import"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "share"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_permissions"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_structure"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_users"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_settings"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_plugins"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "manage_api_keys"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "view_audit"
+                              ]
+                            }
+                          ]
+                        },
+                        "effect": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "allow"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "deny"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/tables/from-connector": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "connectorId"
+                ],
+                "properties": {
+                  "connectorId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {
               "type": "string"
             },
             "in": "path",
+            "name": "projectId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/connectors": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "projectId",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "source",
+                  "format",
+                  "parse"
+                ],
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "format": "uuid",
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "type": "object",
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "pathTemplate": {
+                        "type": "string"
+                      },
+                      "method": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "GET"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "POST"
+                            ]
+                          }
+                        ]
+                      },
+                      "query": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "auth": {
+                    "type": "object",
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "api_key_header"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "api_key_query"
+                            ]
+                          }
+                        ]
+                      },
+                      "headerName": {
+                        "type": "string"
+                      },
+                      "queryParam": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "format": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "csv"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "xml"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "html"
+                        ]
+                      }
+                    ]
+                  },
+                  "parse": {
+                    "type": "object",
+                    "required": [
+                      "version",
+                      "fields"
+                    ],
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "enum": [
+                          1
+                        ]
+                      },
+                      "recordsPath": {
+                        "type": "string"
+                      },
+                      "externalIdPath": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "sourceKey",
+                            "targetFieldKey"
+                          ],
+                          "properties": {
+                            "sourceKey": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "targetFieldKey": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "targetLabel": {
+                              "type": "string"
+                            },
+                            "coerce": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "text"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "number"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "boolean"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "date"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "csv": {
+                        "type": "object",
+                        "properties": {
+                          "delimiter": {
+                            "type": "string"
+                          },
+                          "headerRow": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "schedule": {
+                    "type": "object",
+                    "required": [
+                      "preset"
+                    ],
+                    "properties": {
+                      "preset": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "manual"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "hourly"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "daily"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "weekly"
+                            ]
+                          }
+                        ]
+                      },
+                      "cron": {
+                        "type": "string"
+                      },
+                      "timezone": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "retention": {
+                    "type": "object",
+                    "required": [
+                      "mode"
+                    ],
+                    "properties": {
+                      "mode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "forever"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "drop_missing"
+                            ]
+                          }
+                        ]
+                      },
+                      "missingAfterDays": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/connectors/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
             "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "format": "uuid",
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "type": "object",
+                    "required": [
+                      "baseUrl"
+                    ],
+                    "properties": {
+                      "baseUrl": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "pathTemplate": {
+                        "type": "string"
+                      },
+                      "method": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "GET"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "POST"
+                            ]
+                          }
+                        ]
+                      },
+                      "query": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "auth": {
+                    "type": "object",
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "api_key_header"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "api_key_query"
+                            ]
+                          }
+                        ]
+                      },
+                      "headerName": {
+                        "type": "string"
+                      },
+                      "queryParam": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "format": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "json"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "csv"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "xml"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "html"
+                        ]
+                      }
+                    ]
+                  },
+                  "parse": {
+                    "type": "object",
+                    "required": [
+                      "version",
+                      "fields"
+                    ],
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "enum": [
+                          1
+                        ]
+                      },
+                      "recordsPath": {
+                        "type": "string"
+                      },
+                      "externalIdPath": {
+                        "type": "string"
+                      },
+                      "fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "sourceKey",
+                            "targetFieldKey"
+                          ],
+                          "properties": {
+                            "sourceKey": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "targetFieldKey": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "targetLabel": {
+                              "type": "string"
+                            },
+                            "coerce": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "text"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "number"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "boolean"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "date"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "csv": {
+                        "type": "object",
+                        "properties": {
+                          "delimiter": {
+                            "type": "string"
+                          },
+                          "headerRow": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "schedule": {
+                    "type": "object",
+                    "required": [
+                      "preset"
+                    ],
+                    "properties": {
+                      "preset": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "manual"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "hourly"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "daily"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "weekly"
+                            ]
+                          }
+                        ]
+                      },
+                      "cron": {
+                        "type": "string"
+                      },
+                      "timezone": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "retention": {
+                    "type": "object",
+                    "required": [
+                      "mode"
+                    ],
+                    "properties": {
+                      "mode": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "forever"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "drop_missing"
+                            ]
+                          }
+                        ]
+                      },
+                      "missingAfterDays": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/connectors/{id}/preview": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "minimum": 1,
+                    "maximum": 50,
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/connectors/{id}/sync": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tableId": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/connectors/{id}/bind-table": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tableId"
+                ],
+                "properties": {
+                  "tableId": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/connectors/{id}/history": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/tables/{tableId}/binding": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "tableId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "columnMap"
+                ],
+                "properties": {
+                  "columnMap": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "syncMode": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "append_only"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "upsert"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "tableId",
             "required": true
           }
         ],
@@ -1305,6 +2714,118 @@
             },
             "in": "path",
             "name": "columnId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/columns/{columnId}/options": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "columnId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/columns/{columnId}/options/{optionId}": {
+      "patch": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "columnId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "optionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "columnId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "optionId",
             "required": true
           }
         ],

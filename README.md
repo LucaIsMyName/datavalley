@@ -78,5 +78,6 @@ npm run deploy       # Remote install (see docs/deploy.md)
 - Set strong `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY` (see `.env.production.example`).
 - Set `REDIS_URL` when running multiple API processes or the worker, so API-key rate limits and job queues stay consistent.
 - Configure SMTP for password reset emails.
+- `npm run deploy` keeps the previous release and switches back to it if `https://DOMAIN/api/v1/health` does not succeed. It does not copy the local database to the server.
 
 Details: [docs/deploy.md](docs/deploy.md).
