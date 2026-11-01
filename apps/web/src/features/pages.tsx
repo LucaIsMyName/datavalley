@@ -20,6 +20,8 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../components/ui/select'
 import { ConfirmDialog, PromptDialog } from '../components/confirm-dialog'
+import { CsvDelimiterField, csvDelimiterWire, defaultCsvDelimiter } from '../components/csv-delimiter-field'
+import { FileUpload } from '../components/file-upload'
 import { DocumentTitle } from '../components/document-title'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../components/states'
 import { patchCachedTable } from './tables/cache'
@@ -544,6 +546,7 @@ export function ProjectPage() {
   const [csvName, setCsvName] = useState('')
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [csvHeader, setCsvHeader] = useState(true)
+  const [csvDelimiter, setCsvDelimiter] = useState(defaultCsvDelimiter)
   const [createTableError, setCreateTableError] = useState('')
   const [creatingTableBusy, setCreatingTableBusy] = useState(false)
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => api.request<{ project: Project }>(`/projects/${projectId}`) })
@@ -694,6 +697,7 @@ export function ProjectPage() {
         body.append('file', csvFile)
         body.append('name', name)
         body.append('headerRow', csvHeader ? 'true' : 'false')
+        body.append('delimiter', csvDelimiterWire(csvDelimiter))
         const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables/import`, { method: 'POST', body })
         setCreatingTable(false)
         await openCreatedTable(created.table, false)
@@ -1123,16 +1127,18 @@ export function ProjectPage() {
               </fieldset>
               {tableKind === 'csv' ? (
                 <>
-                  <input
-                    type="file"
+                  <FileUpload
                     accept=".csv,text/csv"
-                    aria-label={t('importCsv')}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] ?? null
+                    ariaLabel={t('importCsv')}
+                    value={csvFile}
+                    onFilesSelected={(files) => {
+                      const file = files[0] ?? null
                       setCsvFile(file)
                       if (file) setCsvName(tableNameFromFile(file.name))
                     }}
+                    onClear={() => setCsvFile(null)}
                   />
+                  <CsvDelimiterField value={csvDelimiter} onChange={setCsvDelimiter} />
                   <input
                     aria-label={t('tableName')}
                     className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"

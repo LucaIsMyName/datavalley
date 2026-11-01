@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing'
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
-import { csvTable, isResourceIcon, type Action } from '@datavalley/shared'
+import { csvTable, isResourceIcon, normalizeCsvDelimiter, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
@@ -320,10 +320,16 @@ export async function createTableFromCsv(
   db: AppDatabase,
   subject: Subject,
   projectId: string,
-  input: { name?: string; csv: string; headerRow: boolean },
+  input: { name?: string; csv: string; headerRow: boolean; delimiter?: string },
 ) {
   await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
-  const parsed = csvTable(input.csv, input.headerRow)
+  let delimiter = ','
+  try {
+    delimiter = normalizeCsvDelimiter(input.delimiter)
+  } catch {
+    throw badRequest('CSV delimiter must be a single character')
+  }
+  const parsed = csvTable(input.csv, input.headerRow, delimiter)
   if (parsed.names.length === 0) throw badRequest('CSV is empty')
   const requested = input.name?.trim() ?? ''
   const name = requested || (await nextTableName(db, projectId))

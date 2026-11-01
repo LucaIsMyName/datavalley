@@ -101,16 +101,19 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     let csv = ''
     let name = ''
     let headerRow = true
+    let delimiter: string | undefined
     for await (const part of request.parts()) {
       if (part.type === 'file') csv = (await part.toBuffer()).toString('utf8')
       else if (part.fieldname === 'name') name = String(part.value ?? '')
       else if (part.fieldname === 'headerRow') headerRow = String(part.value) !== 'false'
+      else if (part.fieldname === 'delimiter') delimiter = String(part.value ?? '')
     }
     return {
       table: await createTableFromCsv(db, request.subject, (request.params as { projectId: string }).projectId, {
         name,
         csv,
         headerRow,
+        delimiter,
       }),
     }
   })
@@ -276,10 +279,16 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/tables/:tableId/import', async (request) => {
     if (!request.subject) throw unauthorized()
     await requirePlugin(db, 'csv', 'rows:write')
-    const file = await request.file()
-    if (!file) throw badRequest('Choose a CSV file')
-    const csv = (await file.toBuffer()).toString('utf8')
-    return importCsv(db, request.subject, (request.params as { tableId: string }).tableId, csv)
+    let csv = ''
+    let headerRow = true
+    let delimiter: string | undefined
+    for await (const part of request.parts()) {
+      if (part.type === 'file') csv = (await part.toBuffer()).toString('utf8')
+      else if (part.fieldname === 'headerRow') headerRow = String(part.value) !== 'false'
+      else if (part.fieldname === 'delimiter') delimiter = String(part.value ?? '')
+    }
+    if (!csv) throw badRequest('Choose a CSV file')
+    return importCsv(db, request.subject, (request.params as { tableId: string }).tableId, csv, { headerRow, delimiter })
   })
   app.post('/tables/:tableId/export', { schema: { body: dataSchema.exportTableBody } }, async (request) => {
     if (!request.subject) throw unauthorized()

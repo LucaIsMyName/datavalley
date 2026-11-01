@@ -311,6 +311,39 @@ describe('table interactions', () => {
     const csvRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${csvId}/rows` })
     expect(csvRows.json().rows).toHaveLength(2)
 
+    const semiBoundary = '----datavalley-semi'
+    const semiBody = [
+      `--${semiBoundary}`,
+      'Content-Disposition: form-data; name="name"',
+      '',
+      'Semicolon',
+      `--${semiBoundary}`,
+      'Content-Disposition: form-data; name="headerRow"',
+      '',
+      'true',
+      `--${semiBoundary}`,
+      'Content-Disposition: form-data; name="delimiter"',
+      '',
+      ';',
+      `--${semiBoundary}`,
+      'Content-Disposition: form-data; name="file"; filename="semi.csv"',
+      'Content-Type: text/csv',
+      '',
+      'Name;City\nAda;Vienna',
+      `--${semiBoundary}--`,
+      '',
+    ].join('\r\n')
+    const semiImported = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables/import`,
+      headers: { 'content-type': `multipart/form-data; boundary=${semiBoundary}` },
+      payload: semiBody,
+    })
+    expect(semiImported.statusCode).toBe(200)
+    const semiId = semiImported.json().table.id as string
+    const semiRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${semiId}/rows` })
+    expect(semiRows.json().rows).toHaveLength(1)
+
     const rawBoundary = '----datavalley-raw'
     const rawBody = [
       `--${rawBoundary}`,

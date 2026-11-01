@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { paintSwatch, swatchName, swatchStyle } from './colors.js'
-import { csvTable, parseCsv, toCsv, uniqueColumnNames } from './csv.js'
+import { csvTable, normalizeCsvDelimiter, parseCsv, toCsv, uniqueColumnNames } from './csv.js'
 import { compareOp } from './filters.js'
 import { conditionalStyle, expressionFromOperator, stylesForCell } from './formatting.js'
 import { decide } from './permissions.js'
@@ -159,6 +159,29 @@ describe('csv', () => {
       ],
     })
     expect(csvTable('', true)).toEqual({ names: [], records: [] })
+  })
+
+  it('parses semicolon, tab, and pipe delimiters', () => {
+    expect(parseCsv('Name;City\nAda;Vienna\n', ';')).toEqual([
+      ['Name', 'City'],
+      ['Ada', 'Vienna'],
+    ])
+    expect(parseCsv('A\tB\n1\t2\n', '\t')).toEqual([
+      ['A', 'B'],
+      ['1', '2'],
+    ])
+    expect(csvTable('Name|City\nAda|Paris\n', true, '|')).toEqual({
+      names: ['Name', 'City'],
+      records: [['Ada', 'Paris']],
+    })
+    expect(parseCsv('"a;b";c\n', ';')).toEqual([['a;b', 'c']])
+  })
+
+  it('normalizes delimiter sentinels and rejects invalid values', () => {
+    expect(normalizeCsvDelimiter(undefined)).toBe(',')
+    expect(normalizeCsvDelimiter('tab')).toBe('\t')
+    expect(normalizeCsvDelimiter(';')).toBe(';')
+    expect(() => normalizeCsvDelimiter(';;')).toThrow(/single character/)
   })
 })
 

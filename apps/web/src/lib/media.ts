@@ -2,6 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import type { MediaDetailsResponse, MediaFile, MediaListResponse } from '@datavalley/api-client'
 import { api } from './api'
 
+export const MEDIA_UPLOAD_ACCEPT =
+  'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,application/pdf,text/plain'
+
 export function mediaDownloadUrl(id: string) {
   return `/api/v1/media/${id}`
 }

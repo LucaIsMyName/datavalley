@@ -36,6 +36,8 @@ Text sorting stays on the database collation. The app does not re-sort pages in 
 
 ## Tests
 
+CSV import (new table or into an open table) accepts comma, semicolon, tab, pipe, or a single custom separator character.
+
 ```bash
 npm test
 ```

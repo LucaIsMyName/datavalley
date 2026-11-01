@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { csvTable, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
+import { csvTable, normalizeCsvDelimiter, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
 import { normalizeMediaCellValue } from '@datavalley/shared'
@@ -484,9 +484,23 @@ export async function footer(db: AppDatabase, subject: Subject, tableId: string,
   return result
 }
 
-export async function importCsv(db: AppDatabase, subject: Subject, tableId: string, csv: string, chunkSize = 500) {
+export async function importCsv(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  csv: string,
+  options: { headerRow?: boolean; delimiter?: string; chunkSize?: number } = {},
+) {
   const table = await requireEditableTable(db, subject, tableId, 'edit')
-  const parsed = csvTable(csv, true)
+  let delimiter = ','
+  try {
+    delimiter = normalizeCsvDelimiter(options.delimiter)
+  } catch {
+    throw badRequest('CSV delimiter must be a single character')
+  }
+  const headerRow = options.headerRow ?? true
+  const chunkSize = options.chunkSize ?? 500
+  const parsed = csvTable(csv, headerRow, delimiter)
   if (parsed.names.length === 0) throw badRequest('CSV is empty')
   const mapping = await ensureTextColumns(db, tableId, parsed.names)
   const chunks: { chunk: number; error?: string }[] = []

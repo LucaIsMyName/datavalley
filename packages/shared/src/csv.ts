@@ -1,3 +1,15 @@
+export const CSV_DELIMITER_PRESETS = [',', ';', '\t', '|'] as const
+
+export type CsvDelimiterPreset = (typeof CSV_DELIMITER_PRESETS)[number]
+
+export function normalizeCsvDelimiter(input: string | undefined): string {
+  if (input === undefined || input === '') return ','
+  const raw = input.trim()
+  if (raw === 'tab') return '\t'
+  if (raw.length === 1) return raw
+  throw new Error('CSV delimiter must be a single character')
+}
+
 export function uniqueColumnNames(headers: string[]): string[] {
   const used = new Map<string, number>()
   return headers.map((raw, index) => {
@@ -16,8 +28,12 @@ export function uniqueColumnNames(headers: string[]): string[] {
   })
 }
 
-export function csvTable(input: string, headerRow: boolean): { names: string[]; records: string[][] } {
-  const grid = parseCsv(input)
+export function csvTable(
+  input: string,
+  headerRow: boolean,
+  delimiter = ',',
+): { names: string[]; records: string[][] } {
+  const grid = parseCsv(input, delimiter)
   if (grid.length === 0) return { names: [], records: [] }
   const width = Math.max(0, ...grid.map((row) => row.length))
   if (width === 0) return { names: [], records: [] }
@@ -29,7 +45,8 @@ export function csvTable(input: string, headerRow: boolean): { names: string[]; 
   }
 }
 
-export function parseCsv(input: string): string[][] {
+export function parseCsv(input: string, delimiter = ','): string[][] {
+  if (delimiter.length !== 1) throw new Error('CSV delimiter must be a single character')
   const text = input.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const rows: string[][] = []
   let row: string[] = []
@@ -54,7 +71,7 @@ export function parseCsv(input: string): string[][] {
       inQuotes = true
       continue
     }
-    if (char === ',') {
+    if (char === delimiter) {
       row.push(field)
       field = ''
       continue

@@ -67,6 +67,7 @@ import { QuietInput } from '../../components/quiet-input'
 import { SelectField } from '../../components/ui/select'
 import { Badge } from '../../components/ui/badge'
 import { ConfirmDialog } from '../../components/confirm-dialog'
+import { FileUpload, type FileUploadHandle } from '../../components/file-upload'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Input } from '../../components/ui/input'
@@ -78,6 +79,7 @@ import { invalidateFooter, mapCachedRows, patchCachedTable, readCachedRow } from
 import { cellFormatError } from './cell-format'
 import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
 import { ConditionalDialog } from './conditional-dialog'
+import { CsvImportDialog } from './csv-import-dialog'
 import { presentFormatRow } from './format-values'
 import { CellEditor } from './cells'
 import { beforeDropEdge } from './drop-place'
@@ -97,7 +99,7 @@ import { MediaLibraryDialog } from '../media/media-library-dialog'
 import { MediaPreviewDrawer } from '../media/media-preview-drawer'
 import { mergeMediaIntoCell } from './media-cell'
 import { NotesDrawer } from './notes'
-import { fetchMediaDetails, uploadMedia } from '../../lib/media'
+import { fetchMediaDetails, MEDIA_UPLOAD_ACCEPT, uploadMedia } from '../../lib/media'
 import { Swatches } from './swatches'
 import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
@@ -266,8 +268,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const columnParam = searchParams.get('column') ?? ''
   const rowParam = searchParams.get('row') ?? ''
   const parentRef = useRef<HTMLDivElement>(null)
-  const importRef = useRef<HTMLInputElement>(null)
-  const mediaFileRef = useRef<HTMLInputElement>(null)
+  const mediaUploadRef = useRef<FileUploadHandle>(null)
+  const [csvImportOpen, setCsvImportOpen] = useState(false)
+  const [csvImportBusy, setCsvImportBusy] = useState(false)
   const mediaUploadTarget = useRef<{ rowId: string; columnId: string } | null>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
@@ -861,7 +864,33 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   function requestMediaUpload(rowId: string, columnId: string) {
     mediaUploadTarget.current = { rowId, columnId }
-    mediaFileRef.current?.click()
+    mediaUploadRef.current?.open()
+  }
+
+  async function runCsvImport(input: { file: File; delimiter: string; headerRow: boolean }) {
+    setCsvImportBusy(true)
+    try {
+      const body = new FormData()
+      body.append('file', input.file)
+      body.append('delimiter', input.delimiter)
+      body.append('headerRow', input.headerRow ? 'true' : 'false')
+      const result = await api.request<{ created: number; errors: { error?: string }[] }>(
+        `/tables/${tableId}/import`,
+        { method: 'POST', body },
+      )
+      const summary = t('imported', { count: result.created })
+      if (result.errors[0]?.error) {
+        toast.warning(`${summary} ${result.errors[0].error}`)
+      } else {
+        toast.success(summary)
+      }
+      setCsvImportOpen(false)
+      await refresh()
+    } catch (caught) {
+      showEditError(caught instanceof Error ? caught.message : t('error'))
+    } finally {
+      setCsvImportBusy(false)
+    }
   }
 
   async function uploadMediaToCell(rowId: string, column: Column, file: File): Promise<string[]> {
@@ -1761,7 +1790,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       },
       { id: 'export', label: t('export'), icon: Download, onSelect: () => void exportCsv() },
       { id: 'footer', label: t('footer'), icon: Sigma, onSelect: () => void setFooter(!footerConfig.enabled) },
-      { id: 'import', label: t('import'), icon: Upload, onSelect: () => importRef.current?.click() },
+      { id: 'import', label: t('import'), icon: Upload, onSelect: () => setCsvImportOpen(true) },
       ...(views.data?.views ?? []).map((view) => ({
         id: view.id,
         label: view.name,
@@ -1906,7 +1935,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     return {
       find: (el: HTMLElement) => setPopover({ kind: 'find', ...viewportAnchorFrom(el) }),
       exportCsv: () => void exportCsv(),
-      importCsv: () => importRef.current?.click(),
+      importCsv: () => setCsvImportOpen(true),
       views: (views.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
@@ -2327,45 +2356,19 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6" style={{ WebkitTouchCallout: 'none' }}>
-      <input
-        ref={importRef}
-        aria-label={t('import')}
-        type="file"
-        accept=".csv,text/csv"
-        className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (!file) return
-          const body = new FormData()
-          body.append('file', file)
-          void api
-            .request<{ created: number; errors: { error?: string }[] }>(
-              `/tables/${tableId}/import`,
-              { method: 'POST', body },
-            )
-            .then(async (result) => {
-              const summary = t('imported', { count: result.created })
-              if (result.errors[0]?.error) {
-                toast.warning(`${summary} ${result.errors[0].error}`)
-              } else {
-                toast.success(summary)
-              }
-              await refresh()
-            })
-            .catch((caught) => {
-              showEditError(caught instanceof Error ? caught.message : t('error'))
-            })
-        }}
+      <CsvImportDialog
+        open={csvImportOpen}
+        busy={csvImportBusy}
+        onClose={() => setCsvImportOpen(false)}
+        onImport={runCsvImport}
       />
-      <input
-        ref={mediaFileRef}
-        aria-label={t('mediaUpload')}
-        type="file"
-        className="sr-only"
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
+      <FileUpload
+        ref={mediaUploadRef}
+        variant="compact"
+        accept={MEDIA_UPLOAD_ACCEPT}
+        ariaLabel={t('mediaUpload')}
+        onFilesSelected={(files) => {
+          const file = files[0]
           const target = mediaUploadTarget.current
           mediaUploadTarget.current = null
           if (!file || !target) return

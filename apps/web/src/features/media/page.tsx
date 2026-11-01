@@ -3,16 +3,17 @@ import type { MediaFile } from '@datavalley/api-client'
 import { Upload } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { FileUpload, type FileUploadHandle } from '../../components/file-upload'
 import { Button } from '../../components/ui/button'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../../components/states'
-import { listMedia, uploadMedia } from '../../lib/media'
+import { listMedia, MEDIA_UPLOAD_ACCEPT, uploadMedia } from '../../lib/media'
 import { MediaGrid } from './media-grid'
 import { MediaPreviewDrawer } from './media-preview-drawer'
 
 export function MediaPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const inputRef = useRef<HTMLInputElement>(null)
+  const uploadRef = useRef<FileUploadHandle>(null)
   const dragDepth = useRef(0)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'image' | 'pdf'>('all')
@@ -91,6 +92,15 @@ export function MediaPage() {
 
   return (
     <Page title={t('media')}>
+      <FileUpload
+        ref={uploadRef}
+        variant="compact"
+        multiple
+        accept={MEDIA_UPLOAD_ACCEPT}
+        ariaLabel={t('mediaUpload')}
+        disabled={uploading}
+        onFilesSelected={(picked) => void uploadFiles(picked)}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <input
           aria-label={t('mediaSearch')}
@@ -112,21 +122,10 @@ export function MediaPage() {
             </Button>
           ))}
         </div>
-        <Button type="button" disabled={uploading} onClick={() => inputRef.current?.click()}>
+        <Button type="button" disabled={uploading} onClick={() => uploadRef.current?.open()}>
           <Upload className="size-4" />
           {t('mediaUpload')}
         </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          className="sr-only"
-          onChange={(event) => {
-            const picked = event.target.files
-            event.target.value = ''
-            if (picked) void uploadFiles(picked)
-          }}
-        />
       </div>
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
       <div

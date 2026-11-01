@@ -14,7 +14,7 @@ test('edits a table and hides it from a second user', async ({ page, browser }) 
   await expect(page.getByRole('heading', { name: 'Media' })).toBeVisible()
   const uploaded = page.waitForResponse((response) => response.url().includes('/api/v1/media') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Upload' }).click()
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.getByTestId('file-upload-input').setInputFiles({
     name: 'logo.png',
     mimeType: 'image/png',
     buffer: Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082', 'hex'),
@@ -40,11 +40,14 @@ test('edits a table and hides it from a second user', async ({ page, browser }) 
   await page.getByRole('menuitem', { name: 'Export' }).click()
   const exportBody = await (await exported).json()
   expect(exportBody.csv).toContain('Ada Lovelace')
-  await page.locator('input[aria-label="Import"]').setInputFiles({
+  await page.getByLabel('Table name').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Import' }).click()
+  await page.getByTestId('file-upload-input').setInputFiles({
     name: 'contacts.csv',
     mimeType: 'text/csv',
     buffer: Buffer.from('Name\nGrace Hopper\n'),
   })
+  await page.getByRole('button', { name: 'Import' }).click()
   await expect(page.getByText('Grace Hopper')).toBeVisible()
 
   await page.getByRole('link', { name: 'Settings' }).click()
