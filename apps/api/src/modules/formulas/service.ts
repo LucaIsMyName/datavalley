@@ -17,6 +17,7 @@ import {
 } from '@datavalley/formula-engine'
 import type { AppDatabase } from '../../database/client.js'
 import {
+  columnOptions,
   formulaCache,
   formulaDependencies,
   formulas,
@@ -31,7 +32,7 @@ import {
   tables,
   users,
 } from '../../database/schema.js'
-import { swatchName, type FormatRule } from '@datavalley/shared'
+import { isDateRangeValue, selectColumnMultiple, swatchName, type FormatRule } from '@datavalley/shared'
 import { readCell } from '../../column-types/index.js'
 import { badRequest } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
@@ -314,7 +315,12 @@ class ValueMap {
     if (raw == null || raw === '') return null
     if (column.type === 'number' || column.type === 'currency') return typeof raw === 'number' ? raw : null
     if (column.type === 'checkbox') return raw === true
-    if (column.type === 'tags' || column.type === 'multi_select' || column.type === 'user') {
+    if (
+      column.type === 'tags' ||
+      column.type === 'multi_select' ||
+      column.type === 'user' ||
+      (column.type === 'select' && selectColumnMultiple(column))
+    ) {
       const ids = Array.isArray(raw) ? raw.map(String) : []
       const names: string[] = []
       for (const id of ids) names.push(await this.label(column, id))
@@ -322,6 +328,7 @@ class ValueMap {
     }
     if (column.type === 'status' || column.type === 'select' || column.type === 'radio') return this.label(column, String(raw))
     if (column.type === 'relation') return this.rowTitle(String(raw))
+    if (isDateRangeValue(raw)) return [raw.from, raw.to]
     if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') return raw
     return null
   }
@@ -628,48 +635,97 @@ async function tableDependencyStamp(db: AppDatabase, tableId: string) {
   return `${tableId}:${Number(summary?.total ?? 0)}:${stampTime(summary?.latest)}:${summary?.versions ?? 0}`
 }
 
+type StampExpansion = {
+  rowIds: Set<string>
+  tableIds: Set<string>
+  foreignTableIds: Set<string>
+  labelColumnIds: Set<string>
+  statusTableIds: Set<string>
+  tagTableIds: Set<string>
+  usesClock: boolean
+}
+
+function astUsesClock(node: AstNode): boolean {
+  switch (node.type) {
+    case 'call':
+      if (node.name === 'TODAY' || node.name === 'NOW') return true
+      return node.args.some((arg) => astUsesClock(arg))
+    case 'unary':
+      return astUsesClock(node.expr)
+    case 'binary':
+      return astUsesClock(node.left) || astUsesClock(node.right)
+    default:
+      return false
+  }
+}
+
+function emptyExpansion(): StampExpansion {
+  return {
+    rowIds: new Set(),
+    tableIds: new Set(),
+    foreignTableIds: new Set(),
+    labelColumnIds: new Set(),
+    statusTableIds: new Set(),
+    tagTableIds: new Set(),
+    usesClock: false,
+  }
+}
+
+function noteLabelColumn(expanded: StampExpansion, column: { id: string; type: string; tableId: string }) {
+  if (column.type === 'select' || column.type === 'radio' || column.type === 'multi_select') expanded.labelColumnIds.add(column.id)
+  if (column.type === 'status') expanded.statusTableIds.add(column.tableId)
+  if (column.type === 'tags') expanded.tagTableIds.add(column.tableId)
+}
+
 async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; rowId: string }[]) {
-  const rowIds = new Set<string>()
-  const tableIds = new Set<string>()
+  const expanded = emptyExpansion()
   const seenFormula = new Set<string>()
+  const seenWhole = new Set<string>()
   const queue: { ast: AstNode; rowId: string; depth: number }[] = roots.map((root) => ({ ...root, depth: 0 }))
 
   while (queue.length > 0) {
     const current = queue.shift()!
-    rowIds.add(current.rowId)
+    expanded.rowIds.add(current.rowId)
+    if (astUsesClock(current.ast)) expanded.usesClock = true
     const refs = collectRefs(current.ast)
-    const formulaTargets: { columnId: string; rowId: string }[] = []
+    const cellTargets: { columnId: string; rowId: string }[] = []
+    const wholeColumnIds: string[] = []
 
     for (const ref of refs) {
-      if (ref.rowId) rowIds.add(ref.rowId)
-      else if (ref.tableId) tableIds.add(ref.tableId)
-
-      if (ref.tableId && !ref.rowId) continue
-
+      if (ref.rowId) expanded.rowIds.add(ref.rowId)
+      if (ref.tableId) {
+        expanded.tableIds.add(ref.tableId)
+        expanded.foreignTableIds.add(ref.tableId)
+      }
+      if (ref.tableId && !ref.rowId) {
+        if (!seenWhole.has(ref.columnId)) wholeColumnIds.push(ref.columnId)
+        continue
+      }
       const targetRowId = ref.rowId ?? current.rowId
       const key = `${ref.columnId}:${targetRowId}`
       if (seenFormula.has(key)) continue
-      formulaTargets.push({ columnId: ref.columnId, rowId: targetRowId })
+      cellTargets.push({ columnId: ref.columnId, rowId: targetRowId })
     }
 
-    if (formulaTargets.length === 0 || current.depth >= LIMITS.maxDependencyDepth) continue
+    if (current.depth >= LIMITS.maxDependencyDepth) continue
 
-    const columnIds = [...new Set(formulaTargets.map((target) => target.columnId))]
+    const columnIds = [...new Set([...cellTargets.map((target) => target.columnId), ...wholeColumnIds])]
     const columns =
       columnIds.length > 0
         ? await db
-            .select({ id: tableColumns.id, type: tableColumns.type })
+            .select({ id: tableColumns.id, type: tableColumns.type, tableId: tableColumns.tableId })
             .from(tableColumns)
             .where(inArray(tableColumns.id, columnIds))
         : []
-    const typeByColumn = new Map(columns.map((column) => [column.id, column.type]))
+    const columnById = new Map(columns.map((column) => [column.id, column]))
 
-    for (const target of formulaTargets) {
+    for (const target of cellTargets) {
+      const column = columnById.get(target.columnId)
+      if (!column) continue
+      noteLabelColumn(expanded, column)
       const key = `${target.columnId}:${target.rowId}`
-      if (seenFormula.has(key)) continue
-      if (typeByColumn.get(target.columnId) !== 'formula') continue
+      if (seenFormula.has(key) || column.type !== 'formula') continue
       seenFormula.add(key)
-
       const [formula] = await db
         .select({ ast: formulas.ast })
         .from(formulas)
@@ -678,9 +734,28 @@ async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; r
       if (!formula?.ast) continue
       queue.push({ ast: formula.ast as AstNode, rowId: target.rowId, depth: current.depth + 1 })
     }
+
+    for (const columnId of wholeColumnIds) {
+      if (seenWhole.has(columnId)) continue
+      seenWhole.add(columnId)
+      const column = columnById.get(columnId)
+      if (!column) continue
+      noteLabelColumn(expanded, column)
+      if (column.type !== 'formula') continue
+      const stored = await db
+        .select({ ast: formulas.ast, rowId: formulas.rowId })
+        .from(formulas)
+        .where(eq(formulas.columnId, columnId))
+      for (const formula of stored) {
+        const key = `${columnId}:${formula.rowId}`
+        if (seenFormula.has(key) || !formula.ast) continue
+        seenFormula.add(key)
+        queue.push({ ast: formula.ast as AstNode, rowId: formula.rowId, depth: current.depth + 1 })
+      }
+    }
   }
 
-  return { rowIds, tableIds }
+  return expanded
 }
 
 function dependencyStampFromExpanded(
@@ -699,15 +774,114 @@ function dependencyStampFromExpanded(
   return `${rowStamp}|${tablesStamp}`
 }
 
+function clockDay(now = new Date()) {
+  return now.toISOString().slice(0, 10)
+}
+
+function composeVersionHash(
+  expanded: StampExpansion,
+  rowVersions: Map<string, number>,
+  tableStamps: Map<string, string>,
+  labelStamps: Map<string, string>,
+  statusStamps: Map<string, string>,
+  tagStamps: Map<string, string>,
+  day: string,
+  updatedAt: string,
+) {
+  const base = dependencyStampFromExpanded(rowVersions, tableStamps, expanded)
+  const labels = [
+    ...[...expanded.labelColumnIds].sort().map((id) => labelStamps.get(id) ?? ''),
+    ...[...expanded.statusTableIds].sort().map((id) => `status:${statusStamps.get(id) ?? ''}`),
+    ...[...expanded.tagTableIds].sort().map((id) => `tag:${tagStamps.get(id) ?? ''}`),
+  ].join(',')
+  const clock = expanded.usesClock ? day : ''
+  return `${base}|${labels}|${clock}:${updatedAt}`
+}
+
+function crossesOtherTables(expanded: StampExpansion, tableId: string) {
+  for (const id of expanded.foreignTableIds) {
+    if (id !== tableId) return true
+  }
+  return false
+}
+
+async function loadCatalogStamps(db: AppDatabase, expansions: StampExpansion[]) {
+  const labelColumnIds = new Set<string>()
+  const statusTableIds = new Set<string>()
+  const tagTableIds = new Set<string>()
+  for (const expanded of expansions) {
+    for (const id of expanded.labelColumnIds) labelColumnIds.add(id)
+    for (const id of expanded.statusTableIds) statusTableIds.add(id)
+    for (const id of expanded.tagTableIds) tagTableIds.add(id)
+  }
+  const labelStamps = new Map<string, string>()
+  if (labelColumnIds.size > 0) {
+    const options = await db
+      .select({ columnId: columnOptions.columnId, id: columnOptions.id, label: columnOptions.label })
+      .from(columnOptions)
+      .where(inArray(columnOptions.columnId, [...labelColumnIds]))
+    const grouped = new Map<string, string[]>()
+    for (const option of options) {
+      const list = grouped.get(option.columnId) ?? []
+      list.push(`${option.id}:${option.label}`)
+      grouped.set(option.columnId, list)
+    }
+    for (const columnId of labelColumnIds) {
+      labelStamps.set(columnId, (grouped.get(columnId) ?? []).sort().join(','))
+    }
+  }
+  const statusStamps = new Map<string, string>()
+  if (statusTableIds.size > 0) {
+    const statuses = await db
+      .select({ tableId: tableStatuses.tableId, id: tableStatuses.id, name: tableStatuses.name })
+      .from(tableStatuses)
+      .where(inArray(tableStatuses.tableId, [...statusTableIds]))
+    const grouped = new Map<string, string[]>()
+    for (const status of statuses) {
+      const list = grouped.get(status.tableId) ?? []
+      list.push(`${status.id}:${status.name}`)
+      grouped.set(status.tableId, list)
+    }
+    for (const tableId of statusTableIds) statusStamps.set(tableId, (grouped.get(tableId) ?? []).sort().join(','))
+  }
+  const tagStamps = new Map<string, string>()
+  if (tagTableIds.size > 0) {
+    const tags = await db
+      .select({ tableId: tableTags.tableId, id: tableTags.id, name: tableTags.name })
+      .from(tableTags)
+      .where(inArray(tableTags.tableId, [...tagTableIds]))
+    const grouped = new Map<string, string[]>()
+    for (const tag of tags) {
+      const list = grouped.get(tag.tableId) ?? []
+      list.push(`${tag.id}:${tag.name}`)
+      grouped.set(tag.tableId, list)
+    }
+    for (const tableId of tagTableIds) tagStamps.set(tableId, (grouped.get(tableId) ?? []).sort().join(','))
+  }
+  return { labelStamps, statusStamps, tagStamps }
+}
+
 async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
   const expanded = await expandStampDependencies(db, [{ ast, rowId }])
-  const rows = await db.select().from(tableRows).where(inArray(tableRows.id, [...expanded.rowIds]))
+  const rows = expanded.rowIds.size
+    ? await db.select().from(tableRows).where(inArray(tableRows.id, [...expanded.rowIds]))
+    : []
   const rowVersions = new Map(rows.map((row) => [row.id, row.version]))
   const tableStamps = new Map<string, string>()
   for (const tableId of expanded.tableIds) {
     tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
   }
-  return dependencyStampFromExpanded(rowVersions, tableStamps, expanded)
+  const catalogs = await loadCatalogStamps(db, [expanded])
+  return composeVersionHash(
+    expanded,
+    rowVersions,
+    tableStamps,
+    catalogs.labelStamps,
+    catalogs.statusStamps,
+    catalogs.tagStamps,
+    clockDay(),
+    '',
+  )
 }
 
 function formulaCellKey(rowId: string, columnId: string | null) {
@@ -715,7 +889,7 @@ function formulaCellKey(rowId: string, columnId: string | null) {
 }
 
 async function buildStampContext(db: AppDatabase, entries: (typeof formulas.$inferSelect)[]) {
-  const perEntry = new Map<string, { rowIds: Set<string>; tableIds: Set<string> }>()
+  const perEntry = new Map<string, StampExpansion>()
   const rowIds = new Set<string>()
   const tableIds = new Set<string>()
   for (const entry of entries) {
@@ -736,7 +910,8 @@ async function buildStampContext(db: AppDatabase, entries: (typeof formulas.$inf
   for (const tableId of tableIds) {
     tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
   }
-  return { rowVersions, tableStamps, perEntry }
+  const catalogs = await loadCatalogStamps(db, [...perEntry.values()])
+  return { rowVersions, tableStamps, perEntry, ...catalogs, day: clockDay() }
 }
 
 export async function evaluateFormulasForRows(
@@ -763,7 +938,7 @@ export async function evaluateFormulasForRows(
       : []
   const cacheByKey = new Map(cachedRows.map((row) => [`${row.formulaId}:${row.rowId}:${row.permissionHash}`, row]))
 
-  const { rowVersions, tableStamps, perEntry } = await buildStampContext(db, entries)
+  const { rowVersions, tableStamps, perEntry, labelStamps, statusStamps, tagStamps, day } = await buildStampContext(db, entries)
   const stack = options.stack ?? new Set<string>()
   const misses: {
     entry: (typeof formulas.$inferSelect)
@@ -774,10 +949,19 @@ export async function evaluateFormulasForRows(
   for (const entry of entries) {
     if (!entry.columnId) continue
     const key = formulaCellKey(entry.rowId, entry.columnId)
-    const permissionHash = permissionHashFor(entry.crossesTables)
-    const expanded = perEntry.get(entry.id) ?? { rowIds: new Set<string>([entry.rowId]), tableIds: new Set<string>() }
-    const stamp = dependencyStampFromExpanded(rowVersions, tableStamps, expanded)
-    const versionHash = `${stamp}:${entry.updatedAt.toISOString()}`
+    const expanded = perEntry.get(entry.id) ?? emptyExpansion()
+    if (expanded.rowIds.size === 0) expanded.rowIds.add(entry.rowId)
+    const permissionHash = permissionHashFor(entry.crossesTables || crossesOtherTables(expanded, entry.tableId))
+    const versionHash = composeVersionHash(
+      expanded,
+      rowVersions,
+      tableStamps,
+      labelStamps,
+      statusStamps,
+      tagStamps,
+      day,
+      entry.updatedAt.toISOString(),
+    )
     const cached = cacheByKey.get(`${entry.id}:${entry.rowId}:${permissionHash}`)
     if (cached && cached.versionHash === versionHash) {
       values.set(key, cached.result as FormulaValue)
