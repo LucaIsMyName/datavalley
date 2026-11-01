@@ -1,4 +1,4 @@
-import { escapeLike, isFilterGroup, type FilterCondition, type FilterNode } from '@datavalley/shared'
+import { dateColumnIncludesTime, escapeLike, isFilterGroup, type FilterCondition, type FilterNode } from '@datavalley/shared'
 import { sql, type SQL } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
 import { badRequest } from '../../errors.js'
@@ -42,7 +42,7 @@ async function many<T extends Record<string, unknown>>(db: AppDatabase, query: S
 
 function dateSortField(column: ColumnShape): SQL {
   if (column.config.range) return sql`sc.value_jsonb->>'from'`
-  if (column.type === 'datetime') return sql`COALESCE(sc.value_timestamptz::text, sc.value_text)`
+  if (dateColumnIncludesTime(column)) return sql`COALESCE(sc.value_timestamptz::text, sc.value_text)`
   return sql`sc.value_text`
 }
 
@@ -56,7 +56,7 @@ function sortSql(column: ColumnShape): SQL {
 
 function bindSort(column: ColumnShape, value: string): SQL {
   if (column.type === 'number' || column.type === 'currency') return sql`${value}::numeric`
-  if (column.type === 'datetime' && !column.config.range) return sql`${value}::timestamptz`
+  if (dateColumnIncludesTime(column) && !column.config.range) return sql`${value}::timestamptz`
   return sql`${value}`
 }
 
@@ -103,7 +103,7 @@ function comparison(column: ColumnShape, condition: FilterCondition): SQL | null
   if (column.type === 'date' || column.type === 'datetime') {
     const field = column.config.range
       ? sql`c.value_jsonb->>'from'`
-      : column.type === 'datetime'
+      : dateColumnIncludesTime(column)
         ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
         : sql`c.value_text`
     if (condition.op === 'eq') return sql`${field} = ${String(value ?? '')}`
@@ -270,7 +270,7 @@ export async function footerFor(
         : input.column.type === 'datetime' || input.column.type === 'date'
           ? input.column.config.range
             ? sql`c.value_jsonb->>'from'`
-            : input.column.type === 'datetime'
+            : dateColumnIncludesTime(input.column)
               ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
               : sql`c.value_text`
           : sql`c.value_text`

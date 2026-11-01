@@ -9,6 +9,7 @@ describe('cell format', () => {
     expect(cellFormatError({ type: 'number', config: { variant: 'integer' } }, '4')).toBeNull()
     expect(cellFormatError({ type: 'date' }, '2026-01-02')).toBeNull()
     expect(cellFormatError({ type: 'datetime' }, '2026-01-02T15:04:00Z')).toBeNull()
+    expect(cellFormatError({ type: 'date', config: { includeTime: true } }, '2026-01-02T15:04:00Z')).toBeNull()
     expect(
       cellFormatError({ type: 'date', config: { range: true } }, { from: '2026-01-01', to: '2026-01-15' }),
     ).toBeNull()

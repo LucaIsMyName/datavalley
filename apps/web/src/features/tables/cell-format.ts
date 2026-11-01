@@ -1,4 +1,4 @@
-import { isDateRangeValue, validateDateRangePayload } from '@datavalley/shared'
+import { dateColumnIncludesTime, isDateColumnType, isDateRangeValue, validateDateRangePayload } from '@datavalley/shared'
 
 export type CellFormatKey =
   | 'invalidMail'
@@ -36,8 +36,8 @@ export function cellFormatError(
     if (variant === 'integer' && !Number.isInteger(numeric)) return 'invalidInteger'
     return null
   }
-  if (column.type === 'date' || column.type === 'datetime') {
-    const kind = column.type === 'datetime' ? 'datetime' : 'date'
+  if (isDateColumnType(column.type)) {
+    const kind = dateColumnIncludesTime(column) ? 'datetime' : 'date'
     if (column.config?.range) {
       if (input == null || input === '') return null
       if (!isDateRangeValue(input)) return 'invalidDateRange'
@@ -48,7 +48,7 @@ export function cellFormatError(
       }
       return null
     }
-    if (column.type === 'date') {
+    if (!dateColumnIncludesTime(column)) {
       const value = String(input)
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return 'invalidDate'
       return null

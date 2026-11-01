@@ -2,6 +2,8 @@ import {
   MAX_MEDIA_FILES_PER_CELL,
   normalizeMediaCellValue,
   parseMediaCellInput,
+  dateColumnIncludesTime,
+  dateColumnKind,
   validateDateRangePayload,
 } from '@datavalley/shared'
 import { badRequest } from '../errors.js'
@@ -134,7 +136,7 @@ function parseSingleDatetime(column: ColumnShape, input: unknown): CellWrite {
 }
 
 function parseDateRange(column: ColumnShape, input: unknown): CellWrite {
-  const kind = column.type === 'datetime' ? 'datetime' : 'date'
+  const kind = dateColumnKind(column)
   const checked = validateDateRangePayload(input, kind)
   if (!checked.ok) {
     if (checked.reason === 'endNotAfterStart') throw badRequest(`${column.name}: end must be after start`)
@@ -179,13 +181,11 @@ export function parseCell(column: ColumnShape, input: unknown): CellWrite | null
       if (variant === 'integer' && !Number.isInteger(numeric)) throw badRequest(`${column.name} must be a whole number`)
       return one({ valueNumber: numeric.toFixed(4) })
     }
-    case 'date': {
-      if (dateRangeEnabled(column)) return parseDateRange(column, input)
-      return parseSingleDate(column, input)
-    }
+    case 'date':
     case 'datetime': {
       if (dateRangeEnabled(column)) return parseDateRange(column, input)
-      return parseSingleDatetime(column, input)
+      if (dateColumnIncludesTime(column)) return parseSingleDatetime(column, input)
+      return parseSingleDate(column, input)
     }
     case 'tags': {
       const values = Array.isArray(input) ? input.map(String) : String(input).split('|').map((part) => part.trim()).filter(Boolean)
@@ -236,7 +236,7 @@ export function readCell(column: ColumnShape, row: Partial<CellWrite> | undefine
   if (column.type === 'date' || column.type === 'datetime') {
     const range = readDateRangeJsonb(row)
     if (range) return range
-    if (column.type === 'datetime') {
+    if (dateColumnIncludesTime(column)) {
       if (row.valueText) return row.valueText
       return row.valueTimestamptz ? new Date(row.valueTimestamptz).toISOString() : null
     }

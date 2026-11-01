@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   Binary,
   CalendarRange,
+  Clock,
   Circle,
   CircleDot,
   Coins,
@@ -40,7 +41,6 @@ export const COLUMN_TYPES = [
   'url',
   'number',
   'date',
-  'datetime',
   'checkbox',
   'select',
   'tags',
@@ -156,6 +156,14 @@ export function buildColumnHeaderMenu(input: {
   }
 
   if (column.type === 'date' || column.type === 'datetime') {
+    const includeTime = column.type === 'datetime' || Boolean(column.config.includeTime)
+    entries.push(
+      action(onSelect, {
+        id: includeTime ? 'include-time-off' : 'include-time-on',
+        label: label(includeTime ? 'dateIncludeTimeOff' : 'dateIncludeTimeOn'),
+        icon: Clock,
+      }),
+    )
     const range = Boolean(column.config.range)
     entries.push(
       action(onSelect, {

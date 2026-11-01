@@ -94,7 +94,7 @@ import {
 } from './grid-ux'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
-import { formatDateCellValue } from '@datavalley/shared'
+import { dateColumnIncludesTime, formatDateCellValue, isDateColumnType } from '@datavalley/shared'
 import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { MediaLibraryDialog } from '../media/media-library-dialog'
@@ -154,7 +154,7 @@ function showCell(value: unknown) {
 }
 
 function displayCellValue(column: Column, value: unknown, language: string) {
-  if (column.type === 'date' || column.type === 'datetime') {
+  if (isDateColumnType(column.type)) {
     return formatDateCellValue(value, column, language)
   }
   return showCell(value)
@@ -169,7 +169,7 @@ function fillable(column: Column) {
 }
 
 function operatorsFor(type: string) {
-  if (['number', 'currency', 'date', 'datetime'].includes(type))
+  if (['number', 'currency', 'date'].includes(type) || type === 'datetime')
     return ['eq', 'gt', 'lt', 'empty', 'not_empty']
   if (type === 'checkbox') return ['eq', 'empty', 'not_empty']
   if (['select', 'radio', 'multi_select', 'relation'].includes(type))
@@ -714,14 +714,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   function cellDraftUnchanged(column: Column, draft: unknown, previous: unknown) {
     if (draft === previous) return true
-    if (column.type === 'media' || column.type === 'date' || column.type === 'datetime') {
+    if (column.type === 'media' || isDateColumnType(column.type)) {
       return JSON.stringify(draft ?? null) === JSON.stringify(previous ?? null)
     }
     return false
   }
 
   function cellDraftLabel(column: Column, value: unknown) {
-    if (column.type === 'date' || column.type === 'datetime') {
+    if (isDateColumnType(column.type)) {
       return formatDateCellValue(value, column, i18n.language)
     }
     return value == null ? '' : String(value)
@@ -1670,6 +1670,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
             void saveConfig(column, { style: id.slice('style-'.length) })
             return
           }
+          if (id === 'include-time-on') {
+            void saveConfig(column, { includeTime: true })
+            return
+          }
+          if (id === 'include-time-off') {
+            void saveConfig(column, { includeTime: false })
+            return
+          }
           if (id === 'range-on') {
             void saveConfig(column, { range: true })
             return
@@ -2137,9 +2145,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
               row.index >= Math.min(fill.from, fill.to) &&
               row.index <= Math.max(fill.from, fill.to),
           )
+          const dateEditing = active && isDateColumnType(column.type)
           return (
             <div
-              className={`relative flex h-9 min-w-0 items-center px-2 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden'} ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
+              className={`relative flex h-9 min-w-0 items-center px-2 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
               style={{
                 color: paintSwatch(ruleStyle.color, 'text'),
                 background: inFill && !picked ? undefined : painted,
@@ -2557,7 +2566,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           }}
                         >
                           <ColumnIcon
-                            name={String(column.config.icon ?? defaultIcon(column.type))}
+                            name={String(column.config.icon ?? defaultIcon(column.type, column.config))}
                           />
                         </button>
                         {renamingColumn === column.id ? (
@@ -2747,10 +2756,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       void reorderRow(payload.slice(4), row.original.id)
                     }}
                   >
-                    {row.getVisibleCells().map((cell) => (
+                    {row.getVisibleCells().map((cell) => {
+                      const bodyColumn = columns.find((item) => item.id === cell.column.id)
+                      const dateCellEditing =
+                        bodyColumn &&
+                        editing === `${row.original.id}:${bodyColumn.id}` &&
+                        isDateColumnType(bodyColumn.type)
+                      return (
                       <td
                         key={cell.id}
-                        className={`relative overflow-hidden ${TABLE_GRID_DIVIDER} p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
+                        className={`relative ${dateCellEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
                       >
                         {dropTarget?.kind === 'column' && dropTarget.id === cell.column.id ? (
                           <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
@@ -2760,7 +2775,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         ) : null}
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
-                    ))}
+                    )})}
                     <td className="border-b border-border" />
                   </tr>
                 )
@@ -2960,10 +2975,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   label: t(filterOperatorKey(op)),
                 }))}
               />
-              {popoverColumn.type === 'date' || popoverColumn.type === 'datetime' ? (
+              {isDateColumnType(popoverColumn.type) ? (
                 <DatePickerField
                   label={t('value')}
-                  kind={popoverColumn.type === 'datetime' ? 'datetime' : 'date'}
+                  kind={dateColumnIncludesTime(popoverColumn) ? 'datetime' : 'date'}
                   language={i18n.language}
                   value={String(filterInput[popoverColumn.id]?.value ?? '')}
                   onChange={(value) => {

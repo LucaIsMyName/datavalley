@@ -10,11 +10,12 @@ type AnchoredLayerProps = {
   role?: string
   popover?: boolean
   tagMenu?: boolean
+  zIndex?: number
   children: ReactNode
 }
 
 export const AnchoredLayer = forwardRef<HTMLDivElement, AnchoredLayerProps>(function AnchoredLayer(
-  { anchor, prefer = 'below', align = 'start', className, role, popover = false, tagMenu = false, children },
+  { anchor, prefer = 'below', align = 'start', className, role, popover = false, tagMenu = false, zIndex = 50, children },
   forwarded,
 ) {
   const localRef = useRef<HTMLDivElement>(null)
@@ -54,7 +55,7 @@ export const AnchoredLayer = forwardRef<HTMLDivElement, AnchoredLayerProps>(func
       data-tag-menu={tagMenu ? '' : undefined}
       style={{
         position: 'fixed',
-        zIndex: 50,
+        zIndex,
         top: pos?.top ?? 0,
         left: pos?.left ?? 0,
         maxHeight: pos?.maxHeight,

@@ -273,6 +273,8 @@
   "rangeEndBeforeStart": "End date must be after start date",
   "dateRangeOn": "Use from–to range",
   "dateRangeOff": "Use single date",
+  "dateIncludeTimeOn": "Include time",
+  "dateIncludeTimeOff": "Date only",
   "columnType": "Column type",
   "type_text": "Text",
   "type_long_text": "Long text",

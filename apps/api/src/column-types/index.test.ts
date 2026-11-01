@@ -31,6 +31,13 @@ describe('column types', () => {
     expect(() => parseCell(mail, 'john')).toThrow(/email/)
   })
 
+  it('stores datetime values on a date column with includeTime', () => {
+    const when: ColumnShape = { id: 'w', name: 'When', type: 'date', config: { includeTime: true } }
+    const stored = parseCell(when, '2026-06-01T12:00:00.000Z')!
+    expect(stored.valueTimestamptz).toBeInstanceOf(Date)
+    expect(readCell(when, stored)).toBe('2026-06-01T12:00:00.000Z')
+  })
+
   it('stores and reads a date range when column config.range is enabled', () => {
     const period: ColumnShape = { id: 'p', name: 'Period', type: 'date', config: { range: true } }
     const stored = parseCell(period, { from: '2026-01-01', to: '2026-01-15' })!

@@ -1,3 +1,5 @@
+import { dateColumnKind } from './column.js'
+
 export type DateColumnKind = 'date' | 'datetime'
 
 export type DateRangeValue = { from: string; to: string }
@@ -45,7 +47,7 @@ export function formatDateCellValue(
   language: string,
 ): string {
   if (value == null || value === '') return ''
-  const kind: DateColumnKind = column.type === 'datetime' ? 'datetime' : 'date'
+  const kind: DateColumnKind = dateColumnKind(column)
   if (isDateRangeValue(value)) {
     const from = formatDateValue(value.from, { kind, locale: language })
     const to = formatDateValue(value.to, { kind, locale: language })

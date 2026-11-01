@@ -273,6 +273,8 @@
   "rangeEndBeforeStart": "Das Enddatum muss nach dem Startdatum liegen",
   "dateRangeOn": "Von–bis-Zeitraum",
   "dateRangeOff": "Einzelnes Datum",
+  "dateIncludeTimeOn": "Mit Uhrzeit",
+  "dateIncludeTimeOff": "Nur Datum",
   "columnType": "Spaltentyp",
   "type_text": "Text",
   "type_long_text": "Langer Text",

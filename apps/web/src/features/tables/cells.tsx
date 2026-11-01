@@ -1,4 +1,4 @@
-import { formatDateCellValue, type DateRangeValue, paintSwatch } from '@datavalley/shared'
+import { formatDateCellValue, isDateColumnType, type DateRangeValue, paintSwatch } from '@datavalley/shared'
 import { DateCellEditor } from '../../components/date-picker-field'
 import { useEffect, useRef, useState } from 'react'
 import { ApiClientError, type CatalogItem, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
@@ -18,7 +18,7 @@ const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 't
 
 export function formatCell(column: Column, value: unknown, language = 'en') {
   if (value == null || value === '') return ''
-  if (column.type === 'date' || column.type === 'datetime') {
+  if (isDateColumnType(column.type)) {
     return formatDateCellValue(value, column, language)
   }
   if (column.type === 'number' || column.type === 'currency') {
@@ -174,17 +174,27 @@ export function CellEditor({
         ? optionLabel ?? text
         : column.type === 'multi_select'
           ? multiLabels
-          : column.type === 'number' || column.type === 'currency' || column.type === 'date' || column.type === 'datetime'
+          : column.type === 'number' || column.type === 'currency' || isDateColumnType(column.type)
             ? formatCell(column, row.cells[column.id], i18n.language)
             : text
+    const openDate = isDateColumnType(column.type)
     return (
       <div className="flex h-full min-w-0 flex-1 items-center gap-1">
         <button
           type="button"
           className="h-9 min-w-0 flex-1 truncate text-left leading-9"
           aria-label={editLabel}
-          onClick={onOpen}
+          onClick={(event) => {
+            if (openDate) {
+              event.preventDefault()
+              event.stopPropagation()
+              onActivate()
+              return
+            }
+            onOpen()
+          }}
           onDoubleClick={(event) => {
+            if (openDate) return
             event.preventDefault()
             onActivate()
           }}
@@ -195,7 +205,7 @@ export function CellEditor({
       </div>
     )
   }
-  if (column.type === 'date' || column.type === 'datetime') return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
+  if (isDateColumnType(column.type)) return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
   if (column.type === 'select' || column.type === 'radio') {
     return <OptionEditor column={column} value={typeof row.cells[column.id] === 'string' ? String(row.cells[column.id]) : ''} onEdit={onEdit} onFlush={onFlush} />
@@ -320,6 +330,7 @@ function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; va
 
 function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: string | DateRangeValue | null, delay?: number) => void; onFlush: () => void }) {
   const { t } = useTranslation()
+  const [calendarOpen, setCalendarOpen] = useState(true)
   const filled = value != null && value !== ''
   function clear() {
     onEdit(null, 0)
@@ -327,12 +338,14 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
   }
   return (
     <div
+      data-date-cell-editor
       className="flex h-full min-w-0 items-center gap-1"
       onBlur={(event) => {
+        if (calendarOpen) return
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush()
       }}
     >
-      <DateCellEditor column={column} value={value} onEdit={onEdit} />
+      <DateCellEditor column={column} value={value} onEdit={onEdit} onCalendarOpenChange={setCalendarOpen} />
       {filled ? (
         <button type="button" aria-label={t('clearCell')} className="shrink-0 text-muted-foreground" onClick={clear}>
           <X className="size-3.5" />
