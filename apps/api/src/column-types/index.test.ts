@@ -44,5 +44,9 @@ describe('column types', () => {
     expect(stored.valueJsonb).toEqual({ from: '2026-01-01', to: '2026-01-15' })
     expect(readCell(period, stored)).toEqual({ from: '2026-01-01', to: '2026-01-15' })
     expect(() => parseCell(period, { from: '2026-01-15', to: '2026-01-01' })).toThrow(/after start/)
+    expect(readCell(period, parseCell(period, { from: '2026-01-15', to: '2026-01-15' })!)).toEqual({
+      from: '2026-01-15',
+      to: '2026-01-15',
+    })
   })
 })

@@ -4,7 +4,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 
 ## Features
 
-- **Projects and tables** — Spreadsheet-style grid with many column types, views, import/export, and optional read-only mirror tables. **Date** columns (optional **time** and **from–to range** via the column menu) show localized values (English/German UI) and use an in-app calendar picker; range mode stores `{ from, to }` per cell (end must be after start). Legacy `datetime` columns still work.
+- **Projects and tables** — Spreadsheet-style grid with many column types, views, import/export, and optional read-only mirror tables. **Date** columns (optional **time** and **from–to range** via the column menu) show localized values (English/German UI) and use an in-app calendar picker; range mode stores `{ from, to }` per cell (the end must not be before the start; a one-day range uses the same day for both). Switching single/range or date/time rewrites existing cells. Legacy `datetime` columns still work.
 - **Formulas** — Per-cell expressions with cross-table references, aggregates, and conditional formatting.
 - **Access control** — Grant-based permissions; admins manage users, API keys, and audit logs.
 - **Media** — Organization file library with table attachments and MIME-validated uploads.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { placeInViewport } from './place-in-viewport.js'
+import { placeInViewport, spaceBeside } from './place-in-viewport.js'
 
 const viewport = { width: 800, height: 600 }
 
@@ -38,5 +38,16 @@ describe('placeInViewport', () => {
       viewport,
     )
     expect(placed.left).toBe(8)
+  })
+
+  it('keeps a tall popover beside the anchor instead of the top of the viewport', () => {
+    const space = spaceBeside(
+      { left: 100, top: 420, right: 220, bottom: 456 },
+      viewport,
+      { prefer: 'below' },
+    )
+    expect(space.prefer).toBe('above')
+    expect(space.maxHeight).toBeLessThanOrEqual(360)
+    expect(space.maxHeight).toBeGreaterThan(120)
   })
 })

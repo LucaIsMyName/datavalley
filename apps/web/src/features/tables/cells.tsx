@@ -65,6 +65,7 @@ export function CellEditor({
   onMediaRequestUpload,
   onMediaUploading,
   onMediaCommit,
+  onDateMode,
 }: {
   column: Column
   row: RowRecord
@@ -86,6 +87,7 @@ export function CellEditor({
   onMediaRequestUpload?: () => void
   onMediaUploading?: boolean
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
+  onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void
 }) {
   const { t, i18n } = useTranslation()
   const editLabel = t('editColumn', { name: column.name })
@@ -205,7 +207,7 @@ export function CellEditor({
       </div>
     )
   }
-  if (isDateColumnType(column.type)) return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} />
+  if (isDateColumnType(column.type)) return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} onDateMode={onDateMode} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
   if (column.type === 'select' || column.type === 'radio') {
     return <OptionEditor column={column} value={typeof row.cells[column.id] === 'string' ? String(row.cells[column.id]) : ''} onEdit={onEdit} onFlush={onFlush} />
@@ -328,7 +330,7 @@ function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; va
   )
 }
 
-function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value: unknown; onEdit: (value: string | DateRangeValue | null, delay?: number) => void; onFlush: () => void }) {
+function DateEditor({ column, value, onEdit, onFlush, onDateMode }: { column: Column; value: unknown; onEdit: (value: string | DateRangeValue | null, delay?: number) => void; onFlush: () => void; onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void }) {
   const { t } = useTranslation()
   const [calendarOpen, setCalendarOpen] = useState(true)
   const filled = value != null && value !== ''
@@ -345,7 +347,7 @@ function DateEditor({ column, value, onEdit, onFlush }: { column: Column; value:
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush()
       }}
     >
-      <DateCellEditor column={column} value={value} onEdit={onEdit} onCalendarOpenChange={setCalendarOpen} />
+      <DateCellEditor column={column} value={value} onEdit={onEdit} onCalendarOpenChange={setCalendarOpen} onMode={onDateMode} />
       {filled ? (
         <button type="button" aria-label={t('clearCell')} className="shrink-0 text-muted-foreground" onClick={clear}>
           <X className="size-3.5" />

@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { placeInViewport, type ViewportAnchor } from '../lib/place-in-viewport'
+import { placeInViewport, spaceBeside, type ViewportAnchor } from '../lib/place-in-viewport'
 
 type AnchoredLayerProps = {
   anchor: ViewportAnchor
@@ -11,11 +11,12 @@ type AnchoredLayerProps = {
   popover?: boolean
   tagMenu?: boolean
   zIndex?: number
+  beside?: boolean
   children: ReactNode
 }
 
 export const AnchoredLayer = forwardRef<HTMLDivElement, AnchoredLayerProps>(function AnchoredLayer(
-  { anchor, prefer = 'below', align = 'start', className, role, popover = false, tagMenu = false, zIndex = 50, children },
+  { anchor, prefer = 'below', align = 'start', className, role, popover = false, tagMenu = false, zIndex = 50, beside = false, children },
   forwarded,
 ) {
   const localRef = useRef<HTMLDivElement>(null)
@@ -32,9 +33,14 @@ export const AnchoredLayer = forwardRef<HTMLDivElement, AnchoredLayerProps>(func
     const place = () => {
       const viewport = { width: window.innerWidth, height: window.innerHeight }
       const margin = 8
-      const maxHeight = Math.max(32, viewport.height - margin * 2)
+      const besideSpace = beside ? spaceBeside(anchor, viewport, { prefer, margin }) : null
+      const maxHeight = besideSpace?.maxHeight ?? Math.max(32, viewport.height - margin * 2)
       const height = Math.min(node.scrollHeight, maxHeight)
-      const placed = placeInViewport(anchor, { width: node.offsetWidth, height }, viewport, { prefer, align, margin })
+      const placed = placeInViewport(anchor, { width: node.offsetWidth, height }, viewport, {
+        prefer: besideSpace?.prefer ?? prefer,
+        align,
+        margin,
+      })
       setPos((current) => {
         if (current && current.top === placed.top && current.left === placed.left && current.maxHeight === maxHeight) return current
         return { top: placed.top, left: placed.left, maxHeight }
@@ -44,7 +50,7 @@ export const AnchoredLayer = forwardRef<HTMLDivElement, AnchoredLayerProps>(func
     const observer = new ResizeObserver(place)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [align, anchor.bottom, anchor.left, anchor.right, anchor.top, prefer])
+  }, [align, anchor.bottom, anchor.left, anchor.right, anchor.top, beside, prefer])
 
   return createPortal(
     <div

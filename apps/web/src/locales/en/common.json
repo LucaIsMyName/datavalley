@@ -271,7 +271,7 @@
   "invalidDate": "This is not a YYYY-MM-DD date",
   "invalidDatetime": "This is not a date and time",
   "invalidDateRange": "Enter a start and end date",
-  "rangeEndBeforeStart": "End date must be after start date",
+  "rangeEndBeforeStart": "End date must not be before the start date",
   "dateRangeOn": "Use from–to range",
   "dateRangeOff": "Use single date",
   "dateIncludeTimeOn": "Include time",

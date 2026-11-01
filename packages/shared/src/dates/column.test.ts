@@ -6,6 +6,7 @@ describe('date column helpers', () => {
     expect(isDateColumnType('datetime')).toBe(true)
     expect(dateColumnIncludesTime({ type: 'datetime', config: {} })).toBe(true)
     expect(dateColumnKind({ type: 'datetime', config: {} })).toBe('datetime')
+    expect(dateColumnIncludesTime({ type: 'datetime', config: { includeTime: false } })).toBe(false)
   })
 
   it('uses includeTime on date columns', () => {

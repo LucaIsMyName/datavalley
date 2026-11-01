@@ -21,6 +21,6 @@ export function validateDateRangePayload(
   if (!isDateRangeValue(input)) return { ok: false, reason: 'invalidShape' }
   const validate = kind === 'date' ? validateDateEnd : validateDatetimeEnd
   if (!validate(input.from) || !validate(input.to)) return { ok: false, reason: 'invalidEnd' }
-  if (compareDateValues(input.from, input.to, kind) >= 0) return { ok: false, reason: 'endNotAfterStart' }
+  if (compareDateValues(input.from, input.to, kind) > 0) return { ok: false, reason: 'endNotAfterStart' }
   return { ok: true, value: { from: input.from.trim(), to: input.to.trim() } }
 }

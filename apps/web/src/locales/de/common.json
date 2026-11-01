@@ -271,7 +271,7 @@
   "invalidDate": "Das ist kein Datum im Format JJJJ-MM-TT",
   "invalidDatetime": "Das ist kein Datum mit Uhrzeit",
   "invalidDateRange": "Start- und Enddatum eingeben",
-  "rangeEndBeforeStart": "Das Enddatum muss nach dem Startdatum liegen",
+  "rangeEndBeforeStart": "Das Enddatum darf nicht vor dem Startdatum liegen",
   "dateRangeOn": "Von–bis-Zeitraum",
   "dateRangeOff": "Einzelnes Datum",
   "dateIncludeTimeOn": "Mit Uhrzeit",

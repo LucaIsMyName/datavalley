@@ -1,6 +1,7 @@
 import type { DateColumnKind } from './format.js'
 
 export function dateColumnIncludesTime(column: { type: string; config?: Record<string, unknown> }): boolean {
+  if (column.config?.includeTime === false) return false
   if (column.type === 'datetime') return true
   if (column.type !== 'date') return false
   return Boolean(column.config?.includeTime)

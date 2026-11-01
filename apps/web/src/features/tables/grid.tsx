@@ -94,7 +94,7 @@ import {
 } from './grid-ux'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
-import { dateColumnIncludesTime, formatDateCellValue, isDateColumnType } from '@datavalley/shared'
+import { dateColumnIncludesTime, formatDateCellValue, isDateColumnType, migrateDateCell } from '@datavalley/shared'
 import { formatFormulaValue } from './formula-help'
 import { COLUMN_ICONS, ColumnIcon, defaultIcon } from './icons'
 import { MediaLibraryDialog } from '../media/media-library-dialog'
@@ -1565,6 +1565,46 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
   beginFillRef.current = beginFill
 
+  async function applyDateMode(column: Column, patch: { range?: boolean; includeTime?: boolean }) {
+    const previous = {
+      range: Boolean(column.config.range),
+      includeTime: dateColumnIncludesTime(column),
+    }
+    const next = {
+      range: patch.range ?? previous.range,
+      includeTime: patch.includeTime ?? previous.includeTime,
+    }
+    if (previous.range === next.range && previous.includeTime === next.includeTime) return
+    const saved = await saveConfig(column, patch)
+    if (!saved) return
+    const collected: RowRecord[] = []
+    let cursor: string | null = null
+    do {
+      const params = new URLSearchParams({ limit: '100' })
+      if (cursor) params.set('cursor', cursor)
+      const page = await api.request<{ rows: RowRecord[]; nextCursor: string | null }>(
+        `/tables/${tableId}/rows?${params}`,
+      )
+      collected.push(...page.rows)
+      cursor = page.nextCursor
+    } while (cursor && collected.length < 5000)
+    const updates: { rowId: string; version: number; cells: Record<string, unknown> }[] = []
+    for (const row of collected) {
+      const current = row.cells[column.id] ?? null
+      if (current == null || current === '') continue
+      const migrated = migrateDateCell(current, next)
+      if (JSON.stringify(migrated) === JSON.stringify(current)) continue
+      updates.push({ rowId: row.id, version: row.version, cells: { [column.id]: migrated } })
+    }
+    for (let index = 0; index < updates.length; index += 500) {
+      await api.request(`/tables/${tableId}/cells/bulk`, {
+        method: 'PATCH',
+        body: JSON.stringify({ updates: updates.slice(index, index + 500) }),
+      })
+    }
+    if (updates.length > 0) await refresh()
+  }
+
   async function saveConfig(column: Column, patch: Record<string, unknown>) {
     const config = { ...column.config, ...patch }
     patchCachedTable(queryClient, tableId, (current) => ({
@@ -1576,9 +1616,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
         method: 'PATCH',
         body: JSON.stringify({ config }),
       })
+      return true
     } catch {
       showEditError(t('error'))
       await refresh()
+      return false
     }
   }
 
@@ -1671,19 +1713,19 @@ export function TableScreen({ tableId }: { tableId: string }) {
             return
           }
           if (id === 'include-time-on') {
-            void saveConfig(column, { includeTime: true })
+            void applyDateMode(column, { includeTime: true })
             return
           }
           if (id === 'include-time-off') {
-            void saveConfig(column, { includeTime: false })
+            void applyDateMode(column, { includeTime: false })
             return
           }
           if (id === 'range-on') {
-            void saveConfig(column, { range: true })
+            void applyDateMode(column, { range: true })
             return
           }
           if (id === 'range-off') {
-            void saveConfig(column, { range: false })
+            void applyDateMode(column, { range: false })
             return
           }
           if (id.startsWith('footer-')) {
@@ -2233,6 +2275,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   onMediaRequestUpload={() => requestMediaUpload(row.original.id, column.id)}
                   onMediaUploading={mediaUploadingKey === `${row.original.id}:${column.id}`}
                   onMediaCommit={(value) => applyMediaCell(row.original, column, value)}
+                  onDateMode={(patch) => void applyDateMode(column, patch)}
                 />
               )}
               {picked && !active && fillable(column) ? (
