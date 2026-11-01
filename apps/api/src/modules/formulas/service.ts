@@ -8,6 +8,7 @@ import {
   LIMITS,
   parseFormula,
   resolveBrackets,
+  matchesCriterion,
   runFormula,
   wholeColumnInMath,
   type AstNode,
@@ -217,8 +218,7 @@ export async function canonicalizeFormatRules(db: AppDatabase, subject: Subject,
 }
 
 function sameValue(left: FormulaValue, right: FormulaValue) {
-  if (left == null && right == null) return true
-  return left === right
+  return matchesCriterion(left, right)
 }
 
 class ValueMap {
@@ -567,6 +567,7 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     }
   }
   const criteria = new Map<string, FormulaValue[]>()
+  const columnTables = new Map<string, string>()
   for (const call of [...callsNamed(ast, 'COUNTIF'), ...callsNamed(ast, 'SUMIF')]) {
     const indexes = call.name === 'SUMIF' ? [0, 2] : [0]
     for (const index of indexes) {
@@ -574,6 +575,7 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
       if (!arg || arg.type !== 'ref' || criteria.has(arg.ref.columnId)) continue
       const column = await map.column(arg.ref.columnId)
       if (!column) continue
+      columnTables.set(column.id, column.tableId)
       criteria.set(arg.ref.columnId, await map.columnSeries(column))
     }
   }
@@ -619,6 +621,11 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     },
     relation: (fromColumnId, toColumnId) => related.get(`${fromColumnId}:${toColumnId}`) ?? { error: '#N/A' },
     column: (ref) => criteria.get(ref.columnId) ?? { error: '#REF' },
+    sumifTablesDiffer: (criteriaRef, numbersRef) => {
+      const left = columnTables.get(criteriaRef.columnId)
+      const right = columnTables.get(numbersRef.columnId)
+      return Boolean(left && right && left !== right)
+    },
     get: (ref) => {
       const key = refKey(ref, rowId)
       if (!values.has(key)) return { error: '#REF' }
@@ -642,6 +649,7 @@ type StampExpansion = {
   labelColumnIds: Set<string>
   statusTableIds: Set<string>
   tagTableIds: Set<string>
+  userColumnIds: Set<string>
   usesClock: boolean
   usesListCriterion: boolean
 }
@@ -651,7 +659,7 @@ function astUsesClock(node: AstNode): boolean {
 }
 
 function astUsesListCriterion(node: AstNode): boolean {
-  return astHasCall(node, (name) => name === 'SUMIF' || name === 'COUNTIF')
+  return astHasCall(node, (name) => name === 'SUMIF' || name === 'COUNTIF' || name === 'LOOKUP')
 }
 
 function astHasCall(node: AstNode, match: (name: string) => boolean): boolean {
@@ -676,6 +684,7 @@ function emptyExpansion(): StampExpansion {
     labelColumnIds: new Set(),
     statusTableIds: new Set(),
     tagTableIds: new Set(),
+    userColumnIds: new Set(),
     usesClock: false,
     usesListCriterion: false,
   }
@@ -685,6 +694,7 @@ function noteLabelColumn(expanded: StampExpansion, column: { id: string; type: s
   if (column.type === 'select' || column.type === 'radio' || column.type === 'multi_select') expanded.labelColumnIds.add(column.id)
   if (column.type === 'status') expanded.statusTableIds.add(column.tableId)
   if (column.type === 'tags') expanded.tagTableIds.add(column.tableId)
+  if (column.type === 'user') expanded.userColumnIds.add(column.id)
 }
 
 async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; rowId: string }[]) {
@@ -796,6 +806,7 @@ function composeVersionHash(
   labelStamps: Map<string, string>,
   statusStamps: Map<string, string>,
   tagStamps: Map<string, string>,
+  userStamp: string,
   day: string,
   updatedAt: string,
 ) {
@@ -804,9 +815,10 @@ function composeVersionHash(
     ...[...expanded.labelColumnIds].sort().map((id) => labelStamps.get(id) ?? ''),
     ...[...expanded.statusTableIds].sort().map((id) => `status:${statusStamps.get(id) ?? ''}`),
     ...[...expanded.tagTableIds].sort().map((id) => `tag:${tagStamps.get(id) ?? ''}`),
+    ...(expanded.userColumnIds.size > 0 ? [`user:${userStamp}`] : []),
   ].join(',')
   const clock = expanded.usesClock ? day : ''
-  const listMatch = expanded.usesListCriterion ? 'list' : ''
+  const listMatch = expanded.usesListCriterion ? 'ci' : ''
   return `${base}|${labels}|${clock}|${listMatch}:${updatedAt}`
 }
 
@@ -821,10 +833,12 @@ async function loadCatalogStamps(db: AppDatabase, expansions: StampExpansion[]) 
   const labelColumnIds = new Set<string>()
   const statusTableIds = new Set<string>()
   const tagTableIds = new Set<string>()
+  let readsUsers = false
   for (const expanded of expansions) {
     for (const id of expanded.labelColumnIds) labelColumnIds.add(id)
     for (const id of expanded.statusTableIds) statusTableIds.add(id)
     for (const id of expanded.tagTableIds) tagTableIds.add(id)
+    if (expanded.userColumnIds.size > 0) readsUsers = true
   }
   const labelStamps = new Map<string, string>()
   if (labelColumnIds.size > 0) {
@@ -870,7 +884,15 @@ async function loadCatalogStamps(db: AppDatabase, expansions: StampExpansion[]) 
     }
     for (const tableId of tagTableIds) tagStamps.set(tableId, (grouped.get(tableId) ?? []).sort().join(','))
   }
-  return { labelStamps, statusStamps, tagStamps }
+  let userStamp = ''
+  if (readsUsers) {
+    const people = await db.select({ id: users.id, username: users.username }).from(users)
+    userStamp = people
+      .map((person) => `${person.id}:${person.username}`)
+      .sort()
+      .join(',')
+  }
+  return { labelStamps, statusStamps, tagStamps, userStamp }
 }
 
 async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
@@ -891,6 +913,7 @@ async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
     catalogs.labelStamps,
     catalogs.statusStamps,
     catalogs.tagStamps,
+    catalogs.userStamp,
     clockDay(),
     '',
   )
@@ -950,7 +973,10 @@ export async function evaluateFormulasForRows(
       : []
   const cacheByKey = new Map(cachedRows.map((row) => [`${row.formulaId}:${row.rowId}:${row.permissionHash}`, row]))
 
-  const { rowVersions, tableStamps, perEntry, labelStamps, statusStamps, tagStamps, day } = await buildStampContext(db, entries)
+  const { rowVersions, tableStamps, perEntry, labelStamps, statusStamps, tagStamps, userStamp, day } = await buildStampContext(
+    db,
+    entries,
+  )
   const stack = options.stack ?? new Set<string>()
   const misses: {
     entry: (typeof formulas.$inferSelect)
@@ -971,6 +997,7 @@ export async function evaluateFormulasForRows(
       labelStamps,
       statusStamps,
       tagStamps,
+      userStamp,
       day,
       entry.updatedAt.toISOString(),
     )

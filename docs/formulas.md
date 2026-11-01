@@ -151,13 +151,13 @@ SUM(FOR([Rechnungen -> Betrag (Netto)], IF(IT > 0, IT, 0)))
 CONTAINS([Tags], "Lead")
 ```
 
-**COUNTIF** counts rows whose first column equals the second argument. The match is exact and case-sensitive. A multi-select, tag, or people cell matches when that label is one of its values.
+**COUNTIF** counts rows whose first column equals the second argument. Text labels match without regard to case. A multi-select, tag, or people cell matches when that label is one of its values.
 
 ```text
 COUNTIF([Rechnungen -> Kostenstelle], "EDV Kosten")
 ```
 
-**SUMIF** adds the third column on rows where the first column equals the second argument. Same match rules as `COUNTIF`, including a multi-select cell that contains the label. The two columns are aligned by row order.
+**SUMIF** adds the third column on rows where the first column equals the second argument. Same match rules as `COUNTIF`, including a multi-select cell that contains the label. The two columns must belong to the same table; a pair from different tables is `#VALUE`.
 
 ```text
 SUMIF([Rechnungen -> Kostenstelle], "EDV Kosten", [Rechnungen -> Betrag (Netto)])
@@ -208,7 +208,7 @@ UPPER([Code])
 
 ### Lookup and links
 
-**LOOKUP** finds the first row where the first column equals the middle value, then returns the third column from that same table. The middle value is usually a column on this row. No match is `#N/A`.
+**LOOKUP** finds the first row where the first column equals the middle value, then returns the third column from that same table. Text labels match without regard to case. The middle value is usually a column on this row. No match is `#N/A`.
 
 ```text
 LOOKUP([People -> Mail], [Email], [People -> Name])
@@ -262,6 +262,6 @@ A column or a single cell can store conditional rules. Each rule is a formula, a
 
 ## Cache and limits
 
-Results are cached per formula cell. The key includes the current row version, versions of referenced rows, and a stamp of each whole column's table (row count, latest change, and the sum of row versions). A formula that reads another formula, on this row or as a whole column, also includes that inner formula's upstream stamps, so a change in a source table refreshes the chain. Select, status, and tag labels are part of the key, so renaming a label refreshes formulas that read them. Formulas that read another table, directly or through another formula, are cached per permission set.
+Results are cached per formula cell. The key includes the current row version, versions of referenced rows, and a stamp of each whole column's table (row count, latest change, and the sum of row versions). A formula that reads another formula, on this row or as a whole column, also includes that inner formula's upstream stamps, so a change in a source table refreshes the chain. Select, status, and tag labels are part of the key, so renaming a label refreshes formulas that read them. A formula that reads a people column also includes each person's display name, so a username change refreshes it. Formulas that read another table, directly or through another formula, are cached per permission set.
 
 Limits are 2,000 characters, AST depth 32, 10,000 steps, dependency depth 16, and 50 milliseconds. `IT` is its own syntax node, not a column name. A bracket range such as `A1:A3` is not evaluated and returns `#REF`.

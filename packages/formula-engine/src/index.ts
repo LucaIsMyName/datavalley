@@ -3,7 +3,7 @@ export type { AstNode, FormulaErrorValue, FormulaScalar, FormulaValue, RefNode }
 export { FormulaLimitError, FormulaSyntaxError, parseFormula } from './parse.js'
 export { bracketRowAsks, displayFormula, resolveBrackets, wholeColumnInMath } from './brackets.js'
 export type { BracketCatalog, BracketColumn, BracketRelation, BracketRow } from './brackets.js'
-export { runFormula } from './eval.js'
+export { matchesCriterion, runFormula } from './eval.js'
 export type { EvalContext } from './eval.js'
 export { conditionBlock, matchesCondition } from './condition.js'
 export type { ConditionBlock } from './condition.js'

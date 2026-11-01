@@ -1,4 +1,6 @@
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
+import { users } from '../database/schema.js'
 import { ApiSession, createHarness, createUser, login } from './harness.js'
 
 const password = 'correct horse battery'
@@ -219,6 +221,123 @@ describe('formula-on-formula cache', () => {
     expect((await session.inject({ method: 'PATCH', url: `/api/v1/columns/${priorityId}/options/${optionId}`, payload: { label: 'Low' } })).statusCode).toBe(200)
     const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
     expect(after.json().rows[0]?.cells[outlookId]).toBe('no')
+    await harness.close()
+  })
+
+  it('matches SUMIF and LOOKUP labels without case and rejects SUMIF across two tables', async () => {
+    const harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Match' } })
+    const projectId = project.json().project.id as string
+
+    const invoices = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Invoices' } })
+    const invoicesId = invoices.json().table.id as string
+    const label = await session.inject({ method: 'POST', url: `/api/v1/tables/${invoicesId}/columns`, payload: { name: 'Label', type: 'text' } })
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${invoicesId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const labelId = label.json().column.id as string
+    const amountId = amount.json().column.id as string
+    await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${invoicesId}/rows`,
+      payload: { cells: { [labelId]: 'EDV Kosten', [amountId]: 12 } },
+    })
+
+    const people = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Directory' } })
+    const peopleId = people.json().table.id as string
+    const name = await session.inject({ method: 'POST', url: `/api/v1/tables/${peopleId}/columns`, payload: { name: 'Name', type: 'text' } })
+    const score = await session.inject({ method: 'POST', url: `/api/v1/tables/${peopleId}/columns`, payload: { name: 'Score', type: 'number' } })
+    await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${peopleId}/rows`,
+      payload: { cells: { [name.json().column.id]: 'Ada', [score.json().column.id]: 7 } },
+    })
+
+    const budget = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Budget' } })
+    const budgetId = budget.json().table.id as string
+    const budgetAmount = await session.inject({ method: 'POST', url: `/api/v1/tables/${budgetId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${budgetId}/rows`,
+      payload: { cells: { [budgetAmount.json().column.id]: 99 } },
+    })
+
+    const board = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Board' } })
+    const boardId = board.json().table.id as string
+    const email = await session.inject({ method: 'POST', url: `/api/v1/tables/${boardId}/columns`, payload: { name: 'Email', type: 'text' } })
+    const total = await session.inject({ method: 'POST', url: `/api/v1/tables/${boardId}/columns`, payload: { name: 'Total', type: 'formula' } })
+    const crossed = await session.inject({ method: 'POST', url: `/api/v1/tables/${boardId}/columns`, payload: { name: 'Crossed', type: 'formula' } })
+    const found = await session.inject({ method: 'POST', url: `/api/v1/tables/${boardId}/columns`, payload: { name: 'Found', type: 'formula' } })
+    await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${boardId}/rows`,
+      payload: { cells: { [email.json().column.id]: 'ada' } },
+    })
+    expect(
+      (await session.inject({
+        method: 'POST',
+        url: `/api/v1/columns/${total.json().column.id}/formula`,
+        payload: { expression: 'SUMIF([Invoices -> Label], "edv kosten", [Invoices -> Amount])' },
+      })).statusCode,
+    ).toBe(200)
+    expect(
+      (await session.inject({
+        method: 'POST',
+        url: `/api/v1/columns/${crossed.json().column.id}/formula`,
+        payload: { expression: 'SUMIF([Invoices -> Label], "edv kosten", [Budget -> Amount])' },
+      })).statusCode,
+    ).toBe(200)
+    expect(
+      (await session.inject({
+        method: 'POST',
+        url: `/api/v1/columns/${found.json().column.id}/formula`,
+        payload: { expression: 'LOOKUP([Directory -> Name], [Email], [Directory -> Score])' },
+      })).statusCode,
+    ).toBe(200)
+
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${boardId}/rows` })
+    const cells = listed.json().rows[0]?.cells as Record<string, unknown>
+    expect(cells[total.json().column.id]).toBe(12)
+    expect(cells[crossed.json().column.id]).toEqual({ error: '#VALUE' })
+    expect(cells[found.json().column.id]).toBe(7)
+    await harness.close()
+  })
+
+  it('recomputes a people formula when a username changes', async () => {
+    const harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+    const me = await session.inject({ method: 'GET', url: '/api/v1/auth/me' })
+    const userId = me.json().user.id as string
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'People stamp' } })
+    const projectId = project.json().project.id as string
+    const table = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Sheet' } })
+    const tableId = table.json().table.id as string
+    const owner = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Owner', type: 'user' } })
+    const ownerId = owner.json().column.id as string
+    const shown = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Shown', type: 'formula' } })
+    const shownId = shown.json().column.id as string
+    await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [ownerId]: [userId] } } })
+    expect((await session.inject({ method: 'POST', url: `/api/v1/columns/${shownId}/formula`, payload: { expression: '[Owner]' } })).statusCode).toBe(200)
+    const warm = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    expect(warm.json().rows[0]?.cells[shownId]).toEqual(['ada'])
+    const cached = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    expect(cached.json().rows[0]?.cells[shownId]).toEqual(['ada'])
+    await harness.db.update(users).set({ username: 'ada2' }).where(eq(users.id, userId))
+    const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
+    expect(after.json().rows[0]?.cells[shownId]).toEqual(['ada2'])
     await harness.close()
   })
 })

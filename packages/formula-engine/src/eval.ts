@@ -21,6 +21,8 @@ export type EvalContext = {
   ) => FormulaValue
   relation?: (fromColumnId: string, toColumnId: string) => FormulaValue
   column?: (ref: RefNode) => FormulaValue
+  /** True when a SUMIF criteria column and numbers column are not the same table. */
+  sumifTablesDiffer?: (criteria: RefNode, numbers: RefNode) => boolean
   item?: FormulaValue
   /** When set, a missing item is a blank cell. Normal formulas leave this unset, so `IT` stays `#VALUE`. */
   blankItem?: boolean
@@ -239,10 +241,11 @@ function compare(op: string, left: FormulaValue, right: FormulaValue): FormulaVa
 function valuesEqual(left: FormulaValue, right: FormulaValue) {
   if (isFormulaError(left) || isFormulaError(right) || Array.isArray(left) || Array.isArray(right)) return false
   if (left == null && right == null) return true
+  if (typeof left === 'string' && typeof right === 'string') return left.toLowerCase() === right.toLowerCase()
   return left === right
 }
 
-function matchesCriterion(item: FormulaValue, condition: FormulaValue) {
+export function matchesCriterion(item: FormulaValue, condition: FormulaValue) {
   if (valuesEqual(item, condition)) return true
   if (!Array.isArray(item) || Array.isArray(condition) || isFormulaError(condition)) return false
   return item.some((entry) => valuesEqual(entry, condition))
@@ -365,6 +368,13 @@ function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number
     }
     if (name === 'SUMIF') {
       if (args.length !== 3) return err('#VALUE')
+      if (
+        args[0]?.type === 'ref' &&
+        args[2]?.type === 'ref' &&
+        ctx.sumifTablesDiffer?.(args[0].ref, args[2].ref)
+      ) {
+        return err('#VALUE')
+      }
       const list = columnValue(args[0], ctx, depth)
       const condition = evaluate(args[1], ctx, depth)
       const numbers = columnValue(args[2], ctx, depth)

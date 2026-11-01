@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { collectRefs, conditionBlock, matchesCondition, parseFormula, runFormula, canonicalize, displayFormula, resolveBrackets, wholeColumnInMath } from './index.js'
+import { collectRefs, conditionBlock, matchesCondition, matchesCriterion, parseFormula, runFormula, canonicalize, displayFormula, resolveBrackets, wholeColumnInMath } from './index.js'
 import type { BracketCatalog, EvalContext, FormulaValue, RefNode } from './index.js'
 
 const column = '11111111-1111-4111-8111-111111111111'
@@ -135,6 +135,14 @@ describe('formula engine', () => {
     expect(run(`SUMIF({${column}}, "Open", {${other}})`, { [column]: ['Open', 'Done'], [other]: [4, 9] })).toBe(4)
     expect(run(`SUMIF({${column}}, "Open", {${other}})`, { [column]: [['Open', 'Later'], ['Done']], [other]: [4, 9] })).toBe(4)
     expect(run(`COUNTIF({${column}}, "Open")`, { [column]: [['Open'], ['Done'], ['Open', 'Later']] })).toBe(2)
+    expect(run(`COUNTIF({${column}}, "open")`, { [column]: ['Open', 'Done'] })).toBe(1)
+    expect(run(`SUMIF({${column}}, "open", {${other}})`, { [column]: [['EDV Kosten'], ['Other']], [other]: [4, 9] })).toBe(0)
+    expect(run(`SUMIF({${column}}, "edv kosten", {${other}})`, { [column]: [['EDV Kosten'], ['Other']], [other]: [4, 9] })).toBe(4)
+    expect(run(`SUMIF({${column}}, "Open", {${other}})`, { [column]: ['Open'], [other]: [4] }, { sumifTablesDiffer: () => true })).toEqual({ error: '#VALUE' })
+    expect(matchesCriterion('Open', 'open')).toBe(true)
+    expect(matchesCriterion(['Lead', 'EDV Kosten'], 'edv kosten')).toBe(true)
+    expect(matchesCriterion(4, 4)).toBe(true)
+    expect(matchesCriterion(4, '4')).toBe(false)
     expect(run('ISBLANK("")')).toBe(true)
   })
 
