@@ -22,21 +22,22 @@ function route<Exports extends Record<string, unknown>>(
   return lazyRoute(load, name, fallback)
 }
 
-const pages = () => import('../features/pages')
+const authPages = () => import('../features/auth/pages')
+const homePages = () => import('../features/home/pages')
 const docsLayout = () => import('../features/docs/layout')
 const settingsLayout = () => import('../features/settings/layout')
 
-const LoginPage = route(pages, 'LoginPage', screenFallback)
-const ForgotPasswordPage = route(pages, 'ForgotPasswordPage', screenFallback)
-const ResetPasswordPage = route(pages, 'ResetPasswordPage', screenFallback)
-const ChangePasswordPage = route(pages, 'ChangePasswordPage', screenFallback)
+const LoginPage = route(authPages, 'LoginPage', screenFallback)
+const ForgotPasswordPage = route(authPages, 'ForgotPasswordPage', screenFallback)
+const ResetPasswordPage = route(authPages, 'ResetPasswordPage', screenFallback)
+const ChangePasswordPage = route(authPages, 'ChangePasswordPage', screenFallback)
 const AppShell = route(() => import('../layouts/app-shell'), 'AppShell', screenFallback)
-const DashboardPage = route(pages, 'DashboardPage')
-const ProjectsPage = route(pages, 'ProjectsPage')
-const ProjectPage = route(pages, 'ProjectPage')
+const DashboardPage = route(homePages, 'DashboardPage')
+const ProjectsPage = route(() => import('../features/projects/projects-page'), 'ProjectsPage')
+const ProjectPage = route(() => import('../features/projects/project-page'), 'ProjectPage')
 const TablePage = route(() => import('../features/tables/page'), 'TablePage')
-const RecentPage = route(pages, 'RecentPage')
-const FavoritesPage = route(pages, 'FavoritesPage')
+const RecentPage = route(homePages, 'RecentPage')
+const FavoritesPage = route(homePages, 'FavoritesPage')
 const DocsLayout = route(docsLayout, 'DocsLayout')
 const DocsIndexRedirect = route(docsLayout, 'DocsIndexRedirect')
 const SettingsLayout = route(settingsLayout, 'SettingsLayout')
@@ -46,12 +47,15 @@ const DeveloperGuidePage = route(
   'DeveloperGuidePage',
 )
 const ApiReferencePage = route(() => import('../features/docs/api-page'), 'ApiReferencePage')
-const IntegrationsPage = route(pages, 'IntegrationsPage')
+const IntegrationsPage = route(
+  () => import('../features/integrations/integrations-page'),
+  'IntegrationsPage',
+)
 const MediaPage = route(() => import('../features/media/page'), 'MediaPage')
-const ProfilePage = route(pages, 'ProfilePage')
-const UsersPage = route(pages, 'UsersPage')
-const ApiKeysPage = route(pages, 'ApiKeysPage')
-const AuditPage = route(pages, 'AuditPage')
+const ProfilePage = route(() => import('../features/settings/profile-page'), 'ProfilePage')
+const UsersPage = route(() => import('../features/settings/admin-pages'), 'UsersPage')
+const ApiKeysPage = route(() => import('../features/settings/admin-pages'), 'ApiKeysPage')
+const AuditPage = route(() => import('../features/settings/admin-pages'), 'AuditPage')
 
 function RequireAuth() {
   const user = useSession((state) => state.user)
