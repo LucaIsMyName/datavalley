@@ -20,7 +20,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
 
   app.post('/auth/login', { schema: { body: loginBody, response: { 200: TypeUserLogin() } }, config: { rateLimit: { max: env.LOGIN_RATE_LIMIT_MAX, timeWindow: '15 minutes' } } }, async (request, reply) => {
-    const body = request.body as { login: string; password: string; totpCode?: string }
+    const body = request.body as { login: string; password: string; totpCode?: string; recoveryCode?: string }
     const result = await login(db, env, body, { ip: request.ip, userAgent: request.headers['user-agent'] })
     reply.setCookie(SESSION_COOKIE, result.token, {
       httpOnly: true,

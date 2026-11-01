@@ -4,6 +4,7 @@ export const loginBody = Type.Object({
   login: Type.String({ minLength: 1 }),
   password: Type.String({ minLength: 1 }),
   totpCode: Type.Optional(Type.String()),
+  recoveryCode: Type.Optional(Type.String({ minLength: 6 })),
 })
 
 export const forgotPasswordBody = Type.Object({

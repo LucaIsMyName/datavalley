@@ -42,10 +42,13 @@ export function LoginPage() {
   const setUser = useSession((state) => state.setUser)
   const [error, setError] = useState('')
   const [totp, setTotp] = useState(false)
+  const [useRecovery, setUseRecovery] = useState(false)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
+    const totpCode = useRecovery ? undefined : (data.get('totp') as string) || undefined
+    const recoveryCode = useRecovery ? (data.get('recovery') as string) || undefined : undefined
     try {
       await api.ensureCsrf()
       const result = await api.request<{ user: User; mustChangePassword: boolean }>('/auth/login', {
@@ -53,7 +56,8 @@ export function LoginPage() {
         body: JSON.stringify({
           login: data.get('login'),
           password: data.get('password'),
-          totpCode: data.get('totp') || undefined,
+          totpCode,
+          recoveryCode,
         }),
       })
       setUser(result.user)
@@ -81,8 +85,27 @@ export function LoginPage() {
           <Input id="password" name="password" type="password" autoComplete="current-password" required />
           {totp ? (
             <>
-              <Label htmlFor="totp">{t('confirmCode')}</Label>
-              <Input id="totp" name="totp" inputMode="numeric" autoComplete="one-time-code" required />
+              {useRecovery ? (
+                <>
+                  <Label htmlFor="recovery">{t('recoveryCode')}</Label>
+                  <Input id="recovery" name="recovery" autoComplete="off" required />
+                </>
+              ) : (
+                <>
+                  <Label htmlFor="totp">{t('confirmCode')}</Label>
+                  <Input id="totp" name="totp" inputMode="numeric" autoComplete="one-time-code" required />
+                </>
+              )}
+              <button
+                type="button"
+                className="text-left text-sm underline"
+                onClick={() => {
+                  setUseRecovery((value) => !value)
+                  setError('')
+                }}
+              >
+                {useRecovery ? t('useAuthenticatorCode') : t('useRecoveryCode')}
+              </button>
             </>
           ) : null}
           {error ? <p role="alert" className="min-h-5 text-sm text-danger">{error}</p> : <p className="min-h-5" />}

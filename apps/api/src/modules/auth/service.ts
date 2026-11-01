@@ -1,9 +1,9 @@
-import { and, eq, gt, or } from 'drizzle-orm'
+import { and, eq, gt, isNull, or } from 'drizzle-orm'
 import * as OTPAuth from 'otpauth'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { loginAttempts, passwordResetTokens, sessions, userTotp, users } from '../../database/schema.js'
-import { AppError, unauthorized } from '../../errors.js'
+import { loginAttempts, passwordResetTokens, recoveryCodes, sessions, userTotp, users } from '../../database/schema.js'
+import { AppError, badRequest, unauthorized } from '../../errors.js'
 import { sendMail } from '../../mail/smtp.js'
 import { writeAudit } from '../../security/audit.js'
 import { decryptString } from '../../security/crypto.js'
@@ -41,14 +41,61 @@ export async function findUserByLogin(db: AppDatabase, login: string) {
 
 const LOCK_WINDOW_MS = 15 * 60 * 1000
 const IP_FAILURE_LIMIT = 40
+const TOTP_FAILURE_LIMIT = 10
 
 async function failureCount(db: AppDatabase, username: string) {
   const since = new Date(Date.now() - LOCK_WINDOW_MS)
   const rows = await db
     .select({ id: loginAttempts.id })
     .from(loginAttempts)
-    .where(and(eq(loginAttempts.username, username), eq(loginAttempts.success, false), gt(loginAttempts.createdAt, since)))
+    .where(
+      and(
+        eq(loginAttempts.username, username),
+        eq(loginAttempts.success, false),
+        eq(loginAttempts.phase, 'password'),
+        gt(loginAttempts.createdAt, since),
+      ),
+    )
   return rows.length
+}
+
+async function totpFailureCount(db: AppDatabase, username: string) {
+  const since = new Date(Date.now() - LOCK_WINDOW_MS)
+  const rows = await db
+    .select({ id: loginAttempts.id })
+    .from(loginAttempts)
+    .where(
+      and(
+        eq(loginAttempts.username, username),
+        eq(loginAttempts.success, false),
+        eq(loginAttempts.phase, 'totp'),
+        gt(loginAttempts.createdAt, since),
+      ),
+    )
+  return rows.length
+}
+
+async function recordTotpFailure(db: AppDatabase, username: string, ip: string | undefined) {
+  await db.insert(loginAttempts).values({ username, ip, success: false, phase: 'totp' })
+}
+
+async function assertTotpAllowed(db: AppDatabase, username: string) {
+  if ((await totpFailureCount(db, username)) >= TOTP_FAILURE_LIMIT) {
+    throw new AppError(429, 'locked', 'Too many two-factor attempts')
+  }
+}
+
+async function consumeRecoveryCode(db: AppDatabase, userId: string, rawCode: string) {
+  const code = rawCode.trim()
+  if (!code) return false
+  const [row] = await db
+    .select()
+    .from(recoveryCodes)
+    .where(and(eq(recoveryCodes.userId, userId), eq(recoveryCodes.codeHash, sha256(code)), isNull(recoveryCodes.usedAt)))
+    .limit(1)
+  if (!row) return false
+  await db.update(recoveryCodes).set({ usedAt: new Date() }).where(eq(recoveryCodes.id, row.id))
+  return true
 }
 
 async function ipFailureCount(db: AppDatabase, ip: string | undefined) {
@@ -64,7 +111,7 @@ async function ipFailureCount(db: AppDatabase, ip: string | undefined) {
 export async function login(
   db: AppDatabase,
   env: Env,
-  input: { login: string; password: string; totpCode?: string },
+  input: { login: string; password: string; totpCode?: string; recoveryCode?: string },
   meta: { ip?: string; userAgent?: string },
 ) {
   const key = input.login.trim().toLowerCase()
@@ -83,7 +130,7 @@ export async function login(
   const user = await findUserByLogin(db, key)
   const valid = Boolean(user && !user.disabledAt && (await verifyPassword(user.passwordHash, input.password)))
   if (!user || !valid) {
-    await db.insert(loginAttempts).values({ username: key, ip: meta.ip, success: false })
+    await db.insert(loginAttempts).values({ username: key, ip: meta.ip, success: false, phase: 'password' })
     await writeAudit(db, null, {
       action: 'auth.login.failure',
       resourceType: 'user',
@@ -94,20 +141,44 @@ export async function login(
   }
   const [totp] = await db.select().from(userTotp).where(eq(userTotp.userId, user.id)).limit(1)
   if (totp?.enabled) {
-    if (!input.totpCode) throw new AppError(401, 'totp_required', 'Two-factor code required')
-    const secret = decryptString(env.CREDENTIALS_KEY, totp.secretEncrypted)
-    const generator = new OTPAuth.TOTP({
-      issuer: 'Datavalley',
-      label: user.email,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: OTPAuth.Secret.fromBase32(secret),
-    })
-    const delta = generator.validate({ token: input.totpCode, window: 1 })
-    if (delta === null) throw unauthorized('Invalid two-factor code')
+    if (input.totpCode && input.recoveryCode) {
+      throw badRequest('Send either a two-factor code or a recovery code, not both')
+    }
+    if (input.recoveryCode) {
+      await assertTotpAllowed(db, key)
+      const consumed = await consumeRecoveryCode(db, user.id, input.recoveryCode)
+      if (!consumed) {
+        await recordTotpFailure(db, key, meta.ip)
+        throw unauthorized('Invalid two-factor code')
+      }
+      await writeAudit(db, null, {
+        action: 'auth.login.recovery',
+        resourceType: 'user',
+        resourceId: user.id,
+        metadata: { username: key },
+        ip: meta.ip,
+      })
+    } else if (input.totpCode) {
+      await assertTotpAllowed(db, key)
+      const secret = decryptString(env.CREDENTIALS_KEY, totp.secretEncrypted)
+      const generator = new OTPAuth.TOTP({
+        issuer: 'Datavalley',
+        label: user.email,
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secret),
+      })
+      const delta = generator.validate({ token: input.totpCode, window: 1 })
+      if (delta === null) {
+        await recordTotpFailure(db, key, meta.ip)
+        throw unauthorized('Invalid two-factor code')
+      }
+    } else {
+      throw new AppError(401, 'totp_required', 'Two-factor code required')
+    }
   }
-  await db.insert(loginAttempts).values({ username: key, ip: meta.ip, success: true })
+  await db.insert(loginAttempts).values({ username: key, ip: meta.ip, success: true, phase: 'password' })
   const token = randomToken()
   const now = new Date()
   await db.insert(sessions).values({

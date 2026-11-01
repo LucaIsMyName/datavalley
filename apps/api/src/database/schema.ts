@@ -64,6 +64,7 @@ export const loginAttempts = pgTable('login_attempts', {
   username: text('username').notNull(),
   ip: text('ip'),
   success: boolean('success').notNull(),
+  phase: text('phase').notNull().default('password'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
