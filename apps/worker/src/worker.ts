@@ -27,11 +27,11 @@ const worker = new Worker(
     const jobsModule = '../../api/src/jobs/process.ts'
     const { createDatabase } = await import(databaseModule)
     const { loadEnv } = await import(envModule)
-    const { runJob } = await import(jobsModule)
+    const { dispatchBackgroundJob } = await import(jobsModule)
     const env = loadEnv()
     const database = await createDatabase(env)
     try {
-      await runJob(database.db, String(job.data.jobId), async (payload: unknown) => payload)
+      await dispatchBackgroundJob(database.db, env, String(job.data.jobId))
     } finally {
       await database.close()
     }
@@ -39,8 +39,17 @@ const worker = new Worker(
   { connection },
 )
 
-worker.on('ready', () => {
+worker.on('ready', async () => {
   console.log('worker ready')
+  const envModule = '../../api/src/config/env.ts'
+  const databaseModule = '../../api/src/database/client.ts'
+  const schedulerModule = './scheduler.ts'
+  const { loadEnv } = await import(envModule)
+  const { createDatabase } = await import(databaseModule)
+  const { startConnectorScheduler } = await import(schedulerModule)
+  const env = loadEnv()
+  const database = await createDatabase(env)
+  startConnectorScheduler(env, database.db)
 })
 
 const shutdown = async () => {

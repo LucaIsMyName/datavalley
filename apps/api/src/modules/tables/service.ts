@@ -188,7 +188,7 @@ export function positionBetween(items: { id: string; position: string }[], befor
   return generateKeyBetween(items.at(-1)?.position ?? null, null)
 }
 
-async function nextTableName(db: AppDatabase, projectId: string) {
+export async function nextTableName(db: AppDatabase, projectId: string) {
   const existing = await db.select({ name: tables.name }).from(tables).where(eq(tables.projectId, projectId))
   const taken = new Set(existing.map((row) => row.name))
   if (!taken.has('Untitled')) return 'Untitled'

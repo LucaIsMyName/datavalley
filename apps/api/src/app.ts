@@ -18,6 +18,7 @@ import { passwordChangeGate, registerAuthRoutes, sessionCookie } from './modules
 import { registerDataRoutes } from './modules/data/routes.js'
 import { subjectFromSession } from './modules/auth/service.js'
 import { ensurePlugins, subjectFromApiKey } from './modules/platform/service.js'
+import { registerConnectorRoutes, registerProjectConnectorRoutes } from './modules/connectors/routes.js'
 import { registerProjectRoutes } from './modules/projects/routes.js'
 import { registerSearchRoutes } from './modules/search/routes.js'
 import { registerUserRoutes } from './modules/users/routes.js'
@@ -112,6 +113,8 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       registerAuthRoutes(api, db, env)
       registerUserRoutes(api, db, env)
       registerProjectRoutes(api, db)
+      registerProjectConnectorRoutes(api, db, env)
+      registerConnectorRoutes(api, db, env)
       registerSearchRoutes(api, db)
       registerDataRoutes(api, db, env)
     },

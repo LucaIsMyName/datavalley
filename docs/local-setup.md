@@ -7,7 +7,7 @@ Datavalley runs as Node processes. Docker is not required.
 - Node.js 22
 - npm 10
 - PostgreSQL 16 for production and shared development
-- Redis 7 when you want the background worker
+- Redis 7 when you want the background worker (required for scheduled connector sync; without Redis, manual sync runs inline in the API process)
 
 For a single-machine trial, `DATABASE_URL=pglite:./data/pglite` uses embedded Postgres. A relative path is resolved from the repository root, including when the API starts from `apps/api`. Use a real PostgreSQL server for any shared or production database.
 

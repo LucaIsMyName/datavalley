@@ -33,6 +33,7 @@ import { openRegisteredTableMenu } from './tables/table-menu'
 import { deleteTableInProject } from './tables/table-delete'
 import { TableToolbarProvider, TableToolbarRow } from './tables/table-toolbar'
 import { api } from '../lib/api'
+import { DataConnectorsSection } from './integrations/connectors-section'
 import { formatDateTime } from '../lib/format'
 import { sync } from '../lib/sync'
 import { toast } from 'sonner'
@@ -539,7 +540,9 @@ export function ProjectPage() {
   const [dropMember, setDropMember] = useState<{ userId: string; username: string } | null>(null)
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const [creatingTable, setCreatingTable] = useState(false)
-  const [tableKind, setTableKind] = useState<'blank' | 'demo' | 'csv' | 'mirror'>('blank')
+  const [tableKind, setTableKind] = useState<'blank' | 'demo' | 'csv' | 'mirror' | 'connector'>('blank')
+  const [connectorPickId, setConnectorPickId] = useState('')
+  const [connectorTableName, setConnectorTableName] = useState('')
   const [mirrorProjectId, setMirrorProjectId] = useState('')
   const [mirrorSourceTableId, setMirrorSourceTableId] = useState('')
   const [mirrorDisplayName, setMirrorDisplayName] = useState('')
@@ -560,6 +563,11 @@ export function ProjectPage() {
     queryKey: ['tables', mirrorProjectId, 'mirror-pick'],
     enabled: creatingTable && tableKind === 'mirror' && Boolean(mirrorProjectId),
     queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${mirrorProjectId}/tables`),
+  })
+  const projectConnectors = useQuery({
+    queryKey: ['connectors', projectId],
+    enabled: creatingTable && tableKind === 'connector',
+    queryFn: () => api.request<{ connectors: { id: string; name: string }[] }>(`/connectors?projectId=${encodeURIComponent(projectId)}`),
   })
   const members = useQuery({
     queryKey: ['members', projectId],
@@ -686,6 +694,21 @@ export function ProjectPage() {
         setMirrorProjectId('')
         setMirrorSourceTableId('')
         setMirrorDisplayName('')
+        await openCreatedTable(created.table, false)
+        return
+      }
+      if (tableKind === 'connector') {
+        if (!connectorPickId) throw new Error(t('chooseConnector'))
+        const payload: { connectorId: string; name?: string } = { connectorId: connectorPickId }
+        const label = connectorTableName.trim()
+        if (label) payload.name = label
+        const created = await api.request<{ table: TableRecord }>(`/projects/${projectId}/tables/from-connector`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setCreatingTable(false)
+        setConnectorPickId('')
+        setConnectorTableName('')
         await openCreatedTable(created.table, false)
         return
       }
@@ -1117,6 +1140,7 @@ export function ProjectPage() {
                     ['demo', 'demoTable'],
                     ['csv', 'importCsv'],
                     ['mirror', 'syncedTable'],
+                    ['connector', 'fromConnector'],
                   ] as const).map(([value, key]) => (
                     <label key={value} htmlFor={`table-kind-${value}`} className="flex cursor-pointer items-center gap-2 text-sm">
                       <RadioGroupItem value={value} id={`table-kind-${value}`} />
@@ -1153,6 +1177,30 @@ export function ProjectPage() {
                     />
                     {t('csvHasHeader')}
                   </label>
+                </>
+              ) : null}
+              {tableKind === 'connector' ? (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="connector-pick">{t('chooseConnector')}</Label>
+                    <Select value={connectorPickId || undefined} onValueChange={setConnectorPickId}>
+                      <SelectTrigger id="connector-pick" aria-label={t('chooseConnector')} />
+                      <SelectContent>
+                        {(projectConnectors.data?.connectors ?? []).map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <input
+                    aria-label={t('tableName')}
+                    className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    value={connectorTableName}
+                    onChange={(event) => setConnectorTableName(event.target.value)}
+                    placeholder={t('tableNameOptional')}
+                  />
                 </>
               ) : null}
               {tableKind === 'mirror' ? (
@@ -1323,6 +1371,8 @@ export function IntegrationsPage() {
   })
   return (
     <Page title={t('integrations')}>
+      <DataConnectorsSection />
+      <h2 className="mb-3 mt-8 text-sm font-semibold">{t('builtinPlugins')}</h2>
       {plugins.isLoading ? <LoadingBlock /> : null}
       {plugins.isError ? <ErrorState message={(plugins.error as Error).message} /> : null}
       {plugins.data && plugins.data.plugins.length === 0 ? <EmptyState title={t('emptyIntegrations')} body={t('emptyIntegrations')} /> : null}

@@ -383,6 +383,63 @@ export const integrationSyncJobs = pgTable('integration_sync_jobs', {
   finishedAt: timestamp('finished_at', { withTimezone: true }),
 })
 
+export const dataConnectors = pgTable('data_connectors', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  icon: text('icon').notNull().default('Globe'),
+  enabled: boolean('enabled').notNull().default(true),
+  source: jsonb('source').notNull().default({}),
+  auth: jsonb('auth').notNull().default({ type: 'none' }),
+  format: text('format').notNull(),
+  parse: jsonb('parse').notNull().default({ version: 1, fields: [] }),
+  schedule: jsonb('schedule').notNull().default({ preset: 'manual', timezone: 'UTC' }),
+  retention: jsonb('retention').notNull().default({ mode: 'forever' }),
+  authSecretEncrypted: text('auth_secret_encrypted'),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+})
+
+export const tableConnectorBindings = pgTable(
+  'table_connector_bindings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    connectorId: uuid('connector_id').notNull().references(() => dataConnectors.id, { onDelete: 'cascade' }),
+    columnMap: jsonb('column_map').notNull().default({}),
+    syncMode: text('sync_mode').notNull().default('upsert'),
+    lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+    lastSyncStatus: text('last_sync_status'),
+    lastError: text('last_error'),
+    ...timestamps,
+  },
+  (table) => [uniqueIndex('table_connector_bindings_table_idx').on(table.tableId)],
+)
+
+export const connectorRowLinks = pgTable(
+  'connector_row_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    externalKey: text('external_key').notNull(),
+    rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('connector_row_links_table_key_idx').on(table.tableId, table.externalKey)],
+)
+
+export const connectorSyncJobs = pgTable('connector_sync_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  connectorId: uuid('connector_id').notNull().references(() => dataConnectors.id, { onDelete: 'cascade' }),
+  tableId: uuid('table_id').references(() => tables.id, { onDelete: 'set null' }),
+  status: text('status').notNull(),
+  error: text('error'),
+  stats: jsonb('stats').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+})
+
 export const notifications = pgTable('notifications', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

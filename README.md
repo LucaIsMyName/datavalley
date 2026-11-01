@@ -8,7 +8,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 - **Formulas** — Per-cell expressions with cross-table references, aggregates, and conditional formatting.
 - **Access control** — Grant-based permissions; admins manage users, API keys, and audit logs.
 - **Media** — Organization file library with table attachments and MIME-validated uploads.
-- **Integrations** — Plugin system (CSV, optional Google Sheets, webhooks). Background worker for isolated plugin jobs when Redis is configured.
+- **Integrations** — Built-in plugins (CSV, optional Google Sheets) plus user-defined HTTP data connectors (JSON/CSV/XML/HTML). Background worker runs sync jobs and schedules when Redis is configured. See [docs/connectors.md](docs/connectors.md).
 
 ## Repository layout
 
