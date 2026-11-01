@@ -1,34 +1,32 @@
 # Datavalley
 
-Self-hosted CRM for projects, dynamic tables, formulas, and integrations.
+Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and integrations. The API is the source of truth; the web app talks to it at `/api/v1`.
 
-The API is the source of truth. The web app talks to it through `/api/v1`. Each screen loads when you open it, and the table grid loads with that table. The dashboard and Projects page show how many tables each project has and when it was last edited. Recent items for a table show as `Project > Table`. Accounts are created by an administrator. Data is private until a grant allows access. The header shows a breadcrumb trail beside search and notifications on nested routes; top-level sidebar pages omit the trail. When the trail is wider than the bar, the earlier crumbs collapse into a menu. Search finds projects, tables, columns, rows, pages, favorites, and integrations. Opening a column, row, or cell jumps to that table and highlights the target briefly, without filtering the grid. On a phone the sidebar becomes a menu, search opens from a magnifying glass, and the breadcrumb trail shortens to fit. Press Command-K or Ctrl-K to focus search.
+## Features
 
-Signed-in documentation is at `/doc/use` (user guide), `/doc/develop` (developer guide), and `/doc/api` (API reference generated from OpenAPI). `/doc` opens the user guide. Interactive Swagger UI is at `/docs` on the API in development; production serves the OpenAPI spec for the in-app reference but not the Swagger UI page. The Media page lists organization files you may access, shows where each file is attached in tables, and links into the grid from the preview drawer. Uploads from the library or from a table cell store PNG, JPEG, GIF, WebP, SVG, PDF, or plain text with MIME sniffing. A media column holds up to twenty file ids per cell; use Upload or Library in the cell editor to add files, including reusing existing library files in a modal. Formulas treat media as empty. Downloads follow the same rules as the library list. Set `REDIS_URL` when running more than one API process so API-key rate limits stay consistent. Only an administrator can create a project. A new project starts with a People table: Name, Mail, and one sample row. In the members dialog, a member can be removed or suspended for that project, and the last administrator cannot. A project opens as one workspace: its name saves as you type, and the description opens from the info icon beside members and saves the same way. The star beside it saves the project to favorites. Each table is a tab sized to its name, truncating past a maximum. Drag a tab to change its order. A line shows the gap where it will land. New table is the last tab and can start blank, with demo rows, from a CSV, or as a synced view that mirrors another table you can access (read-only data with a local name). The table toolbar between the tabs and the grid includes a lock toggle on editable tables; a locked table blocks data and structure changes until someone unlocks it. The active tab's name saves the same way. Projects and tables start with an icon you can change. On a phone the table scrolls sideways, the row gutter stays put, and a long-press opens the same menu as a right-click. Insert a row or column from the grid, sort and filter from the column header, and right-click for the action that belongs to that spot. Hovering a column title shows its data type. The column header menu groups data types, actions, the footer, and conditions, and every context-menu item has an icon. A column footer updates after a cell in that column is saved, and after rows are added, removed, pasted, or filled. A filter the column cannot apply is skipped, and the rest of the table still loads. Find, export, import, saved views, and table actions sit in a one-line toolbar between the table tabs and the grid; new row and bulk actions for selected rows or columns live in the bar under the grid, with undo and redo. Settings use a docs-style sidebar on larger screens. Click a cell to outline it. Double-click or press Enter to edit. Drag the plus in its corner to copy that value up or down the column. The project name in the breadcrumb trail stays put so it does not jump to another table. Notes and the project description close with Close, and still save as you type. Only an administrator sees Users, API keys, and the audit log. The same drag copies a checkbox and replaces a formula with the origin cell's expression. Edits save themselves, including language, theme, and timezone in settings. A failed cell, column, or row edit shows a toast at the bottom right. The last 10 changes in a table can be undone. A column type change asks first when some cells would be cleared. Clicking a formula cell opens that cell's expression in a window you can drag and resize. The window stays open while you move through the app, until you open another formula cell. Each cell keeps its own formula, and an idle cell shows the calculated value. Relation columns link a row to a record in another table. Columns can be tags, people, status, dates, or a read-only id. A status badge's chevron can switch that cell, or rename and recolor the status for the whole column. A hidden column stays in place as a blank column, and the eye in its header shows it again. A project can carry a description, and each row can carry markdown notes. CSV export is the visible columns only, not those notes, so the file can be imported again. Import into an open table adds any missing header as a text column. A forgotten password can be reset from an emailed link.
+- **Projects and tables** — Spreadsheet-style grid with many column types, views, import/export, and optional read-only mirror tables.
+- **Formulas** — Per-cell expressions with cross-table references, aggregates, and conditional formatting.
+- **Access control** — Grant-based permissions; admins manage users, API keys, and audit logs.
+- **Media** — Organization file library with table attachments and MIME-validated uploads.
+- **Integrations** — Plugin system (CSV, optional Google Sheets, webhooks). Background worker for isolated plugin jobs when Redis is configured.
 
-## Formulas
+## Repository layout
 
-A formula column stores one expression on each cell. Changing a column to formula leaves the existing cells empty, and a row created later starts empty until someone writes a formula there. There is no `=` in front.
+| Path | Role |
+|------|------|
+| `apps/api` | Fastify API, migrations, OpenAPI |
+| `apps/web` | React + Vite UI |
+| `apps/worker` | BullMQ worker and plugin host |
+| `packages/shared` | Shared types and helpers |
+| `packages/formula-engine` | Formula parser and evaluator |
+| `packages/api-client` | Typed browser client (cookies + CSRF) |
+| `packages/plugin-sdk` | Plugin registration API |
+| `docs/` | Setup, deployment, and design notes |
+| `scripts/` | Dev orchestration, deploy, backup |
 
-A result is a number, text, a boolean, or a list of those. The cell shows a number as a number, text as text, `TRUE` or `FALSE`, and a list joined with `, `. An empty cell is empty. Errors are `#CYCLE`, `#REF`, `#VALUE`, `#DIV/0`, `#LIM`, and `#N/A`.
+## Quick start
 
-Write numbers as `1` and `3.5`, text as `"High"`, and booleans as `TRUE` and `FALSE`. Text in quotes is never a column name. `+ - * / %` work on numbers. `&` and `CONCAT` join text. `=` and `<>` compare two numbers, two texts, or two booleans. `> < >= <=` compare two numbers or two texts. Mixing a number with text is `#VALUE`.
-
-A reference is written in brackets. `[Column copy]` reads that column on this row. `[People -> Column copy -> #15]` reads one cell, and `#15` is the row number in the grid, so `1 + 2 + 7 / 4 / 3.75646 + [People -> Column copy -> #15]` adds that number. `[Customer -> Price]` reads Price on the linked Customer. One link is one number. Several links is a list, so `SUM([Customer -> Price])` folds it. `[People -> Column copy]` is every row of that column. Math rejects it until `SUM`, `AVERAGE`, `MIN`, `MAX`, or `COUNT` folds it. A column name, `People.Name`, and `People.Name@<rowId>` still work. The formula window inserts the bracket form. Its title links back to the table. A reference is a badge: Backspace removes the whole badge, and clicking it chooses another column, cell, link, or column. Typing a function name completes it, and hovering the name shows what it does and a short example. Accepting the name inserts the call with the cursor between the parentheses so another function can nest there. Enter adds a line. A formula cell updates when a cell, lookup column, or linked field it reads changes.
-
-`IF(condition, whenTrue, whenFalse)` returns either branch, which may be a number, text, or a boolean. Omitting the false branch returns `FALSE`. `IFNOT(Paid, "Open", "Done")` is `IF` with the condition reversed. `IFS(condition1, value1, condition2, value2)` returns the value of the first true condition, or `#N/A`. `AND`, `OR`, and `NOT` return a boolean. `FOR(Amount, IF(IT > 100, "High", "Low"))` walks the list. Inside it, `IT` is the current number, text, or boolean, and the result is a list of the same length. `IT` outside `FOR` is `#VALUE`. `SUM(FOR(Amount, IF(IT > 0, IT, 0)))` folds that list back to a number.
-
-Conditional color on a column, or on one cell, is a list of the same formulas. The first true rule sets the text color and the background color from a palette that follows the light or dark theme. There, `IT` is the cell being painted. A blank cell matches `IT = ""`. `IF(IT = 1, "High", "Low")` matches only when the condition is true. Text compare ignores case, `IT > 10` matches the text `"20"`, and `IT = "Lead"` matches a list that contains that label. A cell that has its own rules replaces the column rules for that cell. `LOOKUP`, a link to another table, and a whole column are not allowed in a condition.
-
-`ISBLANK(Notes)` is true for an empty cell, an empty list, or `""`. `CONTAINS(Tags, "Lead")` is true when text contains the part, or when a list contains that label. `COUNTIF(Status, "Open")` counts matching rows. `SUMIF(Status, "Open", Amount)` adds the numbers on those rows. `YEAR`, `MONTH`, and `DAY` read a date or datetime and return a number.
-
-Text, long text, mail, and url are text. Number and currency are numbers. A checkbox is a boolean, so `IF(Paid, "Yes", "No")` works. A date is `YYYY-MM-DD` text and a datetime is ISO text, so `>` and `<` order them. Status, select, and radio are the label, so `Status = "Open"` matches the badge. Tags, multi-select, and people are lists of labels. A relation used as a value is the linked row's title. The row id is the id shown in the grid. Another formula cell is its calculated value. Media is empty.
-
-`SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, and `COUNTA` read a column and use the numbers in it. `ROUND` and `ABS` change a number. `LEFT`, `RIGHT`, `LEN`, `LOWER`, and `UPPER` read text. `TODAY` and `NOW` read the clock. `LOOKUP([People -> Mail], [Email], [People -> Name])` finds the first row whose match column equals the value on this row and returns the result column. No match is `#N/A`, and a table you cannot view is `#REF`. `[Customer -> Name]` follows this row's link and reads Name on the linked record. Several links return a list, so `SUM` still works. An empty link is empty.
-
-## Develop
-
-Install Node.js 22, then:
+Requires **Node.js 22**.
 
 ```bash
 cp .env.development.example .env.development
@@ -36,8 +34,49 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` and sign in as `admin` / `dev-admin-password`. After sign-in, `/doc/develop` renders the same guides. Local setup is in [docs/local-setup.md](docs/local-setup.md). To install another copy on an Ubuntu VPS, copy `.env.production.example` to a private name such as `.env.customer1` and run `npm run deploy`. See [docs/deploy.md](docs/deploy.md).
+Open [http://localhost:5173](http://localhost:5173) and sign in with the credentials from `.env.development.example` (default `admin` / `dev-admin-password`).
+
+API health and Swagger UI (development only): [http://127.0.0.1:3000/docs](http://127.0.0.1:3000/docs).
+
+For PostgreSQL options, SMTP, migrations, and worker setup, see [docs/local-setup.md](docs/local-setup.md).
+
+## Documentation
+
+### In the app (after sign-in)
+
+| Route | Content |
+|-------|---------|
+| `/doc/use` | User guide |
+| `/doc/develop` | Developer guide |
+| `/doc/api` | API reference (from OpenAPI) |
+
+### In this repository
+
+| Document | Topic |
+|----------|--------|
+| [docs/local-setup.md](docs/local-setup.md) | Local development and environment |
+| [docs/deploy.md](docs/deploy.md) | Production deploy to a VPS (`npm run deploy`) |
+| [docs/formulas.md](docs/formulas.md) | Formula language and engine |
+| [docs/data-model.md](docs/data-model.md) | Database and table storage model |
+| [docs/permissions.md](docs/permissions.md) | Grants and access checks |
+| [docs/plugins.md](docs/plugins.md) | Plugins, credentials, and webhooks |
+
+## Common commands
 
 ```bash
-npm test
+npm run dev          # API + web (loads .env.development)
+npm test             # Vitest unit and integration tests
+npm run test:e2e     # Playwright smoke tests
+npm run build        # Build all workspaces
+npm run migrate      # Apply SQL migrations
+npm run deploy       # Remote install (see docs/deploy.md)
 ```
+
+## Production notes
+
+- Use PostgreSQL, not embedded PGLite.
+- Set strong `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY` (see `.env.production.example`).
+- Set `REDIS_URL` when running multiple API processes or the worker, so API-key rate limits and job queues stay consistent.
+- Configure SMTP for password reset emails.
+
+Details: [docs/deploy.md](docs/deploy.md).
