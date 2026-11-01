@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
-import { productionMediaRoot, releasePaths, releaseStamp } from './release-layout.ts'
+import { productionMediaRoot, releasePaths, releaseStamp, remoteCopyToolsShell } from './release-layout.ts'
 
 const deployOnly = [
   'SSH_HOST',
@@ -160,6 +160,7 @@ const quotedRelease = bashQuote(paths.release)
 const quotedShared = bashQuote(paths.shared)
 const quotedEnv = bashQuote(paths.envFile)
 const prepare = [
+  remoteCopyToolsShell(),
   `mkdir -p ${quotedRelease} ${quotedShared}`,
   `chown ${bashQuote(sshUser)} ${quotedRelease} ${quotedShared}`,
   `if [ -f ${quotedEnv} ]; then chown ${bashQuote(sshUser)} ${quotedEnv}; fi`,

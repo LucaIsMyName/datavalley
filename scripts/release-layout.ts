@@ -22,6 +22,10 @@ export function releasePaths(deployPath: string, stamp: string) {
   }
 }
 
+export function remoteCopyToolsShell() {
+  return 'if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1 || ! command -v rsync >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y openssh-client rsync; fi'
+}
+
 export function productionMediaRoot(deployPath: string, mediaRoot: string | undefined) {
   const media = mediaRoot?.trim() || './data/media'
   if (media.startsWith('/')) return media

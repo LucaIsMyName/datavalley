@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { productionMediaRoot, releasePaths, releaseStamp } from './release-layout'
+import { productionMediaRoot, releasePaths, releaseStamp, remoteCopyToolsShell } from './release-layout'
 
 describe('release layout', () => {
   it('formats a UTC stamp as YYYYMMDDHHMMSS', () => {
@@ -16,6 +16,14 @@ describe('release layout', () => {
       media: '/opt/datavalley/shared/data/media',
       current: '/opt/datavalley/current',
     })
+  })
+
+  it('installs ssh, scp, and rsync on the server only when one is missing', () => {
+    const command = remoteCopyToolsShell()
+    expect(command).toContain('command -v ssh')
+    expect(command).toContain('command -v scp')
+    expect(command).toContain('command -v rsync')
+    expect(command).toContain('apt-get install -y openssh-client rsync')
   })
 
   it('puts relative media under shared and leaves an absolute path unchanged', () => {

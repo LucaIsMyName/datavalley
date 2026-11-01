@@ -22,7 +22,7 @@ Do not use embedded `pglite` in production.
 npm run deploy
 ```
 
-The script checks the SSH key, copies the app into a new directory under `DEPLOY_PATH` (default `/opt/datavalley`), and on the server:
+The script checks the SSH key, installs `openssh-client` and `rsync` on the server when `ssh`, `scp`, or `rsync` is missing, copies the app into a new directory under `DEPLOY_PATH` (default `/opt/datavalley`), and on the server:
 
 - Confirms Ubuntu and that `DOMAIN` resolves to the server's public IPv4
 - Installs PostgreSQL 16, Node.js 22, and Caddy
@@ -65,8 +65,8 @@ A domain A record to the VPS public IPv4, plus a root or sudo user and an SSH ke
 
 - The sudo user must be passwordless (`sudo -n`). A sudo account that asks for a password cannot run this script.
 - The private key path is absolute on the machine that runs `npm run deploy`. The matching public key is in that server user's `authorized_keys`. `BatchMode` is on, so a passphrase-protected key only works if an agent already holds it.
-- That machine also needs `ssh`, `scp`, and `rsync`, and a filled `.env.*` file: Postgres `DATABASE_URL`, `WEB_ORIGIN=https://DOMAIN`, secrets of at least 32 characters, an admin password of at least 12, and SMTP settings.
-- The VPS must be Ubuntu with a public IPv4. The script installs PostgreSQL 16, Node.js 22, and Caddy. It does not expect them to be installed already.
+- The computer that runs `npm run deploy` needs `ssh`, `scp`, and `rsync`, plus a filled `.env.*` file: Postgres `DATABASE_URL`, `WEB_ORIGIN=https://DOMAIN`, secrets of at least 32 characters, an admin password of at least 12, and SMTP settings.
+- The VPS must be Ubuntu with a public IPv4 and an SSH server already accepting logins. The script installs `ssh`, `scp`, and `rsync` there when they are missing, then PostgreSQL 16, Node.js 22, and Caddy. It does not expect those packages to be installed already.
 - Ports 22, 80, and 443 must be open in the provider firewall (Hetzner Cloud firewall or the equivalent). The script only opens `ufw` when `ufw` is already enabled. It does not enable a firewall, and it cannot change a cloud firewall.
 - DNS at deploy time must resolve the domain to that same public IPv4. Caddy obtains the certificate over HTTP-01, so port 80 has to reach the VPS. An IPv6-only record fails the check the script already makes.
 
