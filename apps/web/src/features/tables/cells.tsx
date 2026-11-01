@@ -178,6 +178,21 @@ export function CellEditor({
     )
   }
   if (!active) {
+    if (column.type === 'formula') {
+      return (
+        <button
+          type="button"
+          className="h-9 min-w-0 flex-1 truncate text-left font-mono leading-9"
+          aria-label={editLabel}
+          onClick={(event) => {
+            event.preventDefault()
+            onActivate()
+          }}
+        >
+          {text}
+        </button>
+      )
+    }
     if (column.type === 'user') {
       const items = names(row.cells[column.id], members.map((member) => ({ id: member.userId, name: member.username, color: 'blue', tableId: '' })))
       return (
@@ -548,7 +563,7 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
   const { t } = useTranslation()
   const current = palette.includes(tag.color) ? tag.color : 'slate'
   return (
-    <AnchoredLayer anchor={anchor} prefer="below" align="start" tagMenu className="w-40 border border-border bg-card p-2 shadow-md">
+    <AnchoredLayer anchor={anchor} prefer="below" align="start" tagMenu zIndex={100} className="w-40 border border-border bg-card p-2 shadow-md">
       <div className="flex flex-wrap gap-1">
         {palette.map((color) => (
           <button
@@ -674,7 +689,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
       ) : null}
       {renameError ? <FormatHint message={renameError} /> : null}
       {menu && current ? (
-        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu className="w-[min(12rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-md">
+        <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu zIndex={100} className="w-[min(12rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-md">
           <ul className="max-h-40 overflow-auto">
             {statuses.map((status) => (
               <li key={status.id}>

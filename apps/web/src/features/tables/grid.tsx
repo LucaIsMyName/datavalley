@@ -81,12 +81,15 @@ import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
 import { invalidateFooter, mapCachedRows, patchCachedTable, readCachedRow } from './cache'
-import { cellFormatError } from './cell-format'
 import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
 import { ConditionalDialog } from './conditional-dialog'
 import { CsvImportDialog } from './csv-import-dialog'
 import { presentFormatRow } from './format-values'
-import { CellEditor } from './cells'
+import { cellWritable as isColumnWritable, displayCellValue, fillableColumn as fillable } from './cell-display'
+import { ColumnTitle } from './column-title'
+import { activateTableCell } from './activate-table-cell'
+import { TableCellInput } from './table-cell-input'
+import { useRowCellEdit } from './use-row-cell-edit'
 import { beforeDropEdge } from './drop-place'
 import { editFailureMessage } from './edit-error'
 import {
@@ -170,19 +173,8 @@ function showCell(value: unknown) {
   return formatFormulaValue(value)
 }
 
-function displayCellValue(column: Column, value: unknown, language: string) {
-  if (isDateColumnType(column.type)) {
-    return formatDateCellValue(value, column, language)
-  }
-  return showCell(value)
-}
-
 function writable(column: Column) {
-  return column.type !== 'formula' && column.type !== 'lookup'
-}
-
-function fillable(column: Column) {
-  return column.type !== 'lookup' && column.type !== 'row_id'
+  return isColumnWritable(column)
 }
 
 function operatorsFor(type: string) {
@@ -247,44 +239,6 @@ function anchor(event: ReactMouseEvent): ViewportAnchor {
   return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
 }
 
-function ColumnTitle({ name, type, onClick }: { name: string; type: string; onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
-  const { t } = useTranslation()
-  const ref = useRef<HTMLButtonElement>(null)
-  const [tip, setTip] = useState<ViewportAnchor | null>(null)
-  function show() {
-    const rect = ref.current?.getBoundingClientRect()
-    if (!rect) return
-    setTip({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
-  }
-  return (
-    <>
-      <button
-        ref={ref}
-        type="button"
-        className="min-w-0 flex-1 truncate text-left"
-        onMouseEnter={show}
-        onMouseLeave={() => setTip(null)}
-        onFocus={show}
-        onBlur={() => setTip(null)}
-        onClick={onClick}
-      >
-        {name}
-      </button>
-      {tip ? (
-        <AnchoredLayer
-          anchor={tip}
-          prefer="above"
-          align="start"
-          role="tooltip"
-          className="pointer-events-none w-max max-w-56 border border-border bg-card px-2 py-1 text-left text-xs font-normal leading-4 text-foreground shadow-md"
-        >
-          {t(`type_${type}`)}
-        </AnchoredLayer>
-      ) : null}
-    </>
-  )
-}
-
 export function TableScreen({ tableId }: { tableId: string }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
@@ -310,8 +264,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [display, setDisplay] = useState<TableDisplayState>(defaultTableDisplay)
   const [filterInput, setFilterInput] = useState<Record<string, { op: string; value: string }>>({})
   const [filters, setFilters] = useState<Record<string, { op: string; value: string }>>({})
-  const cellBaseline = useRef(new Map<string, unknown>())
-  const serverReject = useRef(new Map<string, string>())
   const appliedState = useRef<string | null>(null)
   const [checked, setChecked] = useState<string[]>([])
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
@@ -320,9 +272,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [selected, setSelected] = useState({ row: 0, column: 0 })
   const [fill, setFill] = useState<{ columnId: string; from: number; to: number } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
-  const [invalidCells, setInvalidCells] = useState<
-    Record<string, { text: string; message: string }>
-  >({})
   const [newColumnType, setNewColumnType] = useState('text')
   const [stateReady, setStateReady] = useState(false)
   const [renamingColumn, setRenamingColumn] = useState<string | null>(null)
@@ -378,13 +327,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   function activateCell(row: RowRecord, column: Column) {
-    if (dataReadOnly) return
-    if (column.type === 'formula') {
-      openFormula(row.id, column.id, column.name)
-      return
-    }
-    if (!fillable(column) || column.type === 'checkbox') return
-    setEditing(`${row.id}:${column.id}`)
+    activateTableCell({
+      row,
+      column,
+      readOnly: dataReadOnly,
+      onOpenFormula: (targetRow, targetColumn) => openFormula(targetRow.id, targetColumn.id, targetColumn.name),
+      onBeginEdit: (columnId) => setEditing(`${row.id}:${columnId}`),
+    })
   }
 
   function focusCell(rowIndex: number, columnIndex: number) {
@@ -421,6 +370,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }, [display.mode, rows.length, rowsQuery.isError, rowsQuery.isFetchingNextPage, rowsQuery.hasNextPage, rowsQuery.fetchNextPage])
   const rowsRef = useRef(rows)
   rowsRef.current = rows
+  const { scheduleCell, applyMediaCell, invalidCells, invalidFor, clearInvalid } = useRowCellEdit({
+    tableId,
+    readOnly: dataReadOnly,
+    readOnlyReason,
+    getRow: (rowId) => readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId),
+  })
   const widthKey = `dv-col-widths:${tableId}`
   useEffect(() => {
     try {
@@ -727,181 +682,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const first = visible.find(cellWritable)
     if (first) setEditing(`${created.row.id}:${first.id}`)
     await refresh()
-  }
-
-  function clearInvalid(key: string) {
-    setInvalidCells((current) => {
-      if (!current[key]) return current
-      const next = { ...current }
-      delete next[key]
-      return next
-    })
-  }
-
-  function cellDraftUnchanged(column: Column, draft: unknown, previous: unknown) {
-    if (draft === previous) return true
-    if (column.type === 'media' || isDateColumnType(column.type)) {
-      return JSON.stringify(draft ?? null) === JSON.stringify(previous ?? null)
-    }
-    return false
-  }
-
-  function cellDraftLabel(column: Column, value: unknown) {
-    if (isDateColumnType(column.type)) {
-      return formatDateCellValue(value, column, i18n.language)
-    }
-    return value == null ? '' : String(value)
-  }
-
-  function warnReadOnlyEdit() {
-    showEditError(readOnlyReason === 'locked' ? t('lockedTableBanner') : t('error'))
-  }
-
-  function scheduleCell(row: RowRecord, column: Column, nextValue: unknown, delay = 300) {
-    if (dataReadOnly) {
-      warnReadOnlyEdit()
-      return
-    }
-    const columnId = column.id
-    const key = `cell:${row.id}:${columnId}`
-    const next = nextValue === '' ? null : nextValue
-    const formatKey = cellFormatError(column, next)
-    if (formatKey) {
-      sync.discard(key)
-      setInvalidCells((current) => ({
-        ...current,
-        [key]: { text: cellDraftLabel(column, next), message: t(formatKey) },
-      }))
-      return
-    }
-    clearInvalid(key)
-    if (!cellBaseline.current.has(key)) cellBaseline.current.set(key, row.cells[columnId] ?? null)
-    const previous = cellBaseline.current.get(key) ?? null
-    const paint = delay === 0
-    sync.edit(key, {
-      draft: next,
-      delay,
-      apply: (draft) => {
-        if (!paint) return
-        mapCachedRows(queryClient, tableId, (item) =>
-          item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: draft } } : item,
-        )
-      },
-      commit: async (draft) => {
-        if (cellDraftUnchanged(column, draft, previous))
-          return {
-            row: {
-              ...(readCachedRow(queryClient, tableId, row.id) ?? row),
-              cells: { ...row.cells, [columnId]: draft },
-            },
-          }
-        const current = readCachedRow(queryClient, tableId, row.id) ?? row
-        try {
-          return await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ version: current.version, cells: { [columnId]: draft } }),
-          })
-        } catch (error) {
-          if (error instanceof ApiClientError && error.status === 400)
-            serverReject.current.set(key, error.message)
-          throw error
-        }
-      },
-      accept: (result) => {
-        mapCachedRows(queryClient, tableId, (item) =>
-          item.id === row.id
-            ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } }
-            : item,
-        )
-        cellBaseline.current.delete(key)
-        clearInvalid(key)
-        const saved = result.row.cells[columnId] ?? null
-        if (saved !== previous) {
-          pushCommand(tableId, {
-            kind: 'patch',
-            undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
-            redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
-          })
-          void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-          void invalidateFooter(queryClient, tableId)
-        }
-      },
-      rollback: () => {
-        const message = serverReject.current.get(key)
-        serverReject.current.delete(key)
-        cellBaseline.current.delete(key)
-        if (message) {
-          setInvalidCells((current) => ({
-            ...current,
-            [key]: { text: cellDraftLabel(column, next), message },
-          }))
-          return
-        }
-        mapCachedRows(queryClient, tableId, (item) =>
-          item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: previous } } : item,
-        )
-        showEditError(t('error'))
-      },
-    })
-  }
-
-  async function commitMediaCell(rowId: string, column: Column, value: { fileIds: string[] } | null) {
-    if (dataReadOnly) {
-      warnReadOnlyEdit()
-      throw new Error('read_only')
-    }
-    const columnId = column.id
-    const key = `cell:${rowId}:${columnId}`
-    sync.discard(key)
-    cellBaseline.current.delete(key)
-    clearInvalid(key)
-
-    const row =
-      readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId)
-    if (!row) throw new Error('Row not found')
-
-    const formatKey = cellFormatError(column, value)
-    if (formatKey) {
-      setInvalidCells((current) => ({
-        ...current,
-        [key]: { text: value == null ? '' : JSON.stringify(value), message: t(formatKey) },
-      }))
-      throw new Error(t(formatKey))
-    }
-
-    const previous = row.cells[columnId] ?? null
-    const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ version: row.version, cells: { [columnId]: value } }),
-    })
-
-    mapCachedRows(queryClient, tableId, (item) =>
-      item.id === row.id
-        ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } }
-        : item,
-    )
-
-    const saved = result.row.cells[columnId] ?? null
-    if (JSON.stringify(saved ?? null) !== JSON.stringify(previous ?? null)) {
-      pushCommand(tableId, {
-        kind: 'patch',
-        undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
-        redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
-      })
-      void invalidateFooter(queryClient, tableId)
-    }
-    void queryClient.invalidateQueries({ queryKey: ['media', 'catalog'] })
-    return result.row
-  }
-
-  async function applyMediaCell(row: RowRecord, column: Column, value: { fileIds: string[] } | null) {
-    try {
-      await commitMediaCell(row.id, column, value)
-    } catch (error) {
-      const message = editFailureMessage(error, t('error'), { cell: true })
-      if (message) showEditError(message)
-      throw error
-    }
   }
 
   function requestMediaUpload(rowId: string, columnId: string) {
@@ -2292,8 +2072,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const painted = paintSwatch(cellPaint, 'background') ?? rowTint(rowColor, paintSwatch(rowColor, 'background'))
           const stripe = !cellPaint && rowColor ? paintSwatch(rowColor, 'background') : undefined
           const active = editing === `${row.original.id}:${column.id}`
-          const invalid = invalidCells[`cell:${row.original.id}:${column.id}`]
-          const text = invalid?.text ?? displayCellValue(column, value, i18n.language)
+          const invalid = invalidFor(row.original.id, column.id)
           const mono =
             column.type === 'number' ||
             column.type === 'currency' ||
@@ -2330,99 +2109,53 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 if (event.detail >= 2) activateCell(row.original, column)
               }}
             >
-              {active && column.type === 'relation' ? (
-                <SelectField
-                  label={t('editColumn', { name: column.name })}
-                  className="h-9 border-0 bg-transparent px-0"
-                  value={typeof value === 'string' ? value : ''}
-                  onValueChange={(next) => {
-                    scheduleCell(row.original, column, next, 0)
-                    void sync.flush(`cell:${row.original.id}:${column.id}`)
-                    setEditing(null)
-                  }}
-                  options={[
-                    { value: '', label: t('none') },
-                    ...(targetRows.data?.rows ?? []).map((target) => ({
-                      value: target.id,
-                      label: showCell(
-                        Object.values(target.cells).find((item) => typeof item === 'string' && item) ??
-                          target.id.slice(0, 8),
-                      ),
-                    })),
-                  ]}
-                />
-              ) : (
-                <CellEditor
-                  column={column}
-                  row={row.original}
-                  active={active && cellWritable(column)}
-                  text={text}
-                  tableId={tableId}
-                  tags={table?.tags ?? []}
-                  statuses={table?.statuses ?? []}
-                  members={membersQuery.data?.members ?? []}
-                  hint={invalid?.message}
-                  onEdit={(value, delay) => scheduleCell(row.original, column, value, delay)}
-                  onFlush={() => {
-                    void sync
-                      .flush(`cell:${row.original.id}:${column.id}`)
-                      .catch((error: unknown) => {
-                        const message = editFailureMessage(error, t('error'), { cell: true })
-                        if (message) showEditError(message)
-                      })
-                      .finally(() => setEditing(null))
-                  }}
-                  onCancel={() => {
-                    sync.cancel(`cell:${row.original.id}:${column.id}`)
-                    clearInvalid(`cell:${row.original.id}:${column.id}`)
-                    setEditing(null)
-                  }}
-                  onOpen={() => focusCell(row.index, columnIndex)}
-                  onActivate={() => activateCell(row.original, column)}
-                  onSelectEditorClose={() => {
-                    void sync
-                      .flush(`cell:${row.original.id}:${column.id}`)
-                      .catch((error: unknown) => {
-                        const message = editFailureMessage(error, t('error'), { cell: true })
-                        if (message) showEditError(message)
-                      })
-                      .finally(() => setEditing(null))
-                  }}
-                  onCreated={(kind, item) =>
-                    patchCachedTable(queryClient, tableId, (current) => ({
-                      ...current,
-                      tags:
-                        kind === 'tag'
-                          ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item]
-                          : current.tags,
-                      statuses:
-                        kind === 'status'
-                          ? [
-                              ...(current.statuses ?? []).filter((status) => status.id !== item.id),
-                              item,
-                            ]
-                          : current.statuses,
-                    }))
-                  }
-                  onOptionChange={(columnId, option, deleted) => {
-                    patchCachedTable(queryClient, tableId, (current) => ({
-                      ...current,
-                      columns: current.columns?.map((item) =>
-                        item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
-                      ),
-                    }))
-                    if (deleted) void refresh()
-                  }}
-                  onMediaLibrary={(existingIds) =>
-                    setMediaLibrary({ rowId: row.original.id, columnId: column.id, existingIds })
-                  }
-                  onMediaPreview={(file) => void openMediaPreview(file, row.original.id, column.id)}
-                  onMediaRequestUpload={() => requestMediaUpload(row.original.id, column.id)}
-                  onMediaUploading={mediaUploadingKey === `${row.original.id}:${column.id}`}
-                  onMediaCommit={(value) => applyMediaCell(row.original, column, value)}
-                  onDateMode={(patch) => void applyDateMode(column, patch)}
-                />
-              )}
+              <TableCellInput
+                column={column}
+                row={row.original}
+                active={active}
+                tableId={tableId}
+                tags={table?.tags ?? []}
+                statuses={table?.statuses ?? []}
+                members={membersQuery.data?.members ?? []}
+                relationRows={targetRows.data?.rows ?? []}
+                readOnly={dataReadOnly}
+                invalid={invalid}
+                onScheduleCell={scheduleCell}
+                onClearInvalid={(rowId, columnId) => clearInvalid(`cell:${rowId}:${columnId}`)}
+                onDeactivate={() => setEditing(null)}
+                onOpen={() => focusCell(row.index, columnIndex)}
+                onActivate={() => activateCell(row.original, column)}
+                onCreated={(kind, item) =>
+                  patchCachedTable(queryClient, tableId, (current) => ({
+                    ...current,
+                    tags:
+                      kind === 'tag'
+                        ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item]
+                        : current.tags,
+                    statuses:
+                      kind === 'status'
+                        ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item]
+                        : current.statuses,
+                  }))
+                }
+                onOptionChange={(columnId, option, deleted) => {
+                  patchCachedTable(queryClient, tableId, (current) => ({
+                    ...current,
+                    columns: current.columns?.map((item) =>
+                      item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
+                    ),
+                  }))
+                  if (deleted) void refresh()
+                }}
+                onMediaLibrary={(existingIds) =>
+                  setMediaLibrary({ rowId: row.original.id, columnId: column.id, existingIds })
+                }
+                onMediaPreview={(file) => void openMediaPreview(file, row.original.id, column.id)}
+                onMediaRequestUpload={() => requestMediaUpload(row.original.id, column.id)}
+                onMediaUploading={mediaUploadingKey === `${row.original.id}:${column.id}`}
+                onMediaCommit={(value) => applyMediaCell(row.original, column, value)}
+                onDateMode={(patch) => void applyDateMode(column, patch)}
+              />
               {picked && !active && fillable(column) ? (
                 <button
                   type="button"
@@ -2449,10 +2182,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
       mediaUploadingKey,
       invalidSignature,
       rulesSignature,
+      scheduleCell,
+      applyMediaCell,
+      invalidFor,
+      clearInvalid,
       selected,
       spotlight,
       t,
       targetSignature,
+      dataReadOnly,
     ],
   )
   const grid = useReactTable({
@@ -3351,6 +3089,40 @@ export function TableScreen({ tableId }: { tableId: string }) {
         statuses={table?.statuses ?? []}
         members={membersQuery.data?.members ?? []}
         readOnly={dataReadOnly}
+        readOnlyReason={readOnlyReason}
+        onMediaLibrary={(rowId, columnId, existingIds) =>
+          setMediaLibrary({ rowId, columnId, existingIds })
+        }
+        onMediaPreview={(file, rowId, columnId) => void openMediaPreview(file, rowId, columnId)}
+        onMediaRequestUpload={(rowId, columnId) => requestMediaUpload(rowId, columnId)}
+        mediaUploadingKey={mediaUploadingKey}
+        onDateMode={(column, patch) => void applyDateMode(column, patch)}
+        onCreated={(kind, item) =>
+          patchCachedTable(queryClient, tableId, (current) => ({
+            ...current,
+            tags:
+              kind === 'tag'
+                ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item]
+                : current.tags,
+            statuses:
+              kind === 'status'
+                ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item]
+                : current.statuses,
+          }))
+        }
+        onOptionChange={(columnId, option, deleted) => {
+          patchCachedTable(queryClient, tableId, (current) => ({
+            ...current,
+            columns: current.columns?.map((item) =>
+              item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
+            ),
+          }))
+          if (deleted) void refresh()
+        }}
+        onOpenFormula={(rowId, columnId, columnName) => {
+          setEditing(null)
+          openFormula(rowId, columnId, columnName)
+        }}
         onClose={() => setDrawerRowId(null)}
       />
       <MediaLibraryDialog

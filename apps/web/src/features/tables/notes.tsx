@@ -1,12 +1,11 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useQueryClient } from '@tanstack/react-query'
-import type { CatalogItem, Column, RowRecord } from '@datavalley/api-client'
+import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-client'
 import { MoreHorizontal, Plus } from 'lucide-react'
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -18,7 +17,10 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, readCachedRow } from './cache'
-import { buildNoteFieldLines } from './note-fields'
+import { isNotesDialogOutsideTarget } from './notes-dialog-outside'
+import { NotesRowFields } from './notes-row-fields'
+import type { TableReadOnlyReason } from './table-read-only'
+import { useRowCellEdit } from './use-row-cell-edit'
 import {
   applyBlockShortcutOnInput,
   emptyParagraphBlock,
@@ -431,6 +433,15 @@ export function NotesDrawer({
   statuses,
   members,
   readOnly,
+  readOnlyReason,
+  onMediaLibrary,
+  onMediaPreview,
+  onMediaRequestUpload,
+  mediaUploadingKey,
+  onDateMode,
+  onCreated,
+  onOptionChange,
+  onOpenFormula,
   onClose,
 }: {
   tableId: string
@@ -440,13 +451,33 @@ export function NotesDrawer({
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
   readOnly: boolean
+  readOnlyReason: TableReadOnlyReason
+  onMediaLibrary: (rowId: string, columnId: string, existingIds: string[]) => void
+  onMediaPreview: (file: MediaFile, rowId: string, columnId: string) => void
+  onMediaRequestUpload: (rowId: string, columnId: string) => void
+  mediaUploadingKey: string | null
+  onDateMode: (column: Column, patch: { range?: boolean; includeTime?: boolean }) => void
+  onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
+  onOptionChange: (
+    columnId: string,
+    option: { id: string; label: string; color: string | null; position: string },
+    deleted?: boolean,
+  ) => void
+  onOpenFormula: (rowId: string, columnId: string, columnName: string) => void
   onClose: () => void
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [text, setText] = useState(row?.notes ?? '')
   const focused = useRef(false)
   const baseline = useRef(row?.notes ?? '')
+
+  const cellEdit = useRowCellEdit({
+    tableId,
+    readOnly,
+    readOnlyReason,
+    getRow: (rowId) => readCachedRow(queryClient, tableId, rowId) ?? (row?.id === rowId ? row : undefined),
+  })
 
   useEffect(() => {
     if (focused.current) return
@@ -454,15 +485,12 @@ export function NotesDrawer({
     baseline.current = row?.notes ?? ''
   }, [row?.id, row?.notes])
 
-  const fieldLines = useMemo(() => {
-    if (!row) return []
-    return buildNoteFieldLines(columns, row, i18n.language, { tags, statuses, members }, {
-      yes: t('yes'),
-      no: t('no'),
-      empty: '—',
-      mediaCount: (count) => t('notesMediaCount', { count }),
-    })
-  }, [columns, row, i18n.language, tags, statuses, members, t])
+  function flushRowEdits(rowId: string) {
+    for (const column of columns) {
+      void sync.flush(`cell:${rowId}:${column.id}`)
+    }
+    void sync.flush(`row:${rowId}:notes`)
+  }
 
   function schedule(next: string) {
     if (!row || readOnly) return
@@ -499,24 +527,45 @@ export function NotesDrawer({
     <Dialog.Root
       open={Boolean(row)}
       onOpenChange={(open) => {
-        if (!open) onClose()
+        if (!open) {
+          if (row) flushRowEdits(row.id)
+          onClose()
+        }
       }}
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/20" />
-        <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col gap-3 border-l border-border bg-card p-4 shadow-lg">
+        <Dialog.Content
+          className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col gap-3 border-l border-border bg-card p-4 shadow-lg"
+          onPointerDownOutside={(event) => {
+            if (isNotesDialogOutsideTarget(event.target)) event.preventDefault()
+          }}
+          onInteractOutside={(event) => {
+            if (isNotesDialogOutsideTarget(event.target)) event.preventDefault()
+          }}
+        >
           <Dialog.Title className="text-lg font-semibold">{t('notes')}</Dialog.Title>
           <Dialog.Description className="sr-only">{t('notes')}</Dialog.Description>
           {row ? (
             <>
-              <dl className="shrink-0 space-y-1 border-b border-border pb-3 text-sm">
-                {fieldLines.map((line) => (
-                  <div key={line.name} className="grid grid-cols-[minmax(0,38%)_1fr] gap-2">
-                    <dt className="truncate font-medium text-muted-foreground">{line.name}</dt>
-                    <dd className="min-w-0 truncate">{line.value}</dd>
-                  </div>
-                ))}
-              </dl>
+              <NotesRowFields
+                tableId={tableId}
+                row={row}
+                columns={columns}
+                tags={tags}
+                statuses={statuses}
+                members={members}
+                readOnly={readOnly}
+                cellEdit={cellEdit}
+                onMediaLibrary={onMediaLibrary}
+                onMediaPreview={onMediaPreview}
+                onMediaRequestUpload={onMediaRequestUpload}
+                mediaUploadingKey={mediaUploadingKey}
+                onDateMode={onDateMode}
+                onCreated={onCreated}
+                onOptionChange={onOptionChange}
+                onOpenFormula={onOpenFormula}
+              />
               <NotesBlockEditor
                 rowId={row.id}
                 markdown={text}
