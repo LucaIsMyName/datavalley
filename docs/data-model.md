@@ -9,7 +9,7 @@ Application metadata and dynamic CRM data live in one PostgreSQL database. Creat
 - Empty cells are absent.
 - `column_options` stores select and radio choices.
 - `table_views.definition` stores filters, sort, widths, hidden columns, grouping, and conditional formatting together.
-- `user_favorites` and `user_recent_items` power the dashboard. `user_table_state` stores one user's sort, filter, and display for a table. Display holds the grid or chart mode and the chart's type, dimensions, values, and whether each row stays its own category. Timeline and kanban fields are reserved. Column order and row order stay on the table itself.
+- `user_favorites` and `user_recent_items` power the dashboard. `user_table_state` stores one user's sort, filter, and display for a table. Display holds the grid, chart, or timeline mode. The chart stores its type, dimensions, values, and whether each row stays its own category. The timeline stores the date column, title columns, and zoom. Kanban fields are reserved. Column order and row order stay on the table itself.
 - `formulas`, `formula_dependencies`, and `formula_cache` store calculations.
 - `relations` and `relation_records` store links. Cardinality includes `many_to_one`.
 - `audit_logs` is append-only. A trigger rejects updates and deletes.

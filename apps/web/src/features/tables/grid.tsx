@@ -121,6 +121,7 @@ import { registerTableMenu } from './table-menu'
 import { deleteTableInProject } from './table-delete'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { ChartView } from './chart-view'
+import { TimelineView } from './timeline-view'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import {
   historyFlags,
@@ -413,7 +414,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const rowPages = rowsQuery.data?.pages
   const rows = useMemo(() => rowPages?.flatMap((page) => page.rows) ?? [], [rowPages])
   useEffect(() => {
-    if (display.mode !== 'chart') return
+    if (display.mode !== 'chart' && display.mode !== 'timeline') return
     if (rowsQuery.isError || rowsQuery.isFetchingNextPage || !rowsQuery.hasNextPage) return
     if (rows.length >= displayRowCap) return
     void rowsQuery.fetchNextPage()
@@ -2116,8 +2117,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       find: (el: HTMLElement) => setPopover({ kind: 'find', ...viewportAnchorFrom(el) }),
       exportCsv: () => void exportCsv(),
       importCsv: () => setCsvImportOpen(true),
-      displayMode: (display.mode === 'chart' ? 'chart' : 'grid') as 'grid' | 'chart',
-      setDisplayMode: (mode: 'grid' | 'chart') => setDisplay((current) => (current.mode === mode ? current : { ...current, mode })),
+      displayMode: (display.mode === 'chart' || display.mode === 'timeline' ? display.mode : 'grid') as 'grid' | 'chart' | 'timeline',
+      setDisplayMode: (mode: 'grid' | 'chart' | 'timeline') => setDisplay((current) => (current.mode === mode ? current : { ...current, mode })),
       views: (views.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
@@ -2611,6 +2612,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
             loading={Boolean(rowsQuery.hasNextPage) && rows.length < displayRowCap}
             onChange={(chart) => setDisplay((current) => ({ ...current, chart }))}
           />
+        ) : display.mode === 'timeline' ? (
+          <TimelineView
+            columns={columns}
+            rows={rows}
+            tags={table.tags ?? []}
+            statuses={table.statuses ?? []}
+            members={membersQuery.data?.members ?? []}
+            timeline={display.timeline}
+            readOnly={dataReadOnly}
+            truncated={rows.length >= displayRowCap && Boolean(rowsQuery.hasNextPage)}
+            loading={Boolean(rowsQuery.hasNextPage) && rows.length < displayRowCap}
+            onChange={(timeline) => setDisplay((current) => ({ ...current, timeline }))}
+            onWrite={(row, column, value) => {
+              scheduleCell(row, column, value, 0)
+              void sync.flush(`cell:${row.id}:${column.id}`)
+            }}
+          />
         ) : (
         <div
           ref={parentRef}
@@ -2995,7 +3013,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           </table>
         </div>
         )}
-        {display.mode === 'chart' ? null : (
+        {display.mode === 'chart' || display.mode === 'timeline' ? null : (
         <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
           {!dataReadOnly ? (
             <button

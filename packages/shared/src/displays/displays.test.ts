@@ -165,8 +165,20 @@ describe('display state', () => {
     )
     expect(display.mode).toBe('chart')
     expect(display.chart).toEqual({ type: 'doughnut', dimensionIds: ['name'], valueIds: ['amount'], perRow: true })
-    expect(display.timeline).toEqual({ dateColumnId: 'when', titleColumnIds: ['name'], zoom: 2 })
+    expect(display.timeline).toEqual({ dateColumnId: null, titleColumnIds: ['name'], zoom: 2 })
     expect(display.kanban).toEqual(defaultTableDisplay().kanban)
+  })
+
+  it('drops a date column used as a timeline title', () => {
+    const display = normalizeTableDisplay(
+      { timeline: { dateColumnId: 'when', titleColumnIds: ['when', 'name'] } },
+      [
+        { id: 'when', type: 'date' },
+        { id: 'name', type: 'text' },
+      ],
+    )
+    expect(display.timeline.dateColumnId).toBe('when')
+    expect(display.timeline.titleColumnIds).toEqual(['name'])
   })
 
   it('rejects a chart type and ids that are not usable', () => {
