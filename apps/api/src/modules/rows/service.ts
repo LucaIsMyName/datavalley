@@ -9,7 +9,7 @@ import { badRequest, conflict, notFound } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
-import { canonicalizeFormatRules, evaluateStored } from '../formulas/service.js'
+import { canonicalizeFormatRules, evaluateFormulasForRows } from '../formulas/service.js'
 import { assertTableDataEditable } from '../tables/resolve.js'
 import {
   ensureTextColumns,
@@ -112,15 +112,32 @@ export async function listRows(
   const rows = presentRows(columns, page.rows, cells)
   const formulaColumns = columns.filter((column) => column.type === 'formula')
   if (formulaColumns.length > 0 && rows.length > 0) {
-    const stored = await db.select().from(formulas).where(eq(formulas.tableId, physical.id))
-    for (const column of formulaColumns) {
+    const rowIds = rows.map((row) => row.id)
+    const formulaColumnIds = formulaColumns.map((column) => column.id)
+    const stored = await db
+      .select()
+      .from(formulas)
+      .where(
+        and(
+          eq(formulas.tableId, physical.id),
+          inArray(formulas.rowId, rowIds),
+          inArray(formulas.columnId, formulaColumnIds),
+        ),
+      )
+    try {
+      const evaluated = await evaluateFormulasForRows(db, subject, stored)
       for (const row of rows) {
-        const formula = stored.find((item) => item.columnId === column.id && item.rowId === row.id)
-        if (!formula) continue
-        try {
-          row.cells[column.id] = await evaluateStored(db, subject, formula.id, row.id)
-        } catch {
-          row.cells[column.id] = { error: '#N/A' }
+        for (const column of formulaColumns) {
+          const value = evaluated.get(`${row.id}:${column.id}`)
+          if (value !== undefined) row.cells[column.id] = value
+        }
+      }
+    } catch {
+      for (const row of rows) {
+        for (const column of formulaColumns) {
+          if (stored.some((item) => item.columnId === column.id && item.rowId === row.id)) {
+            row.cells[column.id] = { error: '#N/A' }
+          }
         }
       }
     }

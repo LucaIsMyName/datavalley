@@ -619,6 +619,38 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
   })
 }
 
+async function tableDependencyStamp(db: AppDatabase, tableId: string) {
+  const [summary] = await db
+    .select({ total: count(), latest: max(tableRows.updatedAt), versions: sum(tableRows.version) })
+    .from(tableRows)
+    .where(eq(tableRows.tableId, tableId))
+  return `${tableId}:${Number(summary?.total ?? 0)}:${stampTime(summary?.latest)}:${summary?.versions ?? 0}`
+}
+
+function dependencyStampFromContext(
+  rowId: string,
+  ast: AstNode,
+  rowVersions: Map<string, number>,
+  tableStamps: Map<string, string>,
+) {
+  const refs = collectRefs(ast)
+  const rowIds = new Set<string>([rowId])
+  const tableIds = new Set<string>()
+  for (const ref of refs) {
+    if (ref.rowId) rowIds.add(ref.rowId)
+    else if (ref.tableId) tableIds.add(ref.tableId)
+  }
+  const rowStamp = [...rowIds]
+    .map((id) => `${id}:${rowVersions.get(id) ?? 0}`)
+    .sort()
+    .join(',')
+  const tablesStamp = [...tableIds]
+    .map((id) => tableStamps.get(id) ?? '')
+    .sort()
+    .join(',')
+  return `${rowStamp}|${tablesStamp}`
+}
+
 async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
   const refs = collectRefs(ast)
   const rowIds = new Set<string>([rowId])
@@ -628,16 +660,120 @@ async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
     else if (ref.tableId) tableIds.add(ref.tableId)
   }
   const rows = await db.select().from(tableRows).where(inArray(tableRows.id, [...rowIds]))
-  const rowStamp = rows.map((row) => `${row.id}:${row.version}`).sort().join(',')
-  const tablesStamp: string[] = []
+  const rowVersions = new Map(rows.map((row) => [row.id, row.version]))
+  const tableStamps = new Map<string, string>()
   for (const tableId of tableIds) {
-    const [summary] = await db
-      .select({ total: count(), latest: max(tableRows.updatedAt), versions: sum(tableRows.version) })
-      .from(tableRows)
-      .where(eq(tableRows.tableId, tableId))
-    tablesStamp.push(`${tableId}:${Number(summary?.total ?? 0)}:${stampTime(summary?.latest)}:${summary?.versions ?? 0}`)
+    tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
   }
-  return `${rowStamp}|${tablesStamp.sort().join(',')}`
+  return dependencyStampFromContext(rowId, ast, rowVersions, tableStamps)
+}
+
+function formulaCellKey(rowId: string, columnId: string | null) {
+  return `${rowId}:${columnId ?? ''}`
+}
+
+async function buildStampContext(db: AppDatabase, entries: (typeof formulas.$inferSelect)[]) {
+  const rowIds = new Set<string>()
+  const tableIds = new Set<string>()
+  for (const entry of entries) {
+    rowIds.add(entry.rowId)
+    for (const ref of collectRefs(entry.ast as AstNode)) {
+      if (ref.rowId) rowIds.add(ref.rowId)
+      else if (ref.tableId) tableIds.add(ref.tableId)
+    }
+  }
+  const rowVersions = new Map<string, number>()
+  if (rowIds.size > 0) {
+    const rows = await db
+      .select({ id: tableRows.id, version: tableRows.version })
+      .from(tableRows)
+      .where(inArray(tableRows.id, [...rowIds]))
+    for (const row of rows) rowVersions.set(row.id, row.version)
+  }
+  const tableStamps = new Map<string, string>()
+  for (const tableId of tableIds) {
+    tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
+  }
+  return { rowVersions, tableStamps }
+}
+
+export async function evaluateFormulasForRows(
+  db: AppDatabase,
+  subject: Subject,
+  entries: (typeof formulas.$inferSelect)[],
+  options: { stack?: Set<string> } = {},
+): Promise<Map<string, FormulaValue>> {
+  const values = new Map<string, FormulaValue>()
+  if (entries.length === 0) return values
+
+  const grants = await resolveGrants(db, subject)
+  const crossPermissionHash = sha256(JSON.stringify(grants))
+  const permissionHashFor = (crossesTables: boolean) => (crossesTables ? crossPermissionHash : '')
+
+  const formulaIds = [...new Set(entries.map((entry) => entry.id))]
+  const pageRowIds = [...new Set(entries.map((entry) => entry.rowId))]
+  const cachedRows =
+    formulaIds.length > 0 && pageRowIds.length > 0
+      ? await db
+          .select()
+          .from(formulaCache)
+          .where(and(inArray(formulaCache.formulaId, formulaIds), inArray(formulaCache.rowId, pageRowIds)))
+      : []
+  const cacheByKey = new Map(cachedRows.map((row) => [`${row.formulaId}:${row.rowId}:${row.permissionHash}`, row]))
+
+  const { rowVersions, tableStamps } = await buildStampContext(db, entries)
+  const stack = options.stack ?? new Set<string>()
+  const misses: {
+    entry: (typeof formulas.$inferSelect)
+    versionHash: string
+    permissionHash: string
+  }[] = []
+
+  for (const entry of entries) {
+    if (!entry.columnId) continue
+    const key = formulaCellKey(entry.rowId, entry.columnId)
+    const permissionHash = permissionHashFor(entry.crossesTables)
+    const stamp = dependencyStampFromContext(entry.rowId, entry.ast as AstNode, rowVersions, tableStamps)
+    const versionHash = `${stamp}:${entry.updatedAt.toISOString()}`
+    const cached = cacheByKey.get(`${entry.id}:${entry.rowId}:${permissionHash}`)
+    if (cached && cached.versionHash === versionHash) {
+      values.set(key, cached.result as FormulaValue)
+      continue
+    }
+    misses.push({ entry, versionHash, permissionHash })
+  }
+
+  for (const miss of misses) {
+    const { entry, versionHash, permissionHash } = miss
+    if (!entry.columnId) continue
+    const key = formulaCellKey(entry.rowId, entry.columnId)
+    if (stack.has(entry.id)) {
+      values.set(key, { error: '#CYCLE' })
+      continue
+    }
+    stack.add(entry.id)
+    try {
+      const resolved = await evaluateAst(db, subject, entry.ast as AstNode, entry.rowId, stack)
+      await db
+        .insert(formulaCache)
+        .values({
+          formulaId: entry.id,
+          rowId: entry.rowId,
+          permissionHash,
+          versionHash,
+          result: resolved as never,
+        })
+        .onConflictDoUpdate({
+          target: [formulaCache.formulaId, formulaCache.rowId, formulaCache.permissionHash],
+          set: { versionHash, result: resolved as never },
+        })
+      values.set(key, resolved)
+    } finally {
+      stack.delete(entry.id)
+    }
+  }
+
+  return values
 }
 
 function stampTime(value: Date | string | null | undefined) {
@@ -651,29 +787,9 @@ export async function evaluateStored(db: AppDatabase, subject: Subject, formulaI
   if (stack.has(formulaId)) return { error: '#CYCLE' as const }
   const [formula] = await db.select().from(formulas).where(eq(formulas.id, formulaId)).limit(1)
   if (!formula) throw badRequest('Unknown formula')
-  stack.add(formulaId)
-  const grants = await resolveGrants(db, subject)
-  const permissionHash = formula.crossesTables ? sha256(JSON.stringify(grants)) : ''
-  const stamp = await dependencyStamp(db, rowId, formula.ast as AstNode)
-  const versionHash = `${stamp}:${formula.updatedAt.toISOString()}`
-  const [cached] = await db
-    .select()
-    .from(formulaCache)
-    .where(and(eq(formulaCache.formulaId, formula.id), eq(formulaCache.rowId, rowId), eq(formulaCache.permissionHash, permissionHash)))
-  if (cached && cached.versionHash === versionHash) {
-    stack.delete(formulaId)
-    return cached.result as FormulaValue
-  }
-  const resolved = await evaluateAst(db, subject, formula.ast as AstNode, rowId, stack)
-  await db
-    .insert(formulaCache)
-    .values({ formulaId: formula.id, rowId, permissionHash, versionHash, result: resolved as never })
-    .onConflictDoUpdate({
-      target: [formulaCache.formulaId, formulaCache.rowId, formulaCache.permissionHash],
-      set: { versionHash, result: resolved as never },
-    })
-  stack.delete(formulaId)
-  return resolved
+  const results = await evaluateFormulasForRows(db, subject, [formula], { stack })
+  if (!formula.columnId) return { error: '#N/A' as const }
+  return results.get(formulaCellKey(formula.rowId, formula.columnId)) ?? { error: '#N/A' as const }
 }
 
 export async function previewFormula(db: AppDatabase, subject: Subject, tableId: string, expression: string, rowId?: string) {
