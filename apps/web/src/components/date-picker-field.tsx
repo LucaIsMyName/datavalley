@@ -225,6 +225,7 @@ export function DatePickerField({
           selected={selected}
           onSelect={(day) => {
             if (!day) return
+            setMonth(day)
             const date = toDateOnlyString(day)
             if (kind === 'datetime') {
               const { time } = splitDatetime(value)
@@ -326,6 +327,7 @@ export function DateRangePickerField({
               pendingFrom.current = null
               return
             }
+            setMonth(next.to ?? next.from)
             if (!next.to) {
               pendingFrom.current = next.from
               return

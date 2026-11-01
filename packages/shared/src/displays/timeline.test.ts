@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatTimelineBound,
+  growTimelineWindow,
   moveTimelineRange,
   parseTimelineCell,
   resizeTimelineRange,
   snapTimeline,
+  timeAtOffset,
   timelineLayout,
   timelineNow,
   timelineStep,
   timelineWaterfallOrder,
+  timelineWindow,
 } from './timeline.js'
 
 describe('timeline placement', () => {
@@ -84,6 +87,45 @@ describe('timeline zoom and snap', () => {
         to: formatTimelineBound(new Date(2026, 2, 4, 13).getTime(), true),
       },
     })
+  })
+
+  it('extends the window earlier or later without moving the visible instant', () => {
+    const points = [Date.UTC(2026, 10, 3), Date.UTC(2026, 10, 11)]
+    const window = timelineWindow({ points, step: 'day', includeTime: false })
+    expect(window.start).toBeLessThanOrEqual(Date.UTC(2026, 9, 3))
+    expect(window.end).toBeGreaterThanOrEqual(Date.UTC(2026, 11, 11))
+    const layout = timelineLayout({
+      spans: [{ start: points[0], end: points[1] }],
+      now: points[0],
+      step: 'day',
+      includeTime: false,
+      locale: 'en',
+      start: window.start,
+      end: window.end,
+    })
+    const scrollLeft = 80
+    const visible = timeAtOffset(scrollLeft + 100, layout.start, layout.end, layout.width)
+    const earlier = growTimelineWindow({
+      start: layout.start,
+      end: layout.end,
+      step: 'day',
+      includeTime: false,
+      edge: 'start',
+      scrollLeft,
+    })
+    expect(earlier.start).toBeLessThan(layout.start)
+    expect(timeAtOffset(earlier.scrollLeft + 100, earlier.start, earlier.end, layout.width + earlier.added)).toBe(visible)
+    const later = growTimelineWindow({
+      start: layout.start,
+      end: layout.end,
+      step: 'day',
+      includeTime: false,
+      edge: 'end',
+      scrollLeft,
+    })
+    expect(later.end).toBeGreaterThan(layout.end)
+    expect(later.scrollLeft).toBe(scrollLeft)
+    expect(timeAtOffset(later.scrollLeft + 100, later.start, later.end, layout.width + later.added)).toBe(visible)
   })
 
   it('refuses a range whose end moves before its start and allows the same day', () => {

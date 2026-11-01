@@ -5,6 +5,7 @@ import {
   isDateColumnType,
   isDateRangeValue,
   formatTimelineBound,
+  growTimelineWindow,
   moveTimelineRange,
   offsetAtTime,
   parseTimelineCell,
@@ -13,9 +14,12 @@ import {
   timeAtOffset,
   timelineIncludesTime,
   timelineLayout,
+  timelineNeighbor,
   timelineNow,
   timelineStep,
+  timelineStepWidth,
   timelineWaterfallOrder,
+  timelineWindow,
   type TimelineDisplay,
   type TimelineSpan,
 } from '@datavalley/shared'
@@ -73,6 +77,10 @@ export function TimelineView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const anchorRef = useRef<{ time: number; offset: number } | null>(null)
+  const pendingScroll = useRef<number | null>(null)
+  const revealed = useRef(false)
+  const growing = useRef(false)
+  const lastGrow = useRef(0)
   const dragRef = useRef<DragState | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const commitDragRef = useRef<(current: DragState) => void>(() => {})
@@ -135,25 +143,55 @@ export function TimelineView({
     })
   }, [dateColumn, includeTime, rows])
 
+  const points = useMemo(() => [timelineNow(includeTime), ...spans.flatMap((span) => [span.start, span.end])], [includeTime, spans])
+  const baseWindow = useMemo(() => timelineWindow({ points, step, includeTime }), [includeTime, points, step])
+  const [frame, setFrame] = useState<{ start: number; end: number } | null>(null)
+  useEffect(() => {
+    setFrame(null)
+  }, [includeTime, step])
+  const bounds = useMemo(() => {
+    if (!frame) return baseWindow
+    return { start: Math.min(frame.start, baseWindow.start), end: Math.max(frame.end, baseWindow.end) }
+  }, [baseWindow, frame])
   const layout = useMemo(
     () =>
       timelineLayout({
         spans,
-        now: timelineNow(includeTime),
+        now: points[0] ?? timelineNow(includeTime),
         step,
         includeTime,
         locale: i18n.language,
+        start: bounds.start,
+        end: bounds.end,
       }),
-    [i18n.language, includeTime, spans, step],
+    [bounds.end, bounds.start, i18n.language, includeTime, points, spans, step],
   )
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
 
   useLayoutEffect(() => {
     const scroller = scrollRef.current
+    if (!scroller) return
+    growing.current = false
+    if (pendingScroll.current != null) {
+      scroller.scrollLeft = pendingScroll.current
+      pendingScroll.current = null
+      revealed.current = true
+      return
+    }
     const anchor = anchorRef.current
-    if (!scroller || !anchor) return
-    anchorRef.current = null
-    const x = offsetAtTime(anchor.time, layout.start, layout.end, layout.width)
-    scroller.scrollLeft = Math.max(0, x - anchor.offset)
+    if (anchor) {
+      anchorRef.current = null
+      const x = offsetAtTime(anchor.time, layout.start, layout.end, layout.width)
+      scroller.scrollLeft = Math.max(0, x - anchor.offset)
+      revealed.current = true
+      return
+    }
+    if (!revealed.current && scroller.clientWidth > 0) {
+      revealed.current = true
+      const x = offsetAtTime(layout.now, layout.start, layout.end, layout.width)
+      scroller.scrollLeft = Math.max(0, x - scroller.clientWidth / 2)
+    }
   }, [layout])
 
   const items = useMemo(() => {
@@ -174,9 +212,53 @@ export function TimelineView({
 
   function timeFromPointer(clientX: number) {
     const node = contentRef.current
+    const box = layoutRef.current
     if (!node) return null
     const x = clientX - node.getBoundingClientRect().left
-    return snapTimeline(timeAtOffset(x, layout.start, layout.end, layout.width), step, includeTime)
+    return snapTimeline(timeAtOffset(x, box.start, box.end, box.width), step, includeTime)
+  }
+
+  function growWindow(edge: 'start' | 'end', shift: boolean, steps?: number) {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const box = layoutRef.current
+    const grown = growTimelineWindow({
+      start: box.start,
+      end: box.end,
+      step,
+      includeTime,
+      edge,
+      scrollLeft: scroller.scrollLeft,
+      steps,
+    })
+    const unit = steps == null ? grown.added : timelineStepWidth(step) * steps
+    pendingScroll.current = Math.max(0, shift ? grown.scrollLeft + (edge === 'end' ? unit : -unit) : grown.scrollLeft)
+    setFrame({ start: grown.start, end: grown.end })
+  }
+
+  function followEdge(edge: 'start' | 'end', time: number) {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const box = layoutRef.current
+    const outside = edge === 'start' ? time < box.start : time > box.end
+    if (outside) {
+      growWindow(edge, true, 1)
+      return
+    }
+    const unit = timelineStepWidth(step)
+    scroller.scrollLeft = Math.max(0, scroller.scrollLeft + (edge === 'end' ? unit : -unit))
+  }
+
+  function onTimelineScroll() {
+    if (growing.current || dragRef.current || pendingScroll.current != null) return
+    const scroller = scrollRef.current
+    if (!scroller) return
+    const overflow = scroller.scrollWidth - scroller.clientWidth
+    if (overflow < 1) return
+    const edge = scroller.scrollLeft < 48 ? 'start' : overflow - scroller.scrollLeft < 48 ? 'end' : null
+    if (!edge) return
+    growing.current = true
+    growWindow(edge, false)
   }
 
   function rememberAnchor(clientX?: number) {
@@ -222,13 +304,28 @@ export function TimelineView({
     if (time == null) return
     event.preventDefault()
     event.stopPropagation()
-    event.currentTarget.setPointerCapture(event.pointerId)
+    if (event.currentTarget instanceof HTMLElement) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // Window listeners below still follow the pointer when capture is unavailable.
+      }
+    }
     const next = { rowId, edge, time, origin: time }
     setDragState(next)
     function move(pointer: PointerEvent) {
-      const snapped = timeFromPointer(pointer.clientX)
       const current = dragRef.current
-      if (snapped == null || !current) return
+      if (!current) return
+      const scroller = scrollRef.current
+      const bounds = scroller?.getBoundingClientRect()
+      const edge = bounds == null ? null : pointer.clientX <= bounds.left + 28 ? 'start' : pointer.clientX >= bounds.right - 28 ? 'end' : null
+      let snapped = timeFromPointer(pointer.clientX)
+      if (snapped == null) return
+      if (edge && Date.now() - lastGrow.current >= 50) {
+        lastGrow.current = Date.now()
+        snapped = timelineNeighbor(snapped, step, includeTime, edge === 'start' ? -1 : 1)
+        followEdge(edge, snapped)
+      }
       setDragState({ ...current, time: snapped })
     }
     function up() {
@@ -362,7 +459,7 @@ export function TimelineView({
         <p className="px-3 py-6 text-sm text-muted-foreground">{message}</p>
       ) : (
         <>
-          <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto">
+          <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-auto" onScroll={onTimelineScroll}>
             <div ref={contentRef} className="relative min-w-full" style={{ width: layout.width }}>
               <div className="sticky top-0 z-20 h-8 border-b border-border bg-card">
                 {layout.ticks.map((tick) => (

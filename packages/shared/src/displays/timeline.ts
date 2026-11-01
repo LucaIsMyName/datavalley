@@ -150,27 +150,93 @@ function tickLabel(time: number, step: TimelineStep, includeTime: boolean, local
 
 const stepWidth: Record<TimelineStep, number> = { month: 96, week: 72, day: 40, hour: 56 }
 
+export function timelineStepWidth(step: TimelineStep) {
+  return stepWidth[step]
+}
+
+export function timelineMonthSteps(step: TimelineStep) {
+  if (step === 'month') return 1
+  if (step === 'week') return 5
+  if (step === 'day') return 31
+  return 24 * 31
+}
+
+function walkSteps(time: number, step: TimelineStep, includeTime: boolean, count: number, direction: 1 | -1) {
+  let cursor = time
+  for (let index = 0; index < count; index += 1) {
+    cursor = direction < 0 ? previousStep(cursor, step, includeTime) : addStep(cursor, step, includeTime)
+  }
+  return cursor
+}
+
+export function timelineWindow(input: { points: number[]; step: TimelineStep; includeTime: boolean }) {
+  const points = input.points.filter((point) => Number.isFinite(point))
+  const earliest = Math.min(...points)
+  const latest = Math.max(...points)
+  const pad = timelineMonthSteps(input.step)
+  let start = walkSteps(floorStep(earliest, input.step, input.includeTime), input.step, input.includeTime, pad, -1)
+  let end = walkSteps(ceilStep(latest, input.step, input.includeTime), input.step, input.includeTime, pad, 1)
+  if (end <= start) end = addStep(addStep(start, input.step, input.includeTime), input.step, input.includeTime)
+  return { start, end }
+}
+
+export function growTimelineWindow(input: {
+  start: number
+  end: number
+  step: TimelineStep
+  includeTime: boolean
+  edge: 'start' | 'end'
+  scrollLeft: number
+  steps?: number
+}) {
+  const count = Math.max(1, input.steps ?? timelineMonthSteps(input.step))
+  const added = count * stepWidth[input.step]
+  if (input.edge === 'start') {
+    return {
+      start: walkSteps(input.start, input.step, input.includeTime, count, -1),
+      end: input.end,
+      scrollLeft: input.scrollLeft + added,
+      added,
+    }
+  }
+  return {
+    start: input.start,
+    end: walkSteps(input.end, input.step, input.includeTime, count, 1),
+    scrollLeft: input.scrollLeft,
+    added,
+  }
+}
+
+export function timelineNeighbor(time: number, step: TimelineStep, includeTime: boolean, direction: 1 | -1) {
+  const unit: TimelineStep = step === 'hour' ? 'hour' : 'day'
+  const snapped = floorStep(time, unit, includeTime)
+  return direction < 0 ? previousStep(snapped, unit, includeTime) : addStep(snapped, unit, includeTime)
+}
+
 export function timelineLayout(input: {
   spans: { start: number; end: number }[]
   now: number
   step: TimelineStep
   includeTime: boolean
   locale: string
+  start?: number
+  end?: number
 }) {
   const points = [input.now, ...input.spans.flatMap((span) => [span.start, span.end])]
-  const start = previousStep(floorStep(Math.min(...points), input.step, input.includeTime), input.step, input.includeTime)
-  let end = addStep(ceilStep(Math.max(...points), input.step, input.includeTime), input.step, input.includeTime)
+  const start = input.start ?? previousStep(floorStep(Math.min(...points), input.step, input.includeTime), input.step, input.includeTime)
+  let end = input.end ?? addStep(ceilStep(Math.max(...points), input.step, input.includeTime), input.step, input.includeTime)
   if (end <= start) end = addStep(addStep(start, input.step, input.includeTime), input.step, input.includeTime)
   const ticks: { at: number; label: string }[] = []
   let cursor = start
   let guard = 0
-  while (cursor < end && guard < 500) {
+  while (cursor < end && guard < 4000) {
     ticks.push({ at: cursor, label: tickLabel(cursor, input.step, input.includeTime, input.locale) })
     const next = addStep(cursor, input.step, input.includeTime)
     if (next <= cursor) break
     cursor = next
     guard += 1
   }
+  if (guard >= 4000 && cursor < end) end = cursor
   return {
     start,
     end,
