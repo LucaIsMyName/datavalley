@@ -5,6 +5,7 @@ import { LoadingBlock } from '../components/states'
 import { api } from '../lib/api'
 import { useSession } from '../stores/session'
 import { lazyRoute } from './lazy-route'
+import { RouteErrorPage } from './route-error'
 
 const screenFallback = (
   <div className="grid h-screen place-items-center bg-background">
@@ -40,7 +41,10 @@ const DocsLayout = route(docsLayout, 'DocsLayout')
 const DocsIndexRedirect = route(docsLayout, 'DocsIndexRedirect')
 const SettingsLayout = route(settingsLayout, 'SettingsLayout')
 const UserGuidePage = route(() => import('../features/docs/use-page'), 'UserGuidePage')
-const DeveloperGuidePage = route(() => import('../features/docs/develop-page'), 'DeveloperGuidePage')
+const DeveloperGuidePage = route(
+  () => import('../features/docs/develop-page'),
+  'DeveloperGuidePage',
+)
 const ApiReferencePage = route(() => import('../features/docs/api-page'), 'ApiReferencePage')
 const IntegrationsPage = route(pages, 'IntegrationsPage')
 const MediaPage = route(() => import('../features/media/page'), 'MediaPage')
@@ -52,7 +56,12 @@ const AuditPage = route(pages, 'AuditPage')
 function RequireAuth() {
   const user = useSession((state) => state.user)
   const ready = useSession((state) => state.ready)
-  if (!ready) return <div className="grid h-screen place-items-center bg-background"><LoadingBlock /></div>
+  if (!ready)
+    return (
+      <div className="grid h-screen place-items-center bg-background">
+        <LoadingBlock />
+      </div>
+    )
   if (!user) return <Navigate to="/login" replace />
   if (user.mustChangePassword) return <Navigate to="/change-password" replace />
   return <Outlet />
@@ -75,58 +84,64 @@ function RootWithHelmet() {
 export const router = createBrowserRouter([
   {
     element: <RootWithHelmet />,
+    errorElement: <RouteErrorPage />,
     children: [
-  { path: '/login', element: <LoginPage /> },
-  { path: '/forgot-password', element: <ForgotPasswordPage /> },
-  { path: '/reset-password', element: <ResetPasswordPage /> },
-  { path: '/change-password', element: <ChangePasswordPage /> },
-  {
-    element: <RequireAuth />,
-    children: [
+      { path: '/login', element: <LoginPage /> },
+      { path: '/forgot-password', element: <ForgotPasswordPage /> },
+      { path: '/reset-password', element: <ResetPasswordPage /> },
+      { path: '/change-password', element: <ChangePasswordPage /> },
       {
-        element: <AppShell />,
+        element: <RequireAuth />,
         children: [
-          { path: '/', element: <DashboardPage /> },
-          { path: '/projects', element: <ProjectsPage /> },
           {
-            path: '/projects/:projectId',
-            element: <ProjectPage />,
-            children: [{ path: 'tables/:tableId', element: <TablePage /> }],
-          },
-          { path: '/recent', element: <RecentPage /> },
-          { path: '/favorites', element: <FavoritesPage /> },
-          { path: '/media', element: <MediaPage /> },
-          {
-            path: '/doc',
-            element: <DocsLayout />,
+            element: <AppShell />,
             children: [
-              { index: true, element: <DocsIndexRedirect /> },
-              { path: 'use', element: <UserGuidePage /> },
-              { path: 'develop', element: <DeveloperGuidePage /> },
-              { path: 'api', element: <ApiReferencePage /> },
-            ],
-          },
-          { path: '/integrations', element: <IntegrationsPage /> },
-          {
-            path: '/settings',
-            element: <SettingsLayout />,
-            children: [
-              { index: true, element: <Navigate to="/settings/profile" replace /> },
-              { path: 'profile', element: <ProfilePage /> },
               {
-                element: <RequireAdmin />,
+                errorElement: <RouteErrorPage />,
                 children: [
-                  { path: 'users', element: <UsersPage /> },
-                  { path: 'api-keys', element: <ApiKeysPage /> },
-                  { path: 'audit', element: <AuditPage /> },
+                  { path: '/', element: <DashboardPage /> },
+                  { path: '/projects', element: <ProjectsPage /> },
+                  {
+                    path: '/projects/:projectId',
+                    element: <ProjectPage />,
+                    children: [{ path: 'tables/:tableId', element: <TablePage /> }],
+                  },
+                  { path: '/recent', element: <RecentPage /> },
+                  { path: '/favorites', element: <FavoritesPage /> },
+                  { path: '/media', element: <MediaPage /> },
+                  {
+                    path: '/doc',
+                    element: <DocsLayout />,
+                    children: [
+                      { index: true, element: <DocsIndexRedirect /> },
+                      { path: 'use', element: <UserGuidePage /> },
+                      { path: 'develop', element: <DeveloperGuidePage /> },
+                      { path: 'api', element: <ApiReferencePage /> },
+                    ],
+                  },
+                  { path: '/integrations', element: <IntegrationsPage /> },
+                  {
+                    path: '/settings',
+                    element: <SettingsLayout />,
+                    children: [
+                      { index: true, element: <Navigate to="/settings/profile" replace /> },
+                      { path: 'profile', element: <ProfilePage /> },
+                      {
+                        element: <RequireAdmin />,
+                        children: [
+                          { path: 'users', element: <UsersPage /> },
+                          { path: 'api-keys', element: <ApiKeysPage /> },
+                          { path: 'audit', element: <AuditPage /> },
+                        ],
+                      },
+                    ],
+                  },
                 ],
               },
             ],
           },
         ],
       },
-    ],
-  },
     ],
   },
 ])

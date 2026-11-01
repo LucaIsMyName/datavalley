@@ -59,6 +59,7 @@
   "name": "Name",
   "loading": "Wird geladen",
   "error": "Etwas ist schiefgelaufen",
+  "tryAgain": "Erneut versuchen",
   "lastEdited": "Bearbeitet {{date}}",
   "projectTableCount": "{{count}} Tabellen",
   "emptyProjects": "Noch keine Projekte",
