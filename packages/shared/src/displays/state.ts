@@ -12,6 +12,7 @@ export type ChartDisplay = {
   type: ChartType
   dimensionIds: string[]
   valueIds: string[]
+  perRow: boolean
 }
 
 export type TimelineDisplay = {
@@ -43,7 +44,7 @@ const idLimit = 24
 export function defaultTableDisplay(): TableDisplayState {
   return {
     mode: 'grid',
-    chart: { type: 'bar', dimensionIds: [], valueIds: [] },
+    chart: { type: 'bar', dimensionIds: [], valueIds: [], perRow: false },
     timeline: { dateColumnId: null, titleColumnIds: [], zoom: 1 },
     kanban: { statusColumnId: null, cardColumnIds: [], statusOrder: [] },
   }
@@ -88,6 +89,7 @@ export function sanitizeTableDisplay(value: unknown): TableDisplayState {
       type: chart.type === 'line' || chart.type === 'doughnut' || chart.type === 'bar' ? chart.type : base.chart.type,
       dimensionIds: idList(chart.dimensionIds),
       valueIds: idList(chart.valueIds),
+      perRow: chart.perRow === true,
     },
     timeline: {
       dateColumnId: optionalId(timeline.dateColumnId),

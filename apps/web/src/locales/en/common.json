@@ -124,6 +124,7 @@
   "displayGrid": "Grid",
   "displayChart": "Chart",
   "chartType": "Chart type",
+  "chartPerRow": "Dimension per row",
   "chartLine": "Line",
   "chartBar": "Bar",
   "chartDoughnut": "Doughnut",

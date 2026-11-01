@@ -124,6 +124,7 @@
   "displayGrid": "Raster",
   "displayChart": "Diagramm",
   "chartType": "Diagrammtyp",
+  "chartPerRow": "Dimension pro Zeile",
   "chartLine": "Linie",
   "chartBar": "Balken",
   "chartDoughnut": "Ring",

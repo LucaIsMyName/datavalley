@@ -73,6 +73,58 @@ describe('chart aggregation', () => {
     expect(chart.categories.map((category) => category.label)).toEqual(['Ada', 'Grace'])
     expect(chart.series[0].values).toEqual([8, 0])
   })
+
+  it('keeps each row when the same dimension value repeats', () => {
+    const rows = [
+      { id: 'a', cells: { name: 'Ada', amount: 2 } },
+      { id: 'b', cells: { name: 'Ada', amount: 3 } },
+    ]
+    const dimensions = [{ id: 'name', type: 'text' as const }]
+    const values = [{ id: 'amount', name: 'Amount' }]
+    const grouped = aggregateChart({ dimensions, values, emptyLabel: 'Empty', rows })
+    const separate = aggregateChart({ dimensions, values, emptyLabel: 'Empty', rows, perRow: true })
+    expect(grouped.categories.map((category) => category.label)).toEqual(['Ada'])
+    expect(grouped.series[0].values).toEqual([5])
+    expect(separate.categories.map((category) => category.label)).toEqual(['Ada', 'Ada'])
+    expect(separate.series[0].values).toEqual([2, 3])
+    expect(new Set(separate.categories.map((category) => category.key)).size).toBe(2)
+  })
+
+  it('joins tags on one row instead of fanning them out', () => {
+    const chart = aggregateChart({
+      dimensions: [status, tags],
+      values: [{ id: 'amount', name: 'Amount' }],
+      emptyLabel: 'Empty',
+      perRow: true,
+      rows: [
+        { id: 'a', cells: { status: 'open', tags: ['red', 'blue'], amount: 3 } },
+        { id: 'b', cells: { status: 'done', tags: ['red'], amount: 4 } },
+      ],
+    })
+    expect(chart.categories.map((category) => [category.label, category.color])).toEqual([
+      ['Open · Red, Blue', null],
+      ['Done · Red', null],
+    ])
+    expect(chart.series[0].values).toEqual([3, 4])
+  })
+
+  it('keeps the status color when each row is its own category', () => {
+    const chart = aggregateChart({
+      dimensions: [status],
+      values: [{ id: 'amount', name: 'Amount' }],
+      emptyLabel: 'Empty',
+      perRow: true,
+      rows: [
+        { id: 'a', cells: { status: 'open', amount: 2 } },
+        { id: 'b', cells: { status: 'open', amount: 5 } },
+      ],
+    })
+    expect(chart.categories.map((category) => [category.label, category.color])).toEqual([
+      ['Open', 'amber'],
+      ['Open', 'amber'],
+    ])
+    expect(chart.series[0].values).toEqual([2, 5])
+  })
 })
 
 describe('display state', () => {
@@ -80,7 +132,7 @@ describe('display state', () => {
     const display = normalizeTableDisplay(
       {
         mode: 'chart',
-        chart: { type: 'doughnut', dimensionIds: ['name', 'amount', 'missing'], valueIds: ['amount', 'name'] },
+        chart: { type: 'doughnut', dimensionIds: ['name', 'amount', 'missing'], valueIds: ['amount', 'name'], perRow: true },
         timeline: { dateColumnId: 'when', titleColumnIds: ['name'], zoom: 2 },
       },
       [
@@ -90,7 +142,7 @@ describe('display state', () => {
       ],
     )
     expect(display.mode).toBe('chart')
-    expect(display.chart).toEqual({ type: 'doughnut', dimensionIds: ['name'], valueIds: ['amount'] })
+    expect(display.chart).toEqual({ type: 'doughnut', dimensionIds: ['name'], valueIds: ['amount'], perRow: true })
     expect(display.timeline).toEqual({ dateColumnId: 'when', titleColumnIds: ['name'], zoom: 2 })
     expect(display.kanban).toEqual(defaultTableDisplay().kanban)
   })
@@ -101,6 +153,6 @@ describe('display state', () => {
       chart: { type: 'pie', dimensionIds: ['ok', '', 4, 'ok'], valueIds: 'amount' },
     })
     expect(display.mode).toBe('timeline')
-    expect(display.chart).toEqual({ type: 'bar', dimensionIds: ['ok'], valueIds: [] })
+    expect(display.chart).toEqual({ type: 'bar', dimensionIds: ['ok'], valueIds: [], perRow: false })
   })
 })

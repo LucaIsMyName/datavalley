@@ -955,7 +955,7 @@ export function ProjectPage() {
         </div>
       </header>
       {tableId && tableRows.length > 0 ? (
-        <div className="flex shrink-0 mx-6 md:mx-6 border-t border-l border-r border-border">
+        <div className="flex shrink-0 mx-4 md:mx-6 border-t border-l border-r border-border">
           <TableToolbarRow />
         </div>
       ) : null}

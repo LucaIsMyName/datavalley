@@ -239,7 +239,7 @@ describe('table interactions', () => {
     const chart = {
       ...defaultTableDisplay(),
       mode: 'chart',
-      chart: { type: 'line', dimensionIds: [nameId], valueIds: [] },
+      chart: { ...defaultTableDisplay().chart, type: 'line', dimensionIds: [nameId], valueIds: [] },
     }
     const withChart = await session.inject({
       method: 'PUT',
@@ -273,8 +273,8 @@ describe('table interactions', () => {
       payload: { sourceTableId: sourceId, name: 'Inventory view' },
     })
     const mirrorId = mirror.json().table.id as string
-    const sourceDisplay = { ...defaultTableDisplay(), mode: 'chart', chart: { type: 'bar', dimensionIds: [], valueIds: [] } }
-    const mirrorDisplay = { ...defaultTableDisplay(), mode: 'chart', chart: { type: 'doughnut', dimensionIds: [], valueIds: [] } }
+    const sourceDisplay = { ...defaultTableDisplay(), mode: 'chart', chart: { ...defaultTableDisplay().chart, type: 'bar' } }
+    const mirrorDisplay = { ...defaultTableDisplay(), mode: 'chart', chart: { ...defaultTableDisplay().chart, type: 'doughnut' } }
     expect((await session.inject({ method: 'PUT', url: `/api/v1/tables/${sourceId}/state`, payload: { display: sourceDisplay } })).statusCode).toBe(200)
     expect((await session.inject({ method: 'PUT', url: `/api/v1/tables/${mirrorId}/state`, payload: { display: mirrorDisplay } })).statusCode).toBe(200)
     const sourceState = await session.inject({ method: 'GET', url: `/api/v1/tables/${sourceId}/state` })

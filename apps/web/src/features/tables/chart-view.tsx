@@ -39,6 +39,7 @@ const swatchFill: Record<string, string> = {
 
 type PlotPoint = {
   category: string
+  label: string
   series: string
   amount: number
   fill: string
@@ -75,6 +76,7 @@ function usePlotSize() {
 
 function CategoryPlot({ points, type, height, locale, label }: { points: PlotPoint[]; type: 'line' | 'bar'; height: number; locale: string; label: string }) {
   const seriesCount = new Set(points.map((point) => point.series)).size
+  const labels = useMemo(() => new Map(points.map((point) => [point.category, point.label])), [points])
   const definition = useMemo(() => {
     const shared = {
       x: 'category' as const,
@@ -102,7 +104,10 @@ function CategoryPlot({ points, type, height, locale, label }: { points: PlotPoi
       {
         marks,
         scales: {
-          x: { scale: () => (type === 'bar' ? scaleBand<string>().padding(0.18) : scalePoint<string>().padding(0.2)) },
+          x: {
+            scale: () => (type === 'bar' ? scaleBand<string>().padding(0.18) : scalePoint<string>().padding(0.2)),
+            axis: { ticks: { format: (value: string) => labels.get(value) ?? value } },
+          },
           y: {
             scale: scaleLinear,
             nice: true,
@@ -115,11 +120,11 @@ function CategoryPlot({ points, type, height, locale, label }: { points: PlotPoi
         tooltip: {
           use: tooltip,
           format: (point: { datum: PlotPoint }) =>
-            `${point.datum.category}${seriesCount > 1 ? ` · ${point.datum.series}` : ''}: ${formatAmount(point.datum.amount, locale)}`,
+            `${point.datum.label}${seriesCount > 1 ? ` · ${point.datum.series}` : ''}: ${formatAmount(point.datum.amount, locale)}`,
         },
       },
     )
-  }, [locale, points, seriesCount, type])
+  }, [labels, locale, points, seriesCount, type])
   return <Chart definition={definition} height={height} ariaLabel={label} />
 }
 
@@ -148,7 +153,7 @@ function DoughnutPlot({ points, height, locale, label }: { points: PlotPoint[]; 
         {
           tooltip: {
             use: tooltip,
-            format: (point: { datum: PlotPoint }) => `${point.datum.category}: ${formatAmount(point.datum.amount, locale)}`,
+            format: (point: { datum: PlotPoint }) => `${point.datum.label}: ${formatAmount(point.datum.amount, locale)}`,
           },
         },
       ),
@@ -169,7 +174,7 @@ export function ChartView({
   onChange,
 }: {
   columns: { id: string; name: string; type: string }[]
-  rows: { cells: Record<string, unknown> }[]
+  rows: { id?: string; cells: Record<string, unknown> }[]
   tags: Catalog[]
   statuses: Catalog[]
   chart: ChartDisplay
@@ -220,15 +225,17 @@ export function ChartView({
       }),
       rows,
       emptyLabel: t('empty'),
+      perRow: chart.perRow,
     })
-  }, [dimensions, ready, rows, selectedDimensions, selectedValues, statuses, t, tags, values])
+  }, [chart.perRow, dimensions, ready, rows, selectedDimensions, selectedValues, statuses, t, tags, values])
 
   const categoryColor = Boolean(aggregate?.categories.some((category) => category.color))
   const points = useMemo<PlotPoint[]>(() => {
     if (!aggregate) return []
     return aggregate.series.flatMap((series, seriesIndex) =>
       aggregate.categories.map((category, index) => ({
-        category: category.label,
+        category: category.key,
+        label: category.label,
         series: series.name,
         amount: series.values[index] ?? 0,
         fill: paint(category.color, seriesIndex),
@@ -239,7 +246,7 @@ export function ChartView({
     const seen = new Set<string>()
     const items: { label: string; fill: string }[] = []
     for (const point of points) {
-      const label = categoryColor ? point.category : point.series
+      const label = categoryColor ? point.label : point.series
       if (seen.has(label)) continue
       seen.add(label)
       items.push({ label, fill: point.fill })
@@ -275,6 +282,10 @@ export function ChartView({
             </SelectContent>
           </Select>
         </div>
+        <Label className="flex shrink-0 items-center gap-2 font-normal">
+          <Checkbox checked={chart.perRow} onCheckedChange={(checked) => onChange({ ...chart, perRow: checked === true })} />
+          {t('chartPerRow')}
+        </Label>
         <ColumnMultiSelect
           label={t('chartDimensions')}
           columns={dimensions}
@@ -342,7 +353,7 @@ function ColumnMultiSelect({
   const { t } = useTranslation()
   const names = columns.filter((column) => selected.includes(column.id)).map((column) => column.name)
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="flex w-52 shrink-0 items-center gap-2">
       <span className="shrink-0 text-sm">{label}</span>
       <Popover>
         <PopoverTrigger asChild>

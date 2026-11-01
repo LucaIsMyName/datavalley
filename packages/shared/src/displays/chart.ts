@@ -92,16 +92,49 @@ function compareCombos(left: Part[], right: Part[]) {
   return 0
 }
 
+function dimensionPart(column: ChartDimensionInput, raw: unknown, emptyLabel: string): Part {
+  const parts = partsFor(column, raw, emptyLabel)
+  if (parts.length <= 1) return parts[0] ?? emptyPart(emptyLabel)
+  return {
+    key: parts.map((part) => part.key).join('\u001f'),
+    label: parts.map((part) => part.label).join(', '),
+    color: null,
+    sort: parts[0]?.sort ?? '',
+    empty: parts.every((part) => part.empty),
+  }
+}
+
 export function aggregateChart(input: {
   dimensions: ChartDimensionInput[]
   values: { id: string; name: string }[]
-  rows: { cells: Record<string, unknown> }[]
+  rows: { id?: string; cells: Record<string, unknown> }[]
   emptyLabel: string
+  perRow?: boolean
 }): ChartAggregate {
   const dimensions = input.dimensions.filter((column) => isChartDimensionType(column.type))
   const values = input.values.filter((column) => column.id.length > 0)
   if (dimensions.length === 0 || values.length === 0) return { categories: [], series: [] }
   const colorCategories = dimensions.length === 1 && values.length === 1 && (dimensions[0].type === 'status' || dimensions[0].type === 'tags')
+  if (input.perRow) {
+    const categories = input.rows.map((row, index) => {
+      const parts = dimensions.map((column) => dimensionPart(column, row.cells[column.id], input.emptyLabel))
+      const id = row.id && row.id.length > 0 ? row.id : `row-${index}`
+      return {
+        key: `${id}\u001f${index}`,
+        label: parts.map((part) => part.label).join(' · '),
+        color: colorCategories ? parts[0]?.color ?? null : null,
+        amounts: values.map((column) => chartNumber(row.cells[column.id]) ?? 0),
+      }
+    })
+    return {
+      categories: categories.map(({ key, label, color }) => ({ key, label, color })),
+      series: values.map((column, index) => ({
+        columnId: column.id,
+        name: column.name,
+        values: categories.map((category) => category.amounts[index] ?? 0),
+      })),
+    }
+  }
   const grouped = new Map<string, { parts: Part[]; sums: number[] }>()
   for (const row of input.rows) {
     const combos = combinations(dimensions.map((column) => partsFor(column, row.cells[column.id], input.emptyLabel)))
