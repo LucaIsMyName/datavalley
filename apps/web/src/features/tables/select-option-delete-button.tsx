@@ -59,7 +59,7 @@ export function SelectOptionDeleteButton({
           <Button type="button" variant="ghost" className="h-8 px-2" disabled={pending} onClick={() => setOpen(false)}>
             {t('cancel')}
           </Button>
-          <Button type="button" variant="destructive" className="h-8 px-2" disabled={pending} onClick={() => void confirm()}>
+          <Button type="button" variant="danger" className="h-8 px-2" disabled={pending} onClick={() => void confirm()}>
             {t('delete')}
           </Button>
         </div>

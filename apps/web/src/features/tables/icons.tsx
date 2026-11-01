@@ -16,6 +16,18 @@ import {
   Tags,
   Type,
   Users,
+  FileText,
+  FileAudio,
+  FileVideo,
+  FileImage,
+  Play,
+  Pause,
+  Rewind,
+  FastForward,
+  SkipBack,
+  SkipForward,
+  Volume,
+  Volume2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,6 +49,18 @@ export const COLUMN_ICONS: Record<string, LucideIcon> = {
   FunctionSquare,
   ArrowRightLeft,
   Paperclip,
+  FileText,
+  FileAudio,
+  FileVideo,
+  FileImage,
+  Play,
+  Pause,
+  Rewind,
+  FastForward,
+  SkipBack,
+  SkipForward,
+  Volume,
+  Volume2,
 }
 
 export function defaultIcon(type: string, config?: Record<string, unknown>) {

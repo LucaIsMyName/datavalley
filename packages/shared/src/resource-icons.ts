@@ -35,6 +35,22 @@ export const RESOURCE_ICONS = [
   'Sparkles',
   'Target',
   'Award',
+  "Play",
+  "Pause",
+  "Rewind",
+  "FastForward",
+  "SkipBack",
+  "SkipForward",
+  "Volume",
+  "Volume2",
+  "FileAudio",
+  "FileVideo",
+  "FileImage",
+  "NotebookText",
+  'Search',
+  'Filter',
+  'SortAsc',
+  'SortDesc',
 ] as const
 
 export type ResourceIconName = (typeof RESOURCE_ICONS)[number]

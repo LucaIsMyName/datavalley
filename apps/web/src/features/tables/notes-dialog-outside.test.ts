@@ -8,8 +8,8 @@ describe('isNotesDialogOutsideTarget', () => {
         return selector.includes('data-tag-menu') || selector.includes('data-formula-window') ? menu : null
       },
     }
-    expect(isNotesDialogOutsideTarget(menu)).toBe(true)
-    expect(isNotesDialogOutsideTarget({ closest: () => null })).toBe(false)
+    expect(isNotesDialogOutsideTarget(menu as unknown as EventTarget)).toBe(true)
+    expect(isNotesDialogOutsideTarget({ closest: () => null } as unknown as EventTarget)).toBe(false)
     expect(isNotesDialogOutsideTarget(null)).toBe(false)
   })
 })

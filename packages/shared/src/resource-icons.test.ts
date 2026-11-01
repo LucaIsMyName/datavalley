@@ -5,6 +5,8 @@ describe('resource icons', () => {
   it('accepts the defaults and rejects unknown names', () => {
     expect(isResourceIcon(DEFAULT_PROJECT_ICON)).toBe(true)
     expect(isResourceIcon(DEFAULT_TABLE_ICON)).toBe(true)
+    expect(isResourceIcon('SortAsc')).toBe(true)
+    expect(isResourceIcon('SortDesc')).toBe(true)
     expect(isResourceIcon('NotAnIcon')).toBe(false)
   })
 })

@@ -32,7 +32,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { isSelectFamilyType, selectColumnMultiple } from '@datavalley/shared'
-import type { MenuAccordion, MenuEntry } from '../../components/context-menu'
+import type { MenuAccordion, MenuEntry, MenuItem } from '../../components/context-menu'
 import { COLUMN_ICONS, defaultIcon } from './icons'
 
 export const COLUMN_TYPES = [
@@ -99,7 +99,7 @@ function footerChoices(type: string) {
 function action(
   onSelect: (id: string) => void,
   item: { id: string; label: string; icon: LucideIcon; disabled?: boolean; danger?: boolean; dismissMenu?: boolean },
-): MenuEntry {
+): MenuItem {
   return { ...item, onSelect: () => onSelect(item.id) }
 }
 
