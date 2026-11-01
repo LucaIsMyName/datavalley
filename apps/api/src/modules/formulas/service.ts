@@ -5,6 +5,7 @@ import {
   collectRefs,
   conditionBlock,
   displayFormula,
+  LIMITS,
   parseFormula,
   resolveBrackets,
   runFormula,
@@ -627,24 +628,71 @@ async function tableDependencyStamp(db: AppDatabase, tableId: string) {
   return `${tableId}:${Number(summary?.total ?? 0)}:${stampTime(summary?.latest)}:${summary?.versions ?? 0}`
 }
 
-function dependencyStampFromContext(
-  rowId: string,
-  ast: AstNode,
+async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; rowId: string }[]) {
+  const rowIds = new Set<string>()
+  const tableIds = new Set<string>()
+  const seenFormula = new Set<string>()
+  const queue: { ast: AstNode; rowId: string; depth: number }[] = roots.map((root) => ({ ...root, depth: 0 }))
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    rowIds.add(current.rowId)
+    const refs = collectRefs(current.ast)
+    const formulaTargets: { columnId: string; rowId: string }[] = []
+
+    for (const ref of refs) {
+      if (ref.rowId) rowIds.add(ref.rowId)
+      else if (ref.tableId) tableIds.add(ref.tableId)
+
+      if (ref.tableId && !ref.rowId) continue
+
+      const targetRowId = ref.rowId ?? current.rowId
+      const key = `${ref.columnId}:${targetRowId}`
+      if (seenFormula.has(key)) continue
+      formulaTargets.push({ columnId: ref.columnId, rowId: targetRowId })
+    }
+
+    if (formulaTargets.length === 0 || current.depth >= LIMITS.maxDependencyDepth) continue
+
+    const columnIds = [...new Set(formulaTargets.map((target) => target.columnId))]
+    const columns =
+      columnIds.length > 0
+        ? await db
+            .select({ id: tableColumns.id, type: tableColumns.type })
+            .from(tableColumns)
+            .where(inArray(tableColumns.id, columnIds))
+        : []
+    const typeByColumn = new Map(columns.map((column) => [column.id, column.type]))
+
+    for (const target of formulaTargets) {
+      const key = `${target.columnId}:${target.rowId}`
+      if (seenFormula.has(key)) continue
+      if (typeByColumn.get(target.columnId) !== 'formula') continue
+      seenFormula.add(key)
+
+      const [formula] = await db
+        .select({ ast: formulas.ast })
+        .from(formulas)
+        .where(and(eq(formulas.columnId, target.columnId), eq(formulas.rowId, target.rowId)))
+        .limit(1)
+      if (!formula?.ast) continue
+      queue.push({ ast: formula.ast as AstNode, rowId: target.rowId, depth: current.depth + 1 })
+    }
+  }
+
+  return { rowIds, tableIds }
+}
+
+function dependencyStampFromExpanded(
   rowVersions: Map<string, number>,
   tableStamps: Map<string, string>,
+  expanded: { rowIds: Set<string>; tableIds: Set<string> },
 ) {
-  const refs = collectRefs(ast)
-  const rowIds = new Set<string>([rowId])
-  const tableIds = new Set<string>()
-  for (const ref of refs) {
-    if (ref.rowId) rowIds.add(ref.rowId)
-    else if (ref.tableId) tableIds.add(ref.tableId)
-  }
-  const rowStamp = [...rowIds]
+  const rowStamp = [...expanded.rowIds]
     .map((id) => `${id}:${rowVersions.get(id) ?? 0}`)
     .sort()
     .join(',')
-  const tablesStamp = [...tableIds]
+  const tablesStamp = [...expanded.tableIds]
     .map((id) => tableStamps.get(id) ?? '')
     .sort()
     .join(',')
@@ -652,20 +700,14 @@ function dependencyStampFromContext(
 }
 
 async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
-  const refs = collectRefs(ast)
-  const rowIds = new Set<string>([rowId])
-  const tableIds = new Set<string>()
-  for (const ref of refs) {
-    if (ref.rowId) rowIds.add(ref.rowId)
-    else if (ref.tableId) tableIds.add(ref.tableId)
-  }
-  const rows = await db.select().from(tableRows).where(inArray(tableRows.id, [...rowIds]))
+  const expanded = await expandStampDependencies(db, [{ ast, rowId }])
+  const rows = await db.select().from(tableRows).where(inArray(tableRows.id, [...expanded.rowIds]))
   const rowVersions = new Map(rows.map((row) => [row.id, row.version]))
   const tableStamps = new Map<string, string>()
-  for (const tableId of tableIds) {
+  for (const tableId of expanded.tableIds) {
     tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
   }
-  return dependencyStampFromContext(rowId, ast, rowVersions, tableStamps)
+  return dependencyStampFromExpanded(rowVersions, tableStamps, expanded)
 }
 
 function formulaCellKey(rowId: string, columnId: string | null) {
@@ -673,14 +715,14 @@ function formulaCellKey(rowId: string, columnId: string | null) {
 }
 
 async function buildStampContext(db: AppDatabase, entries: (typeof formulas.$inferSelect)[]) {
+  const perEntry = new Map<string, { rowIds: Set<string>; tableIds: Set<string> }>()
   const rowIds = new Set<string>()
   const tableIds = new Set<string>()
   for (const entry of entries) {
-    rowIds.add(entry.rowId)
-    for (const ref of collectRefs(entry.ast as AstNode)) {
-      if (ref.rowId) rowIds.add(ref.rowId)
-      else if (ref.tableId) tableIds.add(ref.tableId)
-    }
+    const expanded = await expandStampDependencies(db, [{ ast: entry.ast as AstNode, rowId: entry.rowId }])
+    perEntry.set(entry.id, expanded)
+    for (const id of expanded.rowIds) rowIds.add(id)
+    for (const id of expanded.tableIds) tableIds.add(id)
   }
   const rowVersions = new Map<string, number>()
   if (rowIds.size > 0) {
@@ -694,7 +736,7 @@ async function buildStampContext(db: AppDatabase, entries: (typeof formulas.$inf
   for (const tableId of tableIds) {
     tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
   }
-  return { rowVersions, tableStamps }
+  return { rowVersions, tableStamps, perEntry }
 }
 
 export async function evaluateFormulasForRows(
@@ -721,7 +763,7 @@ export async function evaluateFormulasForRows(
       : []
   const cacheByKey = new Map(cachedRows.map((row) => [`${row.formulaId}:${row.rowId}:${row.permissionHash}`, row]))
 
-  const { rowVersions, tableStamps } = await buildStampContext(db, entries)
+  const { rowVersions, tableStamps, perEntry } = await buildStampContext(db, entries)
   const stack = options.stack ?? new Set<string>()
   const misses: {
     entry: (typeof formulas.$inferSelect)
@@ -733,7 +775,8 @@ export async function evaluateFormulasForRows(
     if (!entry.columnId) continue
     const key = formulaCellKey(entry.rowId, entry.columnId)
     const permissionHash = permissionHashFor(entry.crossesTables)
-    const stamp = dependencyStampFromContext(entry.rowId, entry.ast as AstNode, rowVersions, tableStamps)
+    const expanded = perEntry.get(entry.id) ?? { rowIds: new Set<string>([entry.rowId]), tableIds: new Set<string>() }
+    const stamp = dependencyStampFromExpanded(rowVersions, tableStamps, expanded)
     const versionHash = `${stamp}:${entry.updatedAt.toISOString()}`
     const cached = cacheByKey.get(`${entry.id}:${entry.rowId}:${permissionHash}`)
     if (cached && cached.versionHash === versionHash) {
