@@ -240,6 +240,7 @@
   "info": "Info",
   "menu": "Menu",
   "menuDatatypes": "Data types",
+  "menuDateOptions": "Date column",
   "menuActions": "Actions",
   "menuConditions": "Conditions",
   "breadcrumbs": "Breadcrumbs",

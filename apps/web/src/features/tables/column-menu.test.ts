@@ -85,6 +85,13 @@ describe('column header menu', () => {
     ])
   })
 
+  it('groups date format options under their own heading before actions', () => {
+    const entries = menuFor({ type: 'date', config: { includeTime: true, range: true } })
+    expect(headings(entries)).toEqual(['datatypes', 'dateOptions', 'actions', 'footer', 'conditions'])
+    expect(idsBetween(entries, 'dateOptions', 'actions')).toEqual(['include-time-off', 'range-off'])
+    expect(idsBetween(entries, 'datatypes', 'dateOptions').every((id) => !id.startsWith('include-time') && !id.startsWith('range-'))).toBe(true)
+  })
+
   it('puts format options in data types and conditional color in conditions', () => {
     const money = menuFor({ type: 'number', config: { variant: 'money' } })
     expect(idsBetween(money, 'datatypes', 'actions')).toContain('variant-money')

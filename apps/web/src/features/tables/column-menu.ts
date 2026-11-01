@@ -155,7 +155,21 @@ export function buildColumnHeaderMenu(input: {
     }
   }
 
+  if (column.type === 'row_id') {
+    for (const style of ROW_STYLES) {
+      entries.push(
+        action(onSelect, {
+          id: `style-${style}`,
+          label: label(style),
+          icon: STYLE_ICONS[style],
+          disabled: String(column.config.style ?? 'sequence') === style,
+        }),
+      )
+    }
+  }
+
   if (column.type === 'date' || column.type === 'datetime') {
+    entries.push({ kind: 'heading', id: 'dateOptions', label: label('menuDateOptions') })
     const includeTime = column.type === 'datetime' || Boolean(column.config.includeTime)
     entries.push(
       action(onSelect, {
@@ -172,19 +186,6 @@ export function buildColumnHeaderMenu(input: {
         icon: CalendarRange,
       }),
     )
-  }
-
-  if (column.type === 'row_id') {
-    for (const style of ROW_STYLES) {
-      entries.push(
-        action(onSelect, {
-          id: `style-${style}`,
-          label: label(style),
-          icon: STYLE_ICONS[style],
-          disabled: String(column.config.style ?? 'sequence') === style,
-        }),
-      )
-    }
   }
 
   entries.push(
