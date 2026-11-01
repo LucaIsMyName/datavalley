@@ -46,7 +46,7 @@ import {
   Search,
   Sigma,
   Star,
-  StickyNote,
+  ArrowUpRight,
   Trash2,
   Undo2,
   Upload,
@@ -85,20 +85,18 @@ import { buildColumnHeaderMenu, COLUMN_TYPES } from './column-menu'
 import { ConditionalDialog } from './conditional-dialog'
 import { CsvImportDialog } from './csv-import-dialog'
 import { presentFormatRow } from './format-values'
-import { cellWritable as isColumnWritable, displayCellValue, fillableColumn as fillable } from './cell-display'
+import {
+  cellWritable as isColumnWritable,
+  displayCellValue,
+  fillableColumn as fillable,
+} from './cell-display'
 import { ColumnTitle } from './column-title'
 import { activateTableCell } from './activate-table-cell'
 import { TableCellInput } from './table-cell-input'
 import { useRowCellEdit } from './use-row-cell-edit'
 import { beforeDropEdge } from './drop-place'
 import { editFailureMessage } from './edit-error'
-import {
-  cardinalityKey,
-  emptyGridKind,
-  filterOperatorKey,
-  rowTint,
-  selectionKind,
-} from './grid-ux'
+import { cardinalityKey, emptyGridKind, filterOperatorKey, rowTint, selectionKind } from './grid-ux'
 import { fillTargets } from './fill-range'
 import { useFormulaWindow } from '../../stores/formula-window'
 import {
@@ -280,7 +278,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
-  const [formatTarget, setFormatTarget] = useState<{ columnId: string; rowId?: string } | null>(null)
+  const [formatTarget, setFormatTarget] = useState<{ columnId: string; rowId?: string } | null>(
+    null,
+  )
   const [viewName, setViewName] = useState('')
   const [sharedView, setSharedView] = useState(false)
   const [historyTick, setHistoryTick] = useState(0)
@@ -331,7 +331,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       row,
       column,
       readOnly: dataReadOnly,
-      onOpenFormula: (targetRow, targetColumn) => openFormula(targetRow.id, targetColumn.id, targetColumn.name),
+      onOpenFormula: (targetRow, targetColumn) =>
+        openFormula(targetRow.id, targetColumn.id, targetColumn.name),
       onBeginEdit: (columnId) => setEditing(`${row.id}:${columnId}`),
     })
   }
@@ -367,14 +368,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
     if (rowsQuery.isError || rowsQuery.isFetchingNextPage || !rowsQuery.hasNextPage) return
     if (rows.length >= displayRowCap) return
     void rowsQuery.fetchNextPage()
-  }, [display.mode, rows.length, rowsQuery.isError, rowsQuery.isFetchingNextPage, rowsQuery.hasNextPage, rowsQuery.fetchNextPage])
+  }, [
+    display.mode,
+    rows.length,
+    rowsQuery.isError,
+    rowsQuery.isFetchingNextPage,
+    rowsQuery.hasNextPage,
+    rowsQuery.fetchNextPage,
+  ])
   const rowsRef = useRef(rows)
   rowsRef.current = rows
   const { scheduleCell, applyMediaCell, invalidCells, invalidFor, clearInvalid } = useRowCellEdit({
     tableId,
     readOnly: dataReadOnly,
     readOnlyReason,
-    getRow: (rowId) => readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId),
+    getRow: (rowId) =>
+      readCachedRow(queryClient, tableId, rowId) ??
+      rowsRef.current.find((item) => item.id === rowId),
   })
   const widthKey = `dv-col-widths:${tableId}`
   useEffect(() => {
@@ -483,7 +493,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
   useEffect(() => {
     if (!popover) return
     const close = (event: PointerEvent) => {
-      if ((event.target as HTMLElement | null)?.closest('[data-popover], [role="listbox"], [data-radix-popper-content-wrapper]')) return
+      if (
+        (event.target as HTMLElement | null)?.closest(
+          '[data-popover], [role="listbox"], [data-radix-popper-content-wrapper]',
+        )
+      )
+        return
       setPopover(null)
     }
     window.addEventListener('pointerdown', close)
@@ -545,7 +560,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const undoRef = useRef(undo)
   const boundsRef = useRef({ rows: rows.length, columns: visible.length })
   const activateRef = useRef<() => void>(() => {})
-  const beginFillRef = useRef<(event: ReactPointerEvent, rowIndex: number, column: Column) => void>(() => {})
+  const beginFillRef = useRef<(event: ReactPointerEvent, rowIndex: number, column: Column) => void>(
+    () => {},
+  )
   const selectedRef = useRef(selected)
   const visibleRef = useRef(visible)
   const editingRef = useRef(editing)
@@ -568,8 +585,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       const target = event.target as HTMLElement | null
       const typing = Boolean(
         target &&
-          (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
-            target.closest('[role="combobox"], [role="listbox"]')),
+        (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+          target.closest('[role="combobox"], [role="listbox"]')),
       )
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !typing) {
         event.preventDefault()
@@ -577,12 +594,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
         return
       }
       const inGrid = Boolean(parentRef.current?.contains(document.activeElement))
-      if (!typing && inGrid && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+      if (
+        !typing &&
+        inGrid &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'c'
+      ) {
         event.preventDefault()
         copyCellRef.current()
         return
       }
-      if (!typing && inGrid && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
+      if (
+        !typing &&
+        inGrid &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'v'
+      ) {
         event.preventDefault()
         void navigator.clipboard.readText().then((text) => pasteCellRef.current(text))
         return
@@ -725,7 +752,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       throw error
     }
     const row =
-      readCachedRow(queryClient, tableId, rowId) ?? rowsRef.current.find((item) => item.id === rowId)
+      readCachedRow(queryClient, tableId, rowId) ??
+      rowsRef.current.find((item) => item.id === rowId)
     if (!row) {
       showEditError(t('error'))
       throw new Error('Row not found')
@@ -885,7 +913,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
   }
 
-  async function saveColumnRules(columnId: string, drafts: { id: string; expression: string; color: string | null; background: string | null }[]) {
+  async function saveColumnRules(
+    columnId: string,
+    drafts: { id: string; expression: string; color: string | null; background: string | null }[],
+  ) {
     const before = rules
     const next = drafts.map((draft) => ({
       id: draft.id,
@@ -902,12 +933,19 @@ export function TableScreen({ tableId }: { tableId: string }) {
       method: 'PATCH',
       body: JSON.stringify({ formatRules: after }),
     })
-    patchCachedTable(queryClient, tableId, (current) => ({ ...current, formatRules: saved.table.formatRules }))
+    patchCachedTable(queryClient, tableId, (current) => ({
+      ...current,
+      formatRules: saved.table.formatRules,
+    }))
     pushCommand(tableId, { kind: 'rules', before, after: saved.table.formatRules })
     setFormatTarget(null)
   }
 
-  async function saveCellRules(row: RowRecord, columnId: string, drafts: { id: string; expression: string; color: string | null; background: string | null }[]) {
+  async function saveCellRules(
+    row: RowRecord,
+    columnId: string,
+    drafts: { id: string; expression: string; color: string | null; background: string | null }[],
+  ) {
     const previous = row.formats?.[columnId] ?? []
     const next = drafts.map((draft) => ({
       id: draft.id,
@@ -925,10 +963,26 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
     pushCommand(tableId, {
       kind: 'patch',
-      undo: [{ rowId: row.id, version: result.row.version, cells: {}, formats: { [columnId]: previous } }],
-      redo: [{ rowId: row.id, version: result.row.version, cells: {}, formats: { [columnId]: result.row.formats?.[columnId] ?? next } }],
+      undo: [
+        {
+          rowId: row.id,
+          version: result.row.version,
+          cells: {},
+          formats: { [columnId]: previous },
+        },
+      ],
+      redo: [
+        {
+          rowId: row.id,
+          version: result.row.version,
+          cells: {},
+          formats: { [columnId]: result.row.formats?.[columnId] ?? next },
+        },
+      ],
     })
-    mapCachedRows(queryClient, tableId, (item) => (item.id === row.id ? { ...item, ...result.row } : item))
+    mapCachedRows(queryClient, tableId, (item) =>
+      item.id === row.id ? { ...item, ...result.row } : item,
+    )
     setFormatTarget(null)
   }
 
@@ -1248,7 +1302,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const column = visible[selected.column]
     const row = rows[selected.row]
     if (!column || !row) return
-    void navigator.clipboard.writeText(displayCellValue(column, row.cells[column.id], i18n.language))
+    void navigator.clipboard.writeText(
+      displayCellValue(column, row.cells[column.id], i18n.language),
+    )
   }
   clearCellRef.current = () => {
     const column = visible[selected.column]
@@ -1262,13 +1318,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   async function commitFormulaFill(column: Column, sourceRowId: string, rowIds: string[]) {
-    const result = await api.request<{ expression: string; previous: { rowId: string; source: string }[] }>(
-      `/tables/${tableId}/formulas/fill`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ columnId: column.id, sourceRowId, rowIds }),
-      },
-    )
+    const result = await api.request<{
+      expression: string
+      previous: { rowId: string; source: string }[]
+    }>(`/tables/${tableId}/formulas/fill`, {
+      method: 'POST',
+      body: JSON.stringify({ columnId: column.id, sourceRowId, rowIds }),
+    })
     if (result.previous.length === 0) return
     pushCommand(tableId, {
       kind: 'formulas',
@@ -1300,7 +1356,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
     const previous = ids.map((rowId) => {
       const row = rows.find((item) => item.id === rowId)
-      return { rowId, version: row?.version ?? 1, cells: { [column.id]: row?.cells[column.id] ?? null } }
+      return {
+        rowId,
+        version: row?.version ?? 1,
+        cells: { [column.id]: row?.cells[column.id] ?? null },
+      }
     })
     try {
       await api.request(`/tables/${tableId}/cells/bulk`, {
@@ -1431,8 +1491,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const next = patch.multiple ?? previous
     if (previous === next) return
     const collected = await collectRowsForColumnMigration()
-    const affected =
-      previous && !next ? countSelectRowsWithMultipleValues(collected, column.id) : 0
+    const affected = previous && !next ? countSelectRowsWithMultipleValues(collected, column.id) : 0
 
     const run = async () => {
       const saved = await saveConfig(column, { multiple: next })
@@ -1570,9 +1629,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         if (variant === 'money' && String(col.config.variant ?? 'float') !== 'money') {
           void saveConfig(col, { variant: 'money' }).then((ok) => {
             if (!ok) return
-            replaceMenu(
-              entriesFor({ ...col, config: { ...col.config, variant: 'money' } }, true),
-            )
+            replaceMenu(entriesFor({ ...col, config: { ...col.config, variant: 'money' } }, true))
           })
           return
         }
@@ -1638,19 +1695,41 @@ export function TableScreen({ tableId }: { tableId: string }) {
       event,
       dataReadOnly
         ? [
-            { id: 'notes', label: t('notes'), icon: StickyNote, onSelect: () => setDrawerRowId(row.id) },
+            {
+              id: 'notes',
+              label: t('notes'),
+              icon: ArrowUpRight,
+              onSelect: () => setDrawerRowId(row.id),
+            },
             {
               id: 'select',
               label: t('selectRow'),
               icon: ListChecks,
               onSelect: () =>
-                setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
+                setChecked((current) =>
+                  current.includes(row.id) ? current : [...current, row.id],
+                ),
             },
           ]
         : [
-            { id: 'notes', label: t('notes'), icon: StickyNote, onSelect: () => setDrawerRowId(row.id) },
-            { id: 'above', label: t('insertAbove'), icon: ArrowUpToLine, onSelect: () => void insertRow(row.id) },
-            { id: 'below', label: t('insertBelow'), icon: ArrowDownToLine, onSelect: () => void insertRow(list[index + 1]?.id) },
+            {
+              id: 'notes',
+              label: t('notes'),
+              icon: ArrowUpRight,
+              onSelect: () => setDrawerRowId(row.id),
+            },
+            {
+              id: 'above',
+              label: t('insertAbove'),
+              icon: ArrowUpToLine,
+              onSelect: () => void insertRow(row.id),
+            },
+            {
+              id: 'below',
+              label: t('insertBelow'),
+              icon: ArrowDownToLine,
+              onSelect: () => void insertRow(list[index + 1]?.id),
+            },
             {
               id: 'duplicate',
               label: t('duplicate'),
@@ -1668,9 +1747,17 @@ export function TableScreen({ tableId }: { tableId: string }) {
               label: t('selectRow'),
               icon: ListChecks,
               onSelect: () =>
-                setChecked((current) => (current.includes(row.id) ? current : [...current, row.id])),
+                setChecked((current) =>
+                  current.includes(row.id) ? current : [...current, row.id],
+                ),
             },
-            { id: 'delete', label: t('delete'), icon: Trash2, danger: true, onSelect: () => void deleteRows([row.id]) },
+            {
+              id: 'delete',
+              label: t('delete'),
+              icon: Trash2,
+              danger: true,
+              onSelect: () => void deleteRows([row.id]),
+            },
           ],
     )
   }
@@ -1690,7 +1777,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
         id: 'copy',
         label: t('copy'),
         icon: Copy,
-        onSelect: () => void navigator.clipboard.writeText(displayCellValue(column, row.cells[column.id], i18n.language)),
+        onSelect: () =>
+          void navigator.clipboard.writeText(
+            displayCellValue(column, row.cells[column.id], i18n.language),
+          ),
       },
       {
         id: 'paste',
@@ -1731,8 +1821,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const point = anchor(event)
     const hidden = columns.filter((column) => column.hidden)
     openMenu(event, [
-      { id: 'undo', label: t('undo'), icon: Undo2, disabled: !flags.canUndo, onSelect: () => void undo('undo') },
-      { id: 'redo', label: t('redo'), icon: Redo2, disabled: !flags.canRedo, onSelect: () => void undo('redo') },
+      {
+        id: 'undo',
+        label: t('undo'),
+        icon: Undo2,
+        disabled: !flags.canUndo,
+        onSelect: () => void undo('undo'),
+      },
+      {
+        id: 'redo',
+        label: t('redo'),
+        icon: Redo2,
+        disabled: !flags.canRedo,
+        onSelect: () => void undo('redo'),
+      },
       {
         id: 'find',
         label: t('find'),
@@ -1750,7 +1852,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
           }),
       },
       { id: 'export', label: t('export'), icon: Download, onSelect: () => void exportCsv() },
-      { id: 'footer', label: t('footer'), icon: Sigma, onSelect: () => void setFooter(!footerConfig.enabled) },
+      {
+        id: 'footer',
+        label: t('footer'),
+        icon: Sigma,
+        onSelect: () => void setFooter(!footerConfig.enabled),
+      },
       { id: 'import', label: t('import'), icon: Upload, onSelect: () => setCsvImportOpen(true) },
       ...(views.data?.views ?? []).map((view) => ({
         id: view.id,
@@ -1845,16 +1952,21 @@ export function TableScreen({ tableId }: { tableId: string }) {
     setLockPending(true)
     try {
       const endpoint = table.lockedAt ? 'unlock' : 'lock'
-      const result = await api.request<{ table: TableRecord }>(`/tables/${tableId}/${endpoint}`, { method: 'POST' })
-      queryClient.setQueryData(['table', tableId], { table: { ...table, ...result.table } })
-      queryClient.setQueryData(['tables', projectId], (current: { tables: TableRecord[] } | undefined) => {
-        if (!current) return current
-        return {
-          tables: current.tables.map((item) =>
-            item.id === tableId ? { ...item, lockedAt: result.table.lockedAt } : item,
-          ),
-        }
+      const result = await api.request<{ table: TableRecord }>(`/tables/${tableId}/${endpoint}`, {
+        method: 'POST',
       })
+      queryClient.setQueryData(['table', tableId], { table: { ...table, ...result.table } })
+      queryClient.setQueryData(
+        ['tables', projectId],
+        (current: { tables: TableRecord[] } | undefined) => {
+          if (!current) return current
+          return {
+            tables: current.tables.map((item) =>
+              item.id === tableId ? { ...item, lockedAt: result.table.lockedAt } : item,
+            ),
+          }
+        },
+      )
     } catch (caught) {
       showEditError(caught instanceof Error ? caught.message : t('error'))
     } finally {
@@ -1897,8 +2009,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
       find: (el: HTMLElement) => setPopover({ kind: 'find', ...viewportAnchorFrom(el) }),
       exportCsv: () => void exportCsv(),
       importCsv: () => setCsvImportOpen(true),
-      displayMode: (display.mode === 'chart' || display.mode === 'timeline' ? display.mode : 'grid') as 'grid' | 'chart' | 'timeline',
-      setDisplayMode: (mode: 'grid' | 'chart' | 'timeline') => setDisplay((current) => (current.mode === mode ? current : { ...current, mode })),
+      displayMode: (display.mode === 'chart' || display.mode === 'timeline'
+        ? display.mode
+        : 'grid') as 'grid' | 'chart' | 'timeline',
+      setDisplayMode: (mode: 'grid' | 'chart' | 'timeline') =>
+        setDisplay((current) => (current.mode === mode ? current : { ...current, mode })),
       views: (views.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
@@ -1971,7 +2086,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         ),
         size: GUTTER_WIDTH,
         cell: ({ row }) => (
-            <div
+          <div
             className="flex h-9 items-center gap-1 px-1"
             onContextMenu={(event) => openRowMenu(event, row.original)}
             onPointerDown={(event) => {
@@ -1981,17 +2096,36 @@ export function TableScreen({ tableId }: { tableId: string }) {
               const rowRecord = row.original
               window.clearTimeout(pressTimer.current)
               pressTimer.current = window.setTimeout(() => {
-                openRowMenu({ preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent, rowRecord)
+                openRowMenu(
+                  { preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent,
+                  rowRecord,
+                )
               }, 500)
             }}
             onPointerMove={(event) => {
-              if (Math.hypot(event.clientX - pressOrigin.current.x, event.clientY - pressOrigin.current.y) > 10) {
+              if (
+                Math.hypot(
+                  event.clientX - pressOrigin.current.x,
+                  event.clientY - pressOrigin.current.y,
+                ) > 10
+              ) {
                 window.clearTimeout(pressTimer.current)
               }
             }}
             onPointerUp={() => window.clearTimeout(pressTimer.current)}
             onPointerCancel={() => window.clearTimeout(pressTimer.current)}
           >
+            <button
+              type="button"
+              aria-label={t('insertRow')}
+              className="hidden text-muted-foreground md:inline-flex"
+              onClick={(event) => {
+                event.stopPropagation()
+                void insertRow(rowsRef.current[row.index + 1]?.id)
+              }}
+            >
+              <Plus className="size-3.5" />
+            </button>
             <span
               role="button"
               tabIndex={-1}
@@ -2023,17 +2157,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 )
               }}
             />
-            <button
-              type="button"
-              aria-label={t('insertRow')}
-              className="hidden text-muted-foreground md:inline-flex md:opacity-0 md:group-hover:opacity-100"
-              onClick={(event) => {
-                event.stopPropagation()
-                void insertRow(rowsRef.current[row.index + 1]?.id)
-              }}
-            >
-              <Plus className="size-3.5" />
-            </button>
+
             <button
               type="button"
               aria-label={t('notes')}
@@ -2043,7 +2167,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 setDrawerRowId(row.original.id)
               }}
             >
-              <StickyNote className="size-3.5" />
+              <ArrowUpRight className="size-3.5" />
             </button>
           </div>
         ),
@@ -2057,8 +2181,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const value = row.original.cells[column.id]
           const presented = presentFormatRow(columns, row.original.cells, {
             tags: (table?.tags ?? []).map((tag) => ({ id: tag.id, name: tag.name })),
-            statuses: (table?.statuses ?? []).map((status) => ({ id: status.id, name: status.name })),
-            members: (membersQuery.data?.members ?? []).map((member) => ({ id: member.userId, name: member.username })),
+            statuses: (table?.statuses ?? []).map((status) => ({
+              id: status.id,
+              name: status.name,
+            })),
+            members: (membersQuery.data?.members ?? []).map((member) => ({
+              id: member.userId,
+              name: member.username,
+            })),
           })
           const ruleStyle = conditionalStyle(
             rules,
@@ -2069,7 +2199,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
           )
           const cellPaint = row.original.backgrounds?.[column.id] || ruleStyle.background
           const rowColor = row.original.color
-          const painted = paintSwatch(cellPaint, 'background') ?? rowTint(rowColor, paintSwatch(rowColor, 'background'))
+          const painted =
+            paintSwatch(cellPaint, 'background') ??
+            rowTint(rowColor, paintSwatch(rowColor, 'background'))
           const stripe = !cellPaint && rowColor ? paintSwatch(rowColor, 'background') : undefined
           const active = editing === `${row.original.id}:${column.id}`
           const invalid = invalidFor(row.original.id, column.id)
@@ -2085,9 +2217,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
           const picked = selected.row === row.index && selected.column === columnIndex
           const inFill = Boolean(
             fill &&
-              fill.columnId === column.id &&
-              row.index >= Math.min(fill.from, fill.to) &&
-              row.index <= Math.max(fill.from, fill.to),
+            fill.columnId === column.id &&
+            row.index >= Math.min(fill.from, fill.to) &&
+            row.index <= Math.max(fill.from, fill.to),
           )
           const dateEditing = active && isDateColumnType(column.type)
           return (
@@ -2134,7 +2266,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         : current.tags,
                     statuses:
                       kind === 'status'
-                        ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item]
+                        ? [
+                            ...(current.statuses ?? []).filter((status) => status.id !== item.id),
+                            item,
+                          ]
                         : current.statuses,
                   }))
                 }
@@ -2314,7 +2449,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const filler = Math.max(ADD_COLUMN_WIDTH, viewportWidth - GUTTER_WIDTH - columnsWidth)
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6" style={{ WebkitTouchCallout: 'none' }}>
+    <section
+      className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6"
+      style={{ WebkitTouchCallout: 'none' }}
+    >
       <CsvImportDialog
         open={csvImportOpen}
         busy={csvImportBusy}
@@ -2382,502 +2520,548 @@ export function TableScreen({ tableId }: { tableId: string }) {
             }}
           />
         ) : (
-        <div
-          ref={parentRef}
-          tabIndex={0}
-          className="min-h-0 flex-1 overflow-auto"
-          onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
-            if (editing) return
-            const text = event.clipboardData.getData('text/plain')
-            if (!text.includes('\t') && !text.includes('\n')) return
-            event.preventDefault()
-            void pasteTsv(text)
-          }}
-        >
-          <table
-            className="table-grid table-fixed border-collapse text-sm"
-            style={{ width: GUTTER_WIDTH + columnsWidth + filler }}
+          <div
+            ref={parentRef}
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-auto"
+            onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
+              if (editing) return
+              const text = event.clipboardData.getData('text/plain')
+              if (!text.includes('\t') && !text.includes('\n')) return
+              event.preventDefault()
+              void pasteTsv(text)
+            }}
           >
-            <thead className="sticky top-0 z-20">
-              <tr>
-                <th
-                  className={`sticky left-0 z-30 h-10 p-0 text-left ${TABLE_HEADER_CELL}`}
-                  style={{ width: GUTTER_WIDTH }}
-                >
-                  {flexRender(
-                    grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header,
-                    grid.getHeaderGroups()[0]?.headers[0]?.getContext(),
-                  )}
-                </th>
-                {columns.map((column) => {
-                  if (column.hidden) {
+            <table
+              className="table-grid table-fixed border-collapse text-sm"
+              style={{ width: GUTTER_WIDTH + columnsWidth + filler }}
+            >
+              <thead className="sticky top-0 z-20">
+                <tr>
+                  <th
+                    className={`sticky left-0 z-30 h-10 p-0 text-left ${TABLE_HEADER_CELL}`}
+                    style={{ width: GUTTER_WIDTH }}
+                  >
+                    {flexRender(
+                      grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header,
+                      grid.getHeaderGroups()[0]?.headers[0]?.getContext(),
+                    )}
+                  </th>
+                  {columns.map((column) => {
+                    if (column.hidden) {
+                      return (
+                        <th
+                          key={column.id}
+                          data-column-id={column.id}
+                          className={`h-10 p-0 ${TABLE_HEADER_CELL}`}
+                          style={{ width: widths[column.id] ?? column.width }}
+                        >
+                          <button
+                            type="button"
+                            aria-label={t('showColumn')}
+                            className="inline-flex h-10 w-full items-center justify-center text-muted-foreground hover:text-foreground"
+                            onClick={() => void hideColumn(column, false)}
+                          >
+                            <Eye className="size-3.5" />
+                          </button>
+                        </th>
+                      )
+                    }
+                    const activeSort = sort?.columnId === column.id
+                    const filtered = Boolean(
+                      filterInput[column.id] &&
+                      (filterInput[column.id].op === 'empty' ||
+                        filterInput[column.id].op === 'not_empty' ||
+                        filterInput[column.id].value),
+                    )
                     return (
                       <th
                         key={column.id}
                         data-column-id={column.id}
-                        className={`h-10 p-0 ${TABLE_HEADER_CELL}`}
+                        className={`group relative h-10 overflow-visible px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''}`}
                         style={{ width: widths[column.id] ?? column.width }}
+                        onDragOver={(event: DragEvent) => {
+                          const from = dragItem.current
+                          if (!from || from.kind !== 'column') return
+                          event.preventDefault()
+                          const next = beforeDropEdge(
+                            columns.map((item) => item.id),
+                            from.id,
+                            column.id,
+                          )
+                            ? column.id
+                            : null
+                          setDropTarget((current) => {
+                            if (next === null) return current?.kind === 'column' ? null : current
+                            if (current?.kind === 'column' && current.id === next) return current
+                            return { kind: 'column', id: next }
+                          })
+                        }}
+                        onDrop={(event: DragEvent) => {
+                          event.preventDefault()
+                          const payload = event.dataTransfer.getData('text/plain')
+                          dragItem.current = null
+                          setDropTarget(null)
+                          if (!payload.startsWith('column:')) return
+                          void reorderColumns(
+                            moveIdBefore(
+                              columns.map((item) => item.id),
+                              payload.slice(7),
+                              column.id,
+                            ),
+                          )
+                        }}
+                        onClick={(event) => chooseColumns(event, column.id)}
+                        onContextMenu={(event) => openColumnMenu(event, column)}
+                        onPointerDown={(event) => {
+                          if (event.pointerType === 'mouse') return
+                          const point = { x: event.clientX, y: event.clientY }
+                          pressOrigin.current = point
+                          window.clearTimeout(pressTimer.current)
+                          pressTimer.current = window.setTimeout(() => {
+                            openColumnMenu(
+                              {
+                                preventDefault() {},
+                                clientX: point.x,
+                                clientY: point.y,
+                              } as ReactMouseEvent,
+                              column,
+                            )
+                          }, 500)
+                        }}
+                        onPointerMove={(event) => {
+                          if (
+                            Math.hypot(
+                              event.clientX - pressOrigin.current.x,
+                              event.clientY - pressOrigin.current.y,
+                            ) > 10
+                          ) {
+                            window.clearTimeout(pressTimer.current)
+                          }
+                        }}
+                        onPointerUp={() => window.clearTimeout(pressTimer.current)}
+                        onPointerCancel={() => window.clearTimeout(pressTimer.current)}
                       >
-                        <button
-                          type="button"
-                          aria-label={t('showColumn')}
-                          className="inline-flex h-10 w-full items-center justify-center text-muted-foreground hover:text-foreground"
-                          onClick={() => void hideColumn(column, false)}
-                        >
-                          <Eye className="size-3.5" />
-                        </button>
+                        {dropTarget?.kind === 'column' && dropTarget.id === column.id ? (
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary"
+                          />
+                        ) : null}
+                        <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                          <span
+                            role="button"
+                            tabIndex={-1}
+                            draggable
+                            aria-label={t('reorder')}
+                            className="inline-flex shrink-0 cursor-grab text-muted-foreground"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
+                            onDragStart={(event) => {
+                              event.stopPropagation()
+                              dragItem.current = { kind: 'column', id: column.id }
+                              event.dataTransfer.setData('text/plain', `column:${column.id}`)
+                              event.dataTransfer.effectAllowed = 'move'
+                            }}
+                            onDragEnd={() => {
+                              dragItem.current = null
+                              setDropTarget(null)
+                            }}
+                          >
+                            <GripVertical className="size-3.5" />
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={t('icon')}
+                            className="text-muted-foreground"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setPopover({ kind: 'icon', columnId: column.id, ...anchor(event) })
+                            }}
+                          >
+                            <ColumnIcon
+                              name={String(
+                                column.config.icon ?? defaultIcon(column.type, column.config),
+                              )}
+                            />
+                          </button>
+                          {renamingColumn === column.id ? (
+                            <QuietInput
+                              autoFocus
+                              label={t('rename')}
+                              className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
+                              value={column.name}
+                              onDraft={(next) => scheduleColumnName(column, next)}
+                              onFlush={() => {
+                                void sync
+                                  .flush(`column:${column.id}:name`)
+                                  .catch(() => showEditError(t('error')))
+                                  .finally(() => setRenamingColumn(null))
+                              }}
+                              onCancel={() => {
+                                sync.cancel(`column:${column.id}:name`)
+                                setRenamingColumn(null)
+                              }}
+                            />
+                          ) : (
+                            <ColumnTitle
+                              name={column.name}
+                              type={column.type}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                                  chooseColumns(event, column.id)
+                                  return
+                                }
+                                setRenamingColumn(column.id)
+                              }}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            data-header-control
+                            aria-label={t('sort')}
+                            className={` p-0.5 ${activeSort ? 'text-foreground' : 'text-muted-foreground'}`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              cycleSort(column.id)
+                            }}
+                          >
+                            {activeSort && sort?.direction === 'desc' ? (
+                              <ArrowDown className="size-3.5" />
+                            ) : activeSort ? (
+                              <ArrowUp className="size-3.5" />
+                            ) : (
+                              <ArrowUpDown className="size-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            data-header-control
+                            aria-label={t('filter')}
+                            className={` p-0.5 ${filtered ? 'text-foreground' : 'text-muted-foreground'}`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) })
+                            }}
+                          >
+                            <Filter className="size-3.5" />
+                          </button>
+                        </div>
+                        <div
+                          role="separator"
+                          aria-label={t('resize')}
+                          className="absolute -right-1 top-5 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
+                          onPointerDown={(event) => {
+                            if (event.button !== 0) return
+                            event.preventDefault()
+                            event.stopPropagation()
+                            const handle = event.currentTarget
+                            handle.setPointerCapture(event.pointerId)
+                            const startX = event.clientX
+                            const start = widths[column.id] ?? column.width
+                            const move = (ev: PointerEvent) => {
+                              const next = Math.max(80, Math.round(start + ev.clientX - startX))
+                              setWidths((current) => {
+                                const saved = { ...current, [column.id]: next }
+                                localStorage.setItem(
+                                  `dv-col-widths:${tableId}`,
+                                  JSON.stringify(saved),
+                                )
+                                return saved
+                              })
+                            }
+                            const up = (ev: PointerEvent) => {
+                              if (handle.hasPointerCapture(ev.pointerId))
+                                handle.releasePointerCapture(ev.pointerId)
+                              handle.removeEventListener('pointermove', move)
+                              handle.removeEventListener('pointerup', up)
+                            }
+                            handle.addEventListener('pointermove', move)
+                            handle.addEventListener('pointerup', up)
+                          }}
+                        />
+                        {!dataReadOnly ? (
+                          <button
+                            type="button"
+                            data-header-control
+                            aria-label={t('insertColumn')}
+                            className="absolute -right-1.5 -bottom-1.5 z-40 hidden h-3 w-3 items-center justify-center border border-border bg-card max-md:flex md:group-hover:flex"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openNewColumn(
+                                columns[columns.findIndex((item) => item.id === column.id) + 1]?.id,
+                                anchor(event),
+                              )
+                            }}
+                          >
+                            <Plus className="size-3" />
+                          </button>
+                        ) : null}
                       </th>
                     )
-                  }
-                  const activeSort = sort?.columnId === column.id
-                  const filtered = Boolean(
-                    filterInput[column.id] &&
-                    (filterInput[column.id].op === 'empty' ||
-                      filterInput[column.id].op === 'not_empty' ||
-                      filterInput[column.id].value),
-                  )
+                  })}
+                  <th className={`p-0 align-start ${TABLE_HEADER_CELL}`} style={{ width: filler }}>
+                    {!dataReadOnly ? (
+                      <button
+                        type="button"
+                        aria-label={t('insertColumn')}
+                        className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
+                        onClick={(event) => openNewColumn(undefined, anchor(event))}
+                      >
+                        <Plus className="size-4" />
+                      </button>
+                    ) : null}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {emptyGridKind(rows.length, Boolean(filter || search)) === 'empty' ? (
+                  <tr>
+                    <td colSpan={visible.length + 2} className="p-0">
+                      <EmptyState title={t('emptyRows')} body={t('emptyRowsBody')} />
+                    </td>
+                  </tr>
+                ) : null}
+                {emptyGridKind(rows.length, Boolean(filter || search)) === 'filtered' ? (
+                  <tr>
+                    <td colSpan={visible.length + 2} className="p-0">
+                      <div className="flex flex-col items-center gap-2 py-8">
+                        <EmptyState title={t('noResults')} body={t('noResultsBody')} />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setFilterInput({})
+                            setFilters({})
+                            setSearchInput('')
+                            setSearch('')
+                          }}
+                        >
+                          {t('clearFilter')}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+                {paddingTop > 0 ? <tr style={{ height: paddingTop }} /> : null}
+                {virtualItems.map((virtualRow) => {
+                  const row = grid.getRowModel().rows[virtualRow.index]
+                  if (!row) return null
                   return (
-                    <th
-                      key={column.id}
-                      data-column-id={column.id}
-                      className={`group relative h-10 overflow-visible px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''}`}
-                      style={{ width: widths[column.id] ?? column.width }}
-                      onDragOver={(event: DragEvent) => {
+                    <tr
+                      key={row.id}
+                      className={`group ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : ''}`}
+                      onDragOver={(event) => {
                         const from = dragItem.current
-                        if (!from || from.kind !== 'column') return
+                        if (!from || from.kind !== 'row') return
                         event.preventDefault()
-                        const next = beforeDropEdge(columns.map((item) => item.id), from.id, column.id) ? column.id : null
+                        const next = beforeDropEdge(
+                          rows.map((item) => item.id),
+                          from.id,
+                          row.original.id,
+                        )
+                          ? row.original.id
+                          : null
                         setDropTarget((current) => {
-                          if (next === null) return current?.kind === 'column' ? null : current
-                          if (current?.kind === 'column' && current.id === next) return current
-                          return { kind: 'column', id: next }
+                          if (next === null) return current?.kind === 'row' ? null : current
+                          if (current?.kind === 'row' && current.id === next) return current
+                          return { kind: 'row', id: next }
                         })
                       }}
-                      onDrop={(event: DragEvent) => {
+                      onDrop={(event) => {
                         event.preventDefault()
                         const payload = event.dataTransfer.getData('text/plain')
                         dragItem.current = null
                         setDropTarget(null)
-                        if (!payload.startsWith('column:')) return
-                        void reorderColumns(
-                          moveIdBefore(
-                            columns.map((item) => item.id),
-                            payload.slice(7),
-                            column.id,
-                          ),
-                        )
+                        if (!payload.startsWith('row:')) return
+                        if (sort) setSort(null)
+                        void reorderRow(payload.slice(4), row.original.id)
                       }}
-                      onClick={(event) => chooseColumns(event, column.id)}
-                      onContextMenu={(event) => openColumnMenu(event, column)}
-                      onPointerDown={(event) => {
-                        if (event.pointerType === 'mouse') return
-                        const point = { x: event.clientX, y: event.clientY }
-                        pressOrigin.current = point
-                        window.clearTimeout(pressTimer.current)
-                        pressTimer.current = window.setTimeout(() => {
-                          openColumnMenu({ preventDefault() {}, clientX: point.x, clientY: point.y } as ReactMouseEvent, column)
-                        }, 500)
-                      }}
-                      onPointerMove={(event) => {
-                        if (Math.hypot(event.clientX - pressOrigin.current.x, event.clientY - pressOrigin.current.y) > 10) {
-                          window.clearTimeout(pressTimer.current)
-                        }
-                      }}
-                      onPointerUp={() => window.clearTimeout(pressTimer.current)}
-                      onPointerCancel={() => window.clearTimeout(pressTimer.current)}
                     >
-                      {dropTarget?.kind === 'column' && dropTarget.id === column.id ? (
-                        <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
-                      ) : null}
-                      <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                        <span
-                          role="button"
-                          tabIndex={-1}
-                          draggable
-                          aria-label={t('reorder')}
-                          className="inline-flex shrink-0 cursor-grab text-muted-foreground"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => event.stopPropagation()}
-                          onDragStart={(event) => {
-                            event.stopPropagation()
-                            dragItem.current = { kind: 'column', id: column.id }
-                            event.dataTransfer.setData('text/plain', `column:${column.id}`)
-                            event.dataTransfer.effectAllowed = 'move'
-                          }}
-                          onDragEnd={() => {
-                            dragItem.current = null
-                            setDropTarget(null)
-                          }}
-                        >
-                          <GripVertical className="size-3.5" />
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={t('icon')}
-                          className="text-muted-foreground"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setPopover({ kind: 'icon', columnId: column.id, ...anchor(event) })
-                          }}
-                        >
-                          <ColumnIcon
-                            name={String(column.config.icon ?? defaultIcon(column.type, column.config))}
-                          />
-                        </button>
-                        {renamingColumn === column.id ? (
-                          <QuietInput
-                            autoFocus
-                            label={t('rename')}
-                            className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
-                            value={column.name}
-                            onDraft={(next) => scheduleColumnName(column, next)}
-                            onFlush={() => {
-                              void sync
-                                .flush(`column:${column.id}:name`)
-                                .catch(() => showEditError(t('error')))
-                                .finally(() => setRenamingColumn(null))
-                            }}
-                            onCancel={() => {
-                              sync.cancel(`column:${column.id}:name`)
-                              setRenamingColumn(null)
-                            }}
-                          />
-                        ) : (
-                          <ColumnTitle
-                            name={column.name}
-                            type={column.type}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              if (event.shiftKey || event.metaKey || event.ctrlKey) {
-                                chooseColumns(event, column.id)
-                                return
-                              }
-                              setRenamingColumn(column.id)
-                            }}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          data-header-control
-                          aria-label={t('sort')}
-                          className={` p-0.5 ${activeSort ? 'text-foreground' : 'text-muted-foreground'}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            cycleSort(column.id)
-                          }}
-                        >
-                          {activeSort && sort?.direction === 'desc' ? (
-                            <ArrowDown className="size-3.5" />
-                          ) : activeSort ? (
-                            <ArrowUp className="size-3.5" />
-                          ) : (
-                            <ArrowUpDown className="size-3.5" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          data-header-control
-                          aria-label={t('filter')}
-                          className={` p-0.5 ${filtered ? 'text-foreground' : 'text-muted-foreground'}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) })
-                          }}
-                        >
-                          <Filter className="size-3.5" />
-                        </button>
-                      </div>
-                      <div
-                        role="separator"
-                        aria-label={t('resize')}
-                        className="absolute -right-1 top-5 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
-                        onPointerDown={(event) => {
-                          if (event.button !== 0) return
-                          event.preventDefault()
-                          event.stopPropagation()
-                          const handle = event.currentTarget
-                          handle.setPointerCapture(event.pointerId)
-                          const startX = event.clientX
-                          const start = widths[column.id] ?? column.width
-                          const move = (ev: PointerEvent) => {
-                            const next = Math.max(80, Math.round(start + ev.clientX - startX))
-                            setWidths((current) => {
-                              const saved = { ...current, [column.id]: next }
-                              localStorage.setItem(
-                                `dv-col-widths:${tableId}`,
-                                JSON.stringify(saved),
-                              )
-                              return saved
-                            })
-                          }
-                          const up = (ev: PointerEvent) => {
-                            if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId)
-                            handle.removeEventListener('pointermove', move)
-                            handle.removeEventListener('pointerup', up)
-                          }
-                          handle.addEventListener('pointermove', move)
-                          handle.addEventListener('pointerup', up)
-                        }}
-                      />
-                      {!dataReadOnly ? (
-                        <button
-                          type="button"
-                          data-header-control
-                          aria-label={t('insertColumn')}
-                          className="absolute -right-1.5 -bottom-1.5 z-40 hidden h-3 w-3 items-center justify-center border border-border bg-card max-md:flex md:group-hover:flex"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            openNewColumn(
-                              columns[columns.findIndex((item) => item.id === column.id) + 1]?.id,
-                              anchor(event),
-                            )
-                          }}
-                        >
-                          <Plus className="size-3" />
-                        </button>
-                      ) : null}
-                    </th>
+                      {row.getVisibleCells().map((cell) => {
+                        const bodyColumn = columns.find((item) => item.id === cell.column.id)
+                        const dateCellEditing =
+                          bodyColumn &&
+                          editing === `${row.original.id}:${bodyColumn.id}` &&
+                          isDateColumnType(bodyColumn.type)
+                        return (
+                          <td
+                            key={cell.id}
+                            className={`relative ${dateCellEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
+                          >
+                            {dropTarget?.kind === 'column' && dropTarget.id === cell.column.id ? (
+                              <span
+                                aria-hidden
+                                className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary"
+                              />
+                            ) : null}
+                            {dropTarget?.kind === 'row' && dropTarget.id === row.original.id ? (
+                              <span
+                                aria-hidden
+                                className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary"
+                              />
+                            ) : null}
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        )
+                      })}
+                      <td className="border-b border-border" />
+                    </tr>
                   )
                 })}
-                <th className={`p-0 align-start ${TABLE_HEADER_CELL}`} style={{ width: filler }}>
-                  {!dataReadOnly ? (
-                    <button
-                      type="button"
-                      aria-label={t('insertColumn')}
-                      className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
-                      onClick={(event) => openNewColumn(undefined, anchor(event))}
-                    >
-                      <Plus className="size-4" />
-                    </button>
-                  ) : null}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {emptyGridKind(rows.length, Boolean(filter || search)) === 'empty' ? (
-                <tr>
-                  <td colSpan={visible.length + 2} className="p-0">
-                    <EmptyState title={t('emptyRows')} body={t('emptyRowsBody')} />
-                  </td>
-                </tr>
-              ) : null}
-              {emptyGridKind(rows.length, Boolean(filter || search)) === 'filtered' ? (
-                <tr>
-                  <td colSpan={visible.length + 2} className="p-0">
-                    <div className="flex flex-col items-center gap-2 py-8">
-                      <EmptyState title={t('noResults')} body={t('noResultsBody')} />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setFilterInput({})
-                          setFilters({})
-                          setSearchInput('')
-                          setSearch('')
-                        }}
-                      >
-                        {t('clearFilter')}
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-              {paddingTop > 0 ? <tr style={{ height: paddingTop }} /> : null}
-              {virtualItems.map((virtualRow) => {
-                const row = grid.getRowModel().rows[virtualRow.index]
-                if (!row) return null
-                return (
-                  <tr
-                    key={row.id}
-                    className={`group ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : ''}`}
-                    onDragOver={(event) => {
-                      const from = dragItem.current
-                      if (!from || from.kind !== 'row') return
-                      event.preventDefault()
-                      const next = beforeDropEdge(rows.map((item) => item.id), from.id, row.original.id) ? row.original.id : null
-                      setDropTarget((current) => {
-                        if (next === null) return current?.kind === 'row' ? null : current
-                        if (current?.kind === 'row' && current.id === next) return current
-                        return { kind: 'row', id: next }
-                      })
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      const payload = event.dataTransfer.getData('text/plain')
-                      dragItem.current = null
-                      setDropTarget(null)
-                      if (!payload.startsWith('row:')) return
-                      if (sort) setSort(null)
-                      void reorderRow(payload.slice(4), row.original.id)
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const bodyColumn = columns.find((item) => item.id === cell.column.id)
-                      const dateCellEditing =
-                        bodyColumn &&
-                        editing === `${row.original.id}:${bodyColumn.id}` &&
-                        isDateColumnType(bodyColumn.type)
+                {paddingBottom > 0 ? <tr style={{ height: paddingBottom }} /> : null}
+                {footerConfig.enabled ? (
+                  <tr>
+                    <td className="h-9 border-r border-t border-border" />
+                    {columns.map((column) => {
+                      if (column.hidden) {
+                        return (
+                          <td key={column.id} className="h-9 border-r border-t border-border" />
+                        )
+                      }
+                      const calc = footerConfig.columns?.[column.id]
+                      const stats = footerQuery.data?.footer?.[column.id]
                       return (
-                      <td
-                        key={cell.id}
-                        className={`relative ${dateCellEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
-                      >
-                        {dropTarget?.kind === 'column' && dropTarget.id === cell.column.id ? (
-                          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
-                        ) : null}
-                        {dropTarget?.kind === 'row' && dropTarget.id === row.original.id ? (
-                          <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary" />
-                        ) : null}
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    )})}
-                    <td className="border-b border-border" />
+                        <td
+                          key={column.id}
+                          className="h-9 border-r border-t border-border px-2 text-xs text-muted-foreground"
+                        >
+                          {calc && stats ? (
+                            <>
+                              <Badge>{t(calc)}</Badge> {footerValue(calc, stats)}
+                            </>
+                          ) : calc && footerQuery.isLoading ? (
+                            t('footerLoading')
+                          ) : (
+                            ''
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td className="border-t border-border" />
                   </tr>
-                )
-              })}
-              {paddingBottom > 0 ? <tr style={{ height: paddingBottom }} /> : null}
-              {footerConfig.enabled ? (
-                <tr>
-                  <td className="h-9 border-r border-t border-border" />
-                  {columns.map((column) => {
-                    if (column.hidden) {
-                      return <td key={column.id} className="h-9 border-r border-t border-border" />
-                    }
-                    const calc = footerConfig.columns?.[column.id]
-                    const stats = footerQuery.data?.footer?.[column.id]
-                    return (
-                      <td
-                        key={column.id}
-                        className="h-9 border-r border-t border-border px-2 text-xs text-muted-foreground"
-                      >
-                        {calc && stats
-                          ? <><Badge>{t(calc)}</Badge> {footerValue(calc, stats)}</>
-                          : calc && footerQuery.isLoading
-                            ? t('footerLoading')
-                            : ''}
-                      </td>
-                    )
-                  })}
-                  <td className="border-t border-border" />
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         )}
         {display.mode === 'chart' || display.mode === 'timeline' ? null : (
-        <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
-          {!dataReadOnly ? (
-            <button
-              type="button"
-              className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground"
-              onClick={() => void insertRow()}
-            >
-              <Plus className="size-3.5" />
-              {t('insertRow')}
-            </button>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            className="shrink-0"
-            disabled={!flags.canUndo}
-            aria-label={t('undo')}
-            title={t('undo')}
-            onClick={() => void undo('undo')}
-          >
-            <Undo2 className="size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="shrink-0"
-            disabled={!flags.canRedo}
-            aria-label={t('redo')}
-            title={t('redo')}
-            onClick={() => void undo('redo')}
-          >
-            <Redo2 className="size-3.5" />
-          </Button>
-          {checked.length > 0 || selectedColumns.length > 0 ? (
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              <span className="whitespace-nowrap text-sm">
-                {selectionKind(checked.length, selectedColumns.length) === 'both'
-                  ? t('selectedRowsAndColumns', { rows: checked.length, columns: selectedColumns.length })
-                  : selectionKind(checked.length, selectedColumns.length) === 'columns'
-                    ? t('selectedColumns', { count: selectedColumns.length })
-                    : t('selectedRows', { count: checked.length })}
-              </span>
-              {checked.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0 whitespace-nowrap"
-                  onClick={() => void duplicateSelectedRows(checked)}
-                >
-                  {t('duplicateRows')}
-                </Button>
-              ) : null}
-              {selectedColumns.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0 whitespace-nowrap"
-                  onClick={() => void duplicateSelectedColumns(selectedColumns)}
-                >
-                  {t('duplicateColumns')}
-                </Button>
-              ) : null}
-              {checked.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0 whitespace-nowrap"
-                  onClick={(event) =>
-                    setPopover({
-                      kind: 'row-color',
-                      rowId: rows.find((row) => checked.includes(row.id))?.id,
-                      ...anchor(event),
-                    })
-                  }
-                >
-                  {t('rowColor')}
-                </Button>
-              ) : null}
-              {checked.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="danger"
-                  className="shrink-0 whitespace-nowrap"
-                  onClick={() => void deleteRows(checked)}
-                >
-                  {t('deleteRows')}
-                </Button>
-              ) : null}
-              {selectedColumns.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="danger"
-                  className="shrink-0 whitespace-nowrap"
-                  onClick={() => void deleteColumns(selectedColumns)}
-                >
-                  {t('deleteColumns')}
-                </Button>
-              ) : null}
+          <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
+            {!dataReadOnly ? (
               <button
                 type="button"
-                aria-label={t('close')}
-                className="text-muted-foreground"
-                onClick={() => {
-                  setChecked([])
-                  setSelectedColumns([])
-                }}
+                className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground"
+                onClick={() => void insertRow()}
               >
-                <X className="size-4" />
+                <Plus className="size-3.5" />
+                {t('insertRow')}
               </button>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              className="shrink-0"
+              disabled={!flags.canUndo}
+              aria-label={t('undo')}
+              title={t('undo')}
+              onClick={() => void undo('undo')}
+            >
+              <Undo2 className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="shrink-0"
+              disabled={!flags.canRedo}
+              aria-label={t('redo')}
+              title={t('redo')}
+              onClick={() => void undo('redo')}
+            >
+              <Redo2 className="size-3.5" />
+            </Button>
+            {checked.length > 0 || selectedColumns.length > 0 ? (
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <span className="whitespace-nowrap text-sm">
+                  {selectionKind(checked.length, selectedColumns.length) === 'both'
+                    ? t('selectedRowsAndColumns', {
+                        rows: checked.length,
+                        columns: selectedColumns.length,
+                      })
+                    : selectionKind(checked.length, selectedColumns.length) === 'columns'
+                      ? t('selectedColumns', { count: selectedColumns.length })
+                      : t('selectedRows', { count: checked.length })}
+                </span>
+                {checked.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={() => void duplicateSelectedRows(checked)}
+                  >
+                    {t('duplicateRows')}
+                  </Button>
+                ) : null}
+                {selectedColumns.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={() => void duplicateSelectedColumns(selectedColumns)}
+                  >
+                    {t('duplicateColumns')}
+                  </Button>
+                ) : null}
+                {checked.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={(event) =>
+                      setPopover({
+                        kind: 'row-color',
+                        rowId: rows.find((row) => checked.includes(row.id))?.id,
+                        ...anchor(event),
+                      })
+                    }
+                  >
+                    {t('rowColor')}
+                  </Button>
+                ) : null}
+                {checked.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={() => void deleteRows(checked)}
+                  >
+                    {t('deleteRows')}
+                  </Button>
+                ) : null}
+                {selectedColumns.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    className="shrink-0 whitespace-nowrap"
+                    onClick={() => void deleteColumns(selectedColumns)}
+                  >
+                    {t('deleteColumns')}
+                  </Button>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={t('close')}
+                  className="text-muted-foreground"
+                  onClick={() => {
+                    setChecked([])
+                    setSelectedColumns([])
+                  }}
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
       {popover ? (
@@ -3069,7 +3253,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
                   if (event.key === 'Enter') void saveView()
                 }}
               />
-              <label htmlFor="shared-view" className="flex cursor-pointer items-center gap-2 text-sm">
+              <label
+                htmlFor="shared-view"
+                className="flex cursor-pointer items-center gap-2 text-sm"
+              >
                 <Checkbox
                   id="shared-view"
                   checked={sharedView}
@@ -3143,8 +3330,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
             readCachedRow(queryClient, tableId, mediaLibrary.rowId) ??
             rows.find((item) => item.id === mediaLibrary.rowId)
           if (!row || !column) return
-          void applyMediaCell(row, column, mergeMediaIntoCell(row.cells[column.id], added)).then(() =>
-            setMediaLibrary(null),
+          void applyMediaCell(row, column, mergeMediaIntoCell(row.cells[column.id], added)).then(
+            () => setMediaLibrary(null),
           )
         }}
       />
@@ -3172,10 +3359,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
           tableId={tableId}
           columnId={formatTarget.columnId}
           columnName={columns.find((column) => column.id === formatTarget.columnId)?.name ?? ''}
-          rowLabel={formatTarget.rowId ? `#${rows.find((row) => row.id === formatTarget.rowId)?.rowNumber ?? ''}` : undefined}
+          rowLabel={
+            formatTarget.rowId
+              ? `#${rows.find((row) => row.id === formatTarget.rowId)?.rowNumber ?? ''}`
+              : undefined
+          }
           rules={
             formatTarget.rowId
-              ? (rows.find((row) => row.id === formatTarget.rowId)?.formats?.[formatTarget.columnId] ?? [])
+              ? (rows.find((row) => row.id === formatTarget.rowId)?.formats?.[
+                  formatTarget.columnId
+                ] ?? [])
               : rules.filter((rule) => rule.columnId === formatTarget.columnId)
           }
           onClose={() => setFormatTarget(null)}
@@ -3230,4 +3423,3 @@ function footerValue(
   if (calc === 'min' || calc === 'max') return stats[calc] == null ? '' : String(stats[calc])
   return String(stats[calc as 'count' | 'unique' | 'empty' | 'filled'] ?? '')
 }
-
