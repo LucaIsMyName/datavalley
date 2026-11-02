@@ -55,6 +55,7 @@ For PostgreSQL options, SMTP, migrations, and worker setup, see [docs/local-setu
 
 | Document | Topic |
 |----------|--------|
+| [docs/api.md](docs/api.md) | API reference (same as `/doc/api`) |
 | [docs/local-setup.md](docs/local-setup.md) | Local development and environment |
 | [docs/deploy.md](docs/deploy.md) | Production deploy to a VPS (`npm run deploy`) |
 | [docs/formulas.md](docs/formulas.md) | Formula language, function reference, and recipes |

@@ -1,5 +1,5 @@
 import spec from '../../../../../packages/contracts/openapi.json'
-import { headingId } from './toc'
+import { headingId } from './heading-id'
 
 export type JsonSchema = {
   type?: string | string[]
@@ -311,11 +311,17 @@ function exampleQuery(params: ApiParam[]) {
   return `?${search.toString()}`
 }
 
+export function exampleUuid(seed: string) {
+  let n = 0
+  for (const ch of seed) n = (n * 31 + ch.charCodeAt(0)) >>> 0
+  const hex = n.toString(16).padStart(12, '0').slice(-12)
+  return `00000000-0000-4000-8000-${hex}`
+}
+
 function exampleParam(name: string, path = '') {
-  if (name.endsWith('Id')) return `${name.slice(0, -2)}_1`
-  if (name === 'id') {
-    const resource = path.split('/').find((part) => part && !part.startsWith('{')) ?? 'id'
-    return `${singular(resource).replace(/\s+/g, '_')}_1`
+  if (name.endsWith('Id') || name === 'id') {
+    const seed = name === 'id' ? (path.split('/').find((part) => part && !part.startsWith('{')) ?? 'id') : name
+    return exampleUuid(seed)
   }
   return `${name}_1`
 }

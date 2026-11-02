@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Page } from '../../components/states'
 import { Badge } from '../../components/ui/badge'
 import { Card } from '../../components/ui/card'
+import { ApiExample } from './api-example-block'
 import { listApiGroups } from './api-ref'
 import { useDocsToc } from './layout'
 import type { TocItem } from './toc'
@@ -38,7 +39,7 @@ export function ApiReferencePage() {
                 <ParamList label={t('queryParams')} params={operation.queryParams} empty={t('none')} />
                 <div>
                   <p className="font-medium">{t('example')}</p>
-                  <pre className="mt-1 overflow-x-auto bg-muted p-3 font-mono text-xs">{operation.example}</pre>
+                  <ApiExample code={operation.example} />
                 </div>
               </Card>
             ))}

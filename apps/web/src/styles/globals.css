@@ -17,7 +17,7 @@
 
 .doc-content code {
   font-family: var(--font-mono);
-  font-size: 0.8em;
+  font-size: 0.85em;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--muted) 65%, var(--card));
   padding: 0.05em 0.35em;

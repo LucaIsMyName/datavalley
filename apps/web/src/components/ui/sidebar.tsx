@@ -57,7 +57,7 @@ export function SidebarProvider({
   const toggleSidebar = useCallback(() => {
     setOpen((value) => !value)
   }, [setOpen])
-  const state = open ? 'expanded' : 'collapsed'
+  const state: SidebarContextValue['state'] = open ? 'expanded' : 'collapsed'
   const context = useMemo(
     () => ({ state, open, setOpen, toggleSidebar }),
     [state, open, setOpen, toggleSidebar],

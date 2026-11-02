@@ -3,6 +3,7 @@ import {
   describeOperation,
   exampleCode,
   examplePath,
+  exampleUuid,
   listApiGroups,
   needsCsrf,
   openApiSpec,
@@ -116,7 +117,13 @@ describe('api reference', () => {
   })
 
   it('builds a client example with query, path, and CSRF', () => {
-    expect(examplePath('/widgets/{id}')).toBe('/widgets/widget_1')
+    const widgetId = exampleUuid('widgets')
+    expect(widgetId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(examplePath('/widgets/{id}')).toBe(`/widgets/${widgetId}`)
+    const projectId = exampleUuid('projectId')
+    const tableId = exampleUuid('tableId')
+    expect(projectId).not.toBe(tableId)
+    expect(examplePath('/projects/{projectId}/tables/{tableId}')).toBe(`/projects/${projectId}/tables/${tableId}`)
     const search = listApiGroups(spec)[1].operations[0]
     expect(search.queryParams.map((param) => param.name)).toEqual(['q', 'locale'])
     expect(search.example).toBe('const result = await api.request("/search?q=acme&locale=en")')
