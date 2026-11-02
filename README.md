@@ -9,6 +9,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 - **Access control** — Grant-based permissions; admins manage users, API keys, and audit logs.
 - **Media** — Organization file library with table attachments and MIME-validated uploads.
 - **Integrations** — Built-in plugins (CSV, optional Google Sheets) plus user-defined HTTP data connectors (JSON/CSV/XML/HTML). Background worker runs sync jobs and schedules when Redis is configured. See [docs/connectors.md](docs/connectors.md).
+- **Collapsible sidebar** — Desktop nav collapses to icons; hover previews labels; the pinned open/closed state is stored in `localStorage`.
 
 ## Repository layout
 

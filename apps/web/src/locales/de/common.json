@@ -1,5 +1,6 @@
 {
   "appName": "Datavalley",
+  "toggleSidebar": "Seitenleiste umschalten",
   "dashboard": "Übersicht",
   "projects": "Projekte",
   "recent": "Zuletzt",

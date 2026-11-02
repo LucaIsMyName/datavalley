@@ -1,5 +1,6 @@
 {
   "appName": "Datavalley",
+  "toggleSidebar": "Toggle sidebar",
   "dashboard": "Dashboard",
   "projects": "Projects",
   "recent": "Recent",

@@ -1,4 +1,4 @@
-import { Bell, BookOpen, FolderKanban, LayoutDashboard, LogOut, Menu, Paperclip, Plug, Settings, Star, Clock3, type LucideIcon } from 'lucide-react'
+import { Bell, BookOpen, FolderKanban, Hexagon, LayoutDashboard, LogOut, Menu, Paperclip, Plug, Settings, Star, Clock3, type LucideIcon } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -10,8 +10,19 @@ import { RouteDocumentTitle } from '../components/document-title'
 import { ContextMenuProvider } from '../components/context-menu'
 import { HeaderSearch } from '../components/command-palette'
 import { Button } from '../components/ui/button'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarProvider,
+  SidebarTrigger,
+} from '../components/ui/sidebar'
 import { Toaster } from '../components/ui/sonner'
 import { FormulaWindow } from '../features/tables/formula-window'
+import { readSidebarOpen, writeSidebarOpen } from './sidebar-state'
 
 const links: { to: string; key: string; icon: LucideIcon; end: boolean }[] = [
   { to: '/', key: 'dashboard', icon: LayoutDashboard, end: true },
@@ -24,43 +35,62 @@ const links: { to: string; key: string; icon: LucideIcon; end: boolean }[] = [
   { to: '/settings/profile', key: 'settings', icon: Settings, end: false },
 ]
 
-function SideNav({ onNavigate }: { onNavigate?: () => void }) {
+export function SideNav({ onNavigate, showCollapse }: { onNavigate?: () => void; showCollapse?: boolean }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   return (
     <>
-      <div className="px-2 py-3 text-sm font-semibold tracking-tight">{t('appName')}</div>
-      <nav className="flex flex-1 flex-col gap-1">
-        {links.map((link) => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            end={link.end}
-            onClick={onNavigate}
-            className={({ isActive }) => {
-              const active = link.to.startsWith('/settings') ? pathname.startsWith('/settings') : isActive
-              return `flex h-11 items-center gap-2 px-2 text-sm md:h-9 ${active ? 'bg-accent font-medium' : 'hover:bg-accent'}`
-            }}
-          >
-            <link.icon className="size-4" />
-            {t(link.key)}
-          </NavLink>
-        ))}
-      </nav>
-      <Button
-        variant="ghost"
-        className="h-11 w-full justify-start md:h-9"
-        onClick={async () => {
-          await api.request('/auth/logout', { method: 'POST' })
-          useSession.getState().setUser(null)
-          navigate('/login')
-          onNavigate?.()
-        }}
-      >
-        <LogOut className="size-4" />
-        {t('logout')}
-      </Button>
+      <SidebarHeader>
+        {showCollapse ? (
+          <div data-sidebar="brand" className="flex h-10 items-center px-2">
+            <Hexagon aria-hidden className="size-4 shrink-0 group-data-[state=expanded]/sidebar:hidden group-hover/sidebar-panel:hidden" />
+            <span className="hidden min-w-0 flex-1 truncate text-sm font-semibold tracking-tight group-data-[state=expanded]/sidebar:block group-hover/sidebar-panel:block">
+              {t('appName')}
+            </span>
+            <SidebarTrigger
+              aria-label={t('toggleSidebar')}
+              className="ml-auto hidden group-data-[state=expanded]/sidebar:inline-flex group-hover/sidebar-panel:inline-flex"
+            />
+          </div>
+        ) : (
+          <div className="px-2 py-3 text-sm font-semibold tracking-tight">{t('appName')}</div>
+        )}
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarMenu>
+          {links.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              end={link.end}
+              onClick={onNavigate}
+              className={({ isActive }) => {
+                const active = link.to.startsWith('/settings') ? pathname.startsWith('/settings') : isActive
+                return `flex h-11 items-center gap-2 overflow-hidden whitespace-nowrap px-2 text-sm md:h-9 ${active ? 'bg-accent font-medium' : 'hover:bg-accent'}`
+              }}
+            >
+              <link.icon className="size-4 shrink-0" />
+              {t(link.key)}
+            </NavLink>
+          ))}
+        </SidebarMenu>
+      </SidebarContent>
+      <SidebarFooter>
+        <Button
+          variant="ghost"
+          className="h-11 w-full justify-start overflow-hidden whitespace-nowrap md:h-9"
+          onClick={async () => {
+            await api.request('/auth/logout', { method: 'POST' })
+            useSession.getState().setUser(null)
+            navigate('/login')
+            onNavigate?.()
+          }}
+        >
+          <LogOut className="size-4 shrink-0" />
+          {t('logout')}
+        </Button>
+      </SidebarFooter>
     </>
   )
 }
@@ -133,6 +163,7 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [nav, setNav] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
   const notifications = useQuery({
     queryKey: ['notifications'],
     queryFn: () => api.request<{ notifications: { id: string; title: string; readAt: string | null }[] }>('/notifications'),
@@ -147,10 +178,17 @@ export function AppShell() {
   return (
     <ContextMenuProvider>
       <RouteDocumentTitle />
-      <div className="flex h-screen overflow-hidden">
-        <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card p-3 md:flex">
-          <SideNav />
-        </aside>
+      <SidebarProvider
+        open={sidebarOpen}
+        onOpenChange={(next) => {
+          setSidebarOpen(next)
+          writeSidebarOpen(next)
+        }}
+        className="flex h-screen overflow-hidden"
+      >
+        <Sidebar collapsible="icon">
+          <SideNav showCollapse />
+        </Sidebar>
         {nav ? (
           <div className="fixed inset-0 z-40 md:hidden">
             <button type="button" className="absolute inset-0 bg-black/40" aria-label={t('close')} onClick={() => setNav(false)} />
@@ -159,7 +197,7 @@ export function AppShell() {
             </aside>
           </div>
         ) : null}
-        <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
+        <SidebarInset className="overflow-x-hidden">
           <header className="flex h-14 min-w-0 items-center gap-1 border-b border-border px-3 md:px-4">
             <Button variant="ghost" className="shrink-0 md:hidden" aria-label={t('menu')} onClick={() => setNav(true)}>
               <Menu className="size-4" />
@@ -179,8 +217,8 @@ export function AppShell() {
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
             <Outlet />
           </main>
-        </div>
-      </div>
+        </SidebarInset>
+      </SidebarProvider>
       <Toaster />
       <FormulaWindow />
     </ContextMenuProvider>
