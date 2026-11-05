@@ -3,7 +3,7 @@ import { type Column, type RowRecord, type MediaFile } from '@datavalley/api-cli
 import { type PointerEvent as ReactPointerEvent } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
-import { mapCachedRows, readCachedRow } from './cache'
+import { invalidateFooter, mapCachedRows, readCachedRow, replaceCachedRows } from './cache'
 import { fillableColumn as fillable } from './cell-display'
 import { editFailureMessage } from './edit-error'
 import { fillTargets } from './fill-range'
@@ -387,18 +387,19 @@ export function useRowCommands(scope: Scope) {
       }
     }
     if (updates.length === 0) return
-    await api.request(`/tables/${tableId}/cells/bulk`, {
+    const result = await api.request<{ rows: RowRecord[] }>(`/tables/${tableId}/cells/bulk`, {
       method: 'PATCH',
       body: JSON.stringify({ updates }),
     })
-    const fresh = await fetchRows()
+    replaceCachedRows(queryClient, tableId, result.rows)
+    const versionOf = new Map(result.rows.map((row) => [row.id, row.version]))
     const stamp = (items: { rowId: string; version: number; cells: Record<string, unknown> }[]) =>
       items.map((item) => ({
         ...item,
-        version: fresh.find((row: any) => row.id === item.rowId)?.version ?? item.version,
+        version: versionOf.get(item.rowId) ?? item.version,
       }))
     pushCommand(tableId, { kind: 'patch', undo: stamp(previous), redo: stamp(updates) })
-    await refresh()
+    void invalidateFooter(queryClient, tableId)
   }
 
   async function commitFormulaFill(column: Column, sourceRowId: string, rowIds: string[]) {

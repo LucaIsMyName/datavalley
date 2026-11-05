@@ -54,7 +54,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
     targetRows,
     scheduleCell,
     clearInvalid,
-    setEditing,
+    releaseEdit,
     queryClient,
     setMediaLibrary,
     openMediaPreview,
@@ -258,7 +258,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
               invalid={invalid}
               onScheduleCell={scheduleCell}
               onClearInvalid={(rowId, columnId) => clearInvalid(`cell:${rowId}:${columnId}`)}
-              onDeactivate={() => setEditing(null)}
+              onDeactivate={(key, focusGrid) => releaseEdit(key, focusGrid)}
               onOpen={() => focusCell(row.index, columnIndex)}
               onActivate={() => activateCell(row.original, column)}
               onCreated={(kind, item) =>

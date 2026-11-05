@@ -13,6 +13,12 @@ export function mapCachedRows(queryClient: QueryClient, tableId: string, update:
   })
 }
 
+export function replaceCachedRows(queryClient: QueryClient, tableId: string, rows: RowRecord[]) {
+  if (rows.length === 0) return
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  mapCachedRows(queryClient, tableId, (item) => byId.get(item.id) ?? item)
+}
+
 export function readCachedRow(queryClient: QueryClient, tableId: string, rowId: string) {
   const entries = queryClient.getQueriesData<RowsCache>({ queryKey: ['rows', tableId] })
   for (const [, data] of entries) {

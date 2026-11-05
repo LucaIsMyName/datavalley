@@ -186,7 +186,7 @@ YEAR(TODAY())
 NOW()
 ```
 
-A formula that calls `TODAY` or `NOW`, including through another formula, includes the UTC date in its cache key, so the value moves on to the next day without another cell edit.
+A formula that calls `TODAY` or `NOW`, including through another formula, includes the UTC date in its cache key, so the value moves on to the next day without another cell edit. Saving a cell returns that row's formula values on the response, so the open table can show them without loading every page again.
 
 ### Text
 

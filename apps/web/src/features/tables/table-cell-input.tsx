@@ -53,7 +53,7 @@ export function TableCellInput({
   invalid?: { text: string; message: string }
   onScheduleCell: (row: RowRecord, column: Column, value: unknown, delay?: number) => void
   onClearInvalid: (rowId: string, columnId: string) => void
-  onDeactivate: () => void
+  onDeactivate: (editingKey: string, focusGrid?: boolean) => void
   onActivate: () => void
   onOpen?: () => void
   onCreated: (kind: 'tag' | 'status', item: CatalogItem) => void
@@ -74,6 +74,10 @@ export function TableCellInput({
   const text = invalid?.text ?? displayCellValue(column, value, i18n.language)
   const writable = !readOnly && column.type !== 'formula' && column.type !== 'lookup'
   const cellKey = `cell:${row.id}:${column.id}`
+  const editingKey = `${row.id}:${column.id}`
+  function settle(focusGrid = false) {
+    onDeactivate(editingKey, focusGrid)
+  }
 
   if (active && column.type === 'relation') {
     return (
@@ -83,8 +87,7 @@ export function TableCellInput({
         value={typeof value === 'string' ? value : ''}
         onValueChange={(next) => {
           onScheduleCell(row, column, next, 0)
-          void sync.flush(cellKey)
-          onDeactivate()
+          void sync.flush(cellKey).finally(() => settle(true))
         }}
         options={[
           { value: '', label: t('none') },
@@ -112,19 +115,19 @@ export function TableCellInput({
       members={members}
       hint={invalid?.message}
       onEdit={(value, delay) => onScheduleCell(row, column, value, delay)}
-      onFlush={() => {
+      onFlush={(focusGrid) => {
         void sync
           .flush(cellKey)
           .catch((error: unknown) => {
             const message = editFailureMessage(error, t('error'), { cell: true })
             if (message) showEditError(message)
           })
-          .finally(() => onDeactivate())
+          .finally(() => settle(Boolean(focusGrid)))
       }}
       onCancel={() => {
         sync.cancel(cellKey)
         onClearInvalid(row.id, column.id)
-        onDeactivate()
+        settle(true)
       }}
       onOpen={onOpen ?? onActivate}
       onActivate={onActivate}
@@ -135,7 +138,7 @@ export function TableCellInput({
             const message = editFailureMessage(error, t('error'), { cell: true })
             if (message) showEditError(message)
           })
-          .finally(() => onDeactivate())
+          .finally(() => settle(true))
       }}
       onCreated={onCreated}
       onOptionChange={onOptionChange}

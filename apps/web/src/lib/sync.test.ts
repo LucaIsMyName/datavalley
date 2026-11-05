@@ -128,6 +128,25 @@ describe('sync engine', () => {
     vi.useRealTimers()
   })
 
+  it('restores a cancelled edit without the failure rollback', () => {
+    const engine = createSync()
+    const seen: string[] = []
+    engine.edit('cell', {
+      draft: 'A',
+      delay: 0,
+      apply: () => seen.push('apply'),
+      commit: async () => {
+        seen.push('commit')
+        return {}
+      },
+      accept: () => seen.push('accept'),
+      rollback: () => seen.push('rollback'),
+      revert: () => seen.push('revert'),
+    })
+    engine.cancel('cell')
+    expect(seen).toEqual(['apply', 'revert'])
+  })
+
   it('runs a watched read once after the pause', async () => {
     vi.useFakeTimers()
     const engine = createSync()

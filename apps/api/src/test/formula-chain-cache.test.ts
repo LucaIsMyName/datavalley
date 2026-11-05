@@ -340,4 +340,79 @@ describe('formula-on-formula cache', () => {
     expect(after.json().rows[0]?.cells[shownId]).toEqual(['ada2'])
     await harness.close()
   })
+
+  it('returns formula values from a cell patch and a bulk patch', async () => {
+    const harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Patch formulas' } })
+    const projectId = project.json().project.id as string
+    const table = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables`,
+      payload: { name: 'Sheet' },
+    })
+    const tableId = table.json().table.id as string
+    const amount = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Amount', type: 'number' },
+    })
+    const amountId = amount.json().column.id as string
+    const doubled = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Doubled', type: 'formula' },
+    })
+    const doubledId = doubled.json().column.id as string
+    const first = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [amountId]: 3 } },
+    })
+    const second = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [amountId]: 4 } },
+    })
+    expect(
+      (
+        await session.inject({
+          method: 'POST',
+          url: `/api/v1/columns/${doubledId}/formula`,
+          payload: { expression: '[Amount] * 2' },
+        })
+      ).statusCode,
+    ).toBe(200)
+    const firstId = first.json().row.id as string
+    const secondId = second.json().row.id as string
+    const patched = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${firstId}`,
+      payload: { version: first.json().row.version, cells: { [amountId]: 5 } },
+    })
+    expect(patched.statusCode).toBe(200)
+    expect(patched.json().row.cells[doubledId]).toBe(10)
+    const bulk = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/cells/bulk`,
+      payload: {
+        updates: [
+          { rowId: firstId, version: patched.json().row.version, cells: { [amountId]: 6 } },
+          { rowId: secondId, version: second.json().row.version, cells: { [amountId]: 7 } },
+        ],
+      },
+    })
+    expect(bulk.statusCode).toBe(200)
+    const rows = bulk.json().rows as { id: string; cells: Record<string, unknown> }[]
+    expect(rows.find((row) => row.id === firstId)?.cells[doubledId]).toBe(12)
+    expect(rows.find((row) => row.id === secondId)?.cells[doubledId]).toBe(14)
+    await harness.close()
+  })
 })

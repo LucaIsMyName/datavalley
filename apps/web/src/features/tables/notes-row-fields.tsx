@@ -112,7 +112,11 @@ export function NotesRowFields({
                 invalid={invalid}
                 onScheduleCell={cellEdit.scheduleCell}
                 onClearInvalid={(rowId, columnId) => cellEdit.clearInvalid(`cell:${rowId}:${columnId}`)}
-                onDeactivate={() => setEditingColumnId(null)}
+                onDeactivate={(key) => {
+                  setEditingColumnId((current) =>
+                    current && key === `${row.id}:${current}` ? null : current,
+                  )
+                }}
                 onActivate={activateColumn}
                 onOpen={activateColumn}
                 onCreated={onCreated}

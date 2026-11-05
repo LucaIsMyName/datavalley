@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { invalidateFooter, mapCachedRows, readCachedRow } from './cache'
+import { columnFeedsFooter } from './grid-edit'
 import { cellFormatError } from './cell-format'
 import { editFailureMessage } from './edit-error'
 import { pushCommand } from './history'
@@ -136,10 +137,18 @@ export function useRowCellEdit({
               undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
               redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
             })
-            void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
-            void invalidateFooter(queryClient, tableId)
+            const footer = queryClient.getQueryData<{
+              table?: { footerConfig?: { enabled?: boolean; columns?: Record<string, string> } }
+            }>(['table', tableId])?.table?.footerConfig
+            if (columnFeedsFooter(footer, columnId)) void invalidateFooter(queryClient, tableId)
             onRefreshRows?.()
           }
+        },
+        revert: () => {
+          cellBaseline.current.delete(key)
+          mapCachedRows(queryClient, tableId, (item) =>
+            item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: previous } } : item,
+          )
         },
         rollback: () => {
           const message = serverReject.current.get(key)
@@ -205,7 +214,10 @@ export function useRowCellEdit({
           undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
           redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
         })
-        void invalidateFooter(queryClient, tableId)
+        const footer = queryClient.getQueryData<{
+          table?: { footerConfig?: { enabled?: boolean; columns?: Record<string, string> } }
+        }>(['table', tableId])?.table?.footerConfig
+        if (columnFeedsFooter(footer, columnId)) void invalidateFooter(queryClient, tableId)
         onRefreshRows?.()
       }
       void queryClient.invalidateQueries({ queryKey: ['media', 'catalog'] })

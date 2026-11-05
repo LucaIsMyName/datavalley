@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gridKeyCommand } from './grid-keyboard'
+import { gridKeyCommand, isGridTypingTarget } from './grid-keyboard'
 
 function key(partial: { key: string; meta?: boolean; ctrl?: boolean; shift?: boolean }) {
   return {
@@ -35,5 +35,17 @@ describe('grid keyboard', () => {
     expect(gridKeyCommand(key({ key: 'Enter' }), { typing: false, inGrid: false })).toBeNull()
     expect(gridKeyCommand(key({ key: 'ArrowLeft' }), { typing: false, inGrid: false })).toBeNull()
     expect(gridKeyCommand(key({ key: 'a' }), ready)).toBeNull()
+  })
+
+  it('treats contenteditable notes as typing so undo stays in the note', () => {
+    const note = {
+      tagName: 'DIV',
+      isContentEditable: true,
+      closest: () => null,
+    }
+    expect(isGridTypingTarget(note)).toBe(true)
+    expect(gridKeyCommand(key({ key: 'z', meta: true }), { typing: isGridTypingTarget(note), inGrid: false })).toBeNull()
+    expect(isGridTypingTarget({ tagName: 'DIV', isContentEditable: false, closest: () => null })).toBe(false)
+    expect(isGridTypingTarget({ tagName: 'INPUT', closest: () => null })).toBe(true)
   })
 })

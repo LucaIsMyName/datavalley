@@ -6,11 +6,11 @@ import {
   type RowRecord,
   type MediaFile,
   type TableRecord,
+  type CatalogItem,
 } from '@datavalley/api-client'
 import {
   defaultTableDisplay,
   displayRowCap,
-  isDateColumnType,
   moveSelection,
   normalizeMediaCellValue,
   normalizeTableDisplay,
@@ -77,17 +77,22 @@ import { TimelineView } from './timeline-view'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import { historyFlags, redoTable, undoTable } from './history'
 import { activeFilter, filtersFrom, footerValue, moveIdBefore } from './grid-model'
-import { anchor, showEditError } from './grid-edit'
-import { gridKeyCommand } from './grid-keyboard'
+import { anchor, editingAfterRelease, invalidSignatureFor, showEditError } from './grid-edit'
+import { gridKeyCommand, isGridTypingTarget } from './grid-keyboard'
 import { useColumnCommands } from './use-column-commands'
 import { useRowCommands } from './use-row-commands'
 import { useTableMenus } from './use-table-menus'
 import { createTableColumns, GUTTER_WIDTH } from './table-columns'
+import { EMPTY_ROWS, GridBodyRow, type GridRowHandlers } from './grid-row'
 import { GridPopovers } from './grid-popovers'
 
-const TABLE_GRID_DIVIDER = 'border-b border-r border-border'
 const TABLE_HEADER_CELL = 'bg-card'
 const ADD_COLUMN_WIDTH = 40
+const EMPTY_COLUMNS: Column[] = []
+const EMPTY_RULES: FormatRule[] = []
+const EMPTY_TAGS: CatalogItem[] = []
+const EMPTY_MEMBERS: { userId: string; username: string }[] = []
+const ROWS_STALE_MS = 30_000
 
 type PopoverState = {
   kind:
@@ -130,6 +135,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [searchParams] = useSearchParams()
   const columnParam = searchParams.get('column') ?? ''
   const rowParam = searchParams.get('row') ?? ''
+  const rowHandlers = useRef<GridRowHandlers | null>(null)
   const parentRef = useRef<HTMLDivElement>(null)
   const mediaUploadRef = useRef<FileUploadHandle>(null)
   const [csvImportOpen, setCsvImportOpen] = useState(false)
@@ -195,9 +201,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const readOnlyReason = tableReadOnlyReason(table)
   const cellWritable = (column: Column) => !dataReadOnly && writable(column)
   const [lockPending, setLockPending] = useState(false)
-  const columns = table?.columns ?? []
-  const visible = columns.filter((column) => !column.hidden)
-  const rules = (table?.formatRules ?? []) as FormatRule[]
+  const columns = table?.columns ?? EMPTY_COLUMNS
+  const visible = useMemo(() => columns.filter((column) => !column.hidden), [columns])
+  const rules = (table?.formatRules ?? EMPTY_RULES) as FormatRule[]
   const projectId = table?.projectId ?? ''
   function openFormula(rowId: string, columnId: string, columnName: string) {
     setEditing(null)
@@ -227,6 +233,15 @@ export function TableScreen({ tableId }: { tableId: string }) {
     parentRef.current?.focus({ preventScroll: true })
   }
 
+  function releaseEdit(key: string, focusGrid = false) {
+    const released = editingRef.current === key
+    if (released) editingRef.current = null
+    setEditing((current) => editingAfterRelease(current, key))
+    if (focusGrid && released) {
+      queueMicrotask(() => parentRef.current?.focus({ preventScroll: true }))
+    }
+  }
+
   const rowsQuery = useInfiniteQuery({
     queryKey: ['rows', tableId, search, sort, filterKey],
     initialPageParam: null as string | null,
@@ -245,6 +260,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     },
     getNextPageParam: (last) => last.nextCursor,
     placeholderData: (previous) => previous,
+    staleTime: ROWS_STALE_MS,
+    refetchOnWindowFocus: false,
   })
   const rowPages = rowsQuery.data?.pages
   const rows = useMemo(() => rowPages?.flatMap((page) => page.rows) ?? [], [rowPages])
@@ -468,11 +485,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      const typing = Boolean(
-        target &&
-        (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
-          target.closest('[role="combobox"], [role="listbox"]')),
-      )
+      const typing = isGridTypingTarget(target)
       const inGrid = Boolean(parentRef.current?.contains(document.activeElement))
       const command = gridKeyCommand(event, { typing, inGrid })
       if (!command) return
@@ -878,7 +891,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         targetRows,
         scheduleCell,
         clearInvalid,
-        setEditing,
+        releaseEdit,
         queryClient,
         setMediaLibrary,
         openMediaPreview,
@@ -1007,6 +1020,61 @@ export function TableScreen({ tableId }: { tableId: string }) {
     observer.observe(parent)
     return () => observer.disconnect()
   }, [display.mode, gridReady])
+
+  const tags: CatalogItem[] = table?.tags ?? EMPTY_TAGS
+  const statuses: CatalogItem[] = table?.statuses ?? EMPTY_TAGS
+  const members = membersQuery.data?.members ?? EMPTY_MEMBERS
+  rowHandlers.current = {
+    t: (key, options) => t(key, options),
+    openRowMenu,
+    insertRow,
+    setChecked,
+    setDrawerRowId,
+    focusCell,
+    activateCell,
+    scheduleCell,
+    clearInvalid,
+    releaseEdit,
+    setMediaLibrary,
+    openMediaPreview,
+    requestMediaUpload,
+    applyMediaCell,
+    applyDateMode,
+    beginFill,
+    openCellMenu,
+    onCreated: (kind, item) => {
+      patchCachedTable(queryClient, tableId, (current) => ({
+        ...current,
+        tags:
+          kind === 'tag'
+            ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item]
+            : current.tags,
+        statuses:
+          kind === 'status'
+            ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item]
+            : current.statuses,
+      }))
+    },
+    onOptionChange: (columnId, option, deleted) => {
+      patchCachedTable(queryClient, tableId, (current) => ({
+        ...current,
+        columns: current.columns?.map((item) =>
+          item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
+        ),
+      }))
+      if (deleted) void refresh()
+    },
+    cellWritable,
+    dataReadOnly,
+    invalidFor,
+    reorderRow,
+    setSort: () => setSort((current) => (current ? null : current)),
+    dragItem,
+    setDropTarget,
+    rowsRef,
+    pressOrigin,
+    pressTimer,
+  }
 
   if (tableQuery.isLoading || rowsQuery.isLoading)
     return (
@@ -1341,15 +1409,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
                             handle.setPointerCapture(event.pointerId)
                             const startX = event.clientX
                             const start = widths[column.id] ?? column.width
+                            let frame = 0
                             const move = (ev: PointerEvent) => {
                               const next = Math.max(80, Math.round(start + ev.clientX - startX))
-                              setWidths((current) => {
-                                const saved = { ...current, [column.id]: next }
-                                localStorage.setItem(
-                                  `dv-col-widths:${tableId}`,
-                                  JSON.stringify(saved),
-                                )
-                                return saved
+                              cancelAnimationFrame(frame)
+                              frame = requestAnimationFrame(() => {
+                                setWidths((current) => ({ ...current, [column.id]: next }))
                               })
                             }
                             const up = (ev: PointerEvent) => {
@@ -1357,6 +1422,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
                                 handle.releasePointerCapture(ev.pointerId)
                               handle.removeEventListener('pointermove', move)
                               handle.removeEventListener('pointerup', up)
+                              cancelAnimationFrame(frame)
+                              const next = Math.max(80, Math.round(start + ev.clientX - startX))
+                              setWidths((current) => {
+                                const saved = { ...current, [column.id]: next }
+                                localStorage.setItem(widthKey, JSON.stringify(saved))
+                                return saved
+                              })
                             }
                             handle.addEventListener('pointermove', move)
                             handle.addEventListener('pointerup', up)
@@ -1427,68 +1499,52 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 ) : null}
                 {paddingTop > 0 ? <tr style={{ height: paddingTop }} /> : null}
                 {virtualItems.map((virtualRow) => {
-                  const row = grid.getRowModel().rows[virtualRow.index]
+                  const row = rows[virtualRow.index]
                   if (!row) return null
+                  const editingColumnId = editing?.startsWith(`${row.id}:`)
+                    ? editing.slice(row.id.length + 1)
+                    : null
+                  const inFill = Boolean(
+                    fill &&
+                      virtualRow.index >= Math.min(fill.from, fill.to) &&
+                      virtualRow.index <= Math.max(fill.from, fill.to),
+                  )
+                  const columnSpotlight = Boolean(
+                    spotlight?.columnId &&
+                      (spotlight.rowId === row.id || !spotlight.rowId),
+                  )
                   return (
-                    <tr
+                    <GridBodyRow
                       key={row.id}
-                      className={`group ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : ''}`}
-                      onDragOver={(event) => {
-                        const from = dragItem.current
-                        if (!from || from.kind !== 'row') return
-                        event.preventDefault()
-                        const next = beforeDropEdge(
-                          rows.map((item) => item.id),
-                          from.id,
-                          row.original.id,
-                        )
-                          ? row.original.id
+                      row={row}
+                      rowIndex={virtualRow.index}
+                      columns={columns}
+                      visible={visible}
+                      rules={rules}
+                      tags={tags}
+                      statuses={statuses}
+                      members={members}
+                      selectedColumn={selected.row === virtualRow.index ? selected.column : -1}
+                      editingColumnId={editingColumnId}
+                      checked={checked.includes(row.id)}
+                      fillColumnId={inFill && fill ? fill.columnId : null}
+                      spotlightColumnId={columnSpotlight ? spotlight?.columnId ?? null : null}
+                      spotlightRow={Boolean(spotlight?.rowId === row.id && !spotlight.columnId)}
+                      invalidSignature={invalidSignatureFor(row.id, invalidCells)}
+                      dropColumnId={dropTarget?.kind === 'column' ? dropTarget.id : null}
+                      dropRow={dropTarget?.kind === 'row' && dropTarget.id === row.id}
+                      mediaUploadingColumnId={
+                        mediaUploadingKey?.startsWith(`${row.id}:`)
+                          ? mediaUploadingKey.slice(row.id.length + 1)
                           : null
-                        setDropTarget((current) => {
-                          if (next === null) return current?.kind === 'row' ? null : current
-                          if (current?.kind === 'row' && current.id === next) return current
-                          return { kind: 'row', id: next }
-                        })
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault()
-                        const payload = event.dataTransfer.getData('text/plain')
-                        dragItem.current = null
-                        setDropTarget(null)
-                        if (!payload.startsWith('row:')) return
-                        if (sort) setSort(null)
-                        void reorderRow(payload.slice(4), row.original.id)
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell) => {
-                        const bodyColumn = columns.find((item) => item.id === cell.column.id)
-                        const dateCellEditing =
-                          bodyColumn &&
-                          editing === `${row.original.id}:${bodyColumn.id}` &&
-                          isDateColumnType(bodyColumn.type)
-                        return (
-                          <td
-                            key={cell.id}
-                            className={`relative ${dateCellEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0 ${cell.column.id === 'select' ? `sticky left-0 z-10 ${spotlight?.rowId === row.original.id && !spotlight.columnId ? 'bg-accent' : 'bg-card'}` : ''}`}
-                          >
-                            {dropTarget?.kind === 'column' && dropTarget.id === cell.column.id ? (
-                              <span
-                                aria-hidden
-                                className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary"
-                              />
-                            ) : null}
-                            {dropTarget?.kind === 'row' && dropTarget.id === row.original.id ? (
-                              <span
-                                aria-hidden
-                                className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary"
-                              />
-                            ) : null}
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        )
-                      })}
-                      <td className="border-b border-border" />
-                    </tr>
+                      }
+                      readOnly={dataReadOnly}
+                      relationRows={
+                        editingColumnId ? (targetRows.data?.rows ?? EMPTY_ROWS) : EMPTY_ROWS
+                      }
+                      tableId={tableId}
+                      handlers={rowHandlers}
+                    />
                   )
                 })}
                 {paddingBottom > 0 ? <tr style={{ height: paddingBottom }} /> : null}

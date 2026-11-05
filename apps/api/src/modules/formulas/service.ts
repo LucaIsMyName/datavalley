@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, max, sum } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, max, or, sum } from 'drizzle-orm'
 import {
   bracketRowAsks,
   canonicalize,
@@ -362,8 +362,23 @@ class ValueMap {
     if (cached) return cached
     if (!(await canReadColumn(this.db, this.subject, column.id))) return [{ error: '#REF' }]
     const rows = await this.db.select().from(tableRows).where(eq(tableRows.tableId, column.tableId)).orderBy(asc(tableRows.position))
-    const values: FormulaValue[] = []
-    for (const row of rows) values.push(await this.cell(column, row.id))
+    let values: FormulaValue[]
+    if (column.type === 'row_id') {
+      values = rows.map((row) => (column.config.style === 'uuid' ? row.id : String(row.rowNumber ?? '')))
+    } else if (column.type === 'formula') {
+      const stored = await this.db.select().from(formulas).where(eq(formulas.columnId, column.id))
+      const byRow = new Map(stored.map((formula) => [formula.rowId, formula]))
+      values = []
+      for (const row of rows) {
+        const formula = byRow.get(row.id)
+        values.push(formula ? await evaluateStored(this.db, this.subject, formula.id, row.id, this.stack) : null)
+      }
+    } else {
+      const cells = await this.db.select().from(tableCells).where(eq(tableCells.columnId, column.id))
+      const byRow = new Map(cells.map((cell) => [cell.rowId, cell]))
+      values = []
+      for (const row of rows) values.push(await this.present(column, readCell(column, byRow.get(row.id))))
+    }
     this.series.set(column.id, values)
     return values
   }
@@ -517,9 +532,8 @@ function refKey(ref: RefNode, rowId: string) {
   return `${ref.tableId ?? ''}|${ref.columnId}|${ref.rowId ?? rowId}`
 }
 
-async function preload(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack: Set<string>) {
+async function preload(map: ValueMap, ast: AstNode, rowId: string) {
   const values = new Map<string, FormulaValue>()
-  const map = new ValueMap(db, subject, stack)
   for (const ref of collectRefs(ast)) {
     const key = refKey(ref, rowId)
     if (values.has(key)) continue
@@ -553,17 +567,17 @@ function isRefError(value: FormulaValue) {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && 'error' in value
 }
 
-export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack = new Set<string>()) {
+export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack = new Set<string>(), map?: ValueMap) {
   if ((ast as { cycle?: boolean }).cycle) return { error: '#CYCLE' as const }
-  const values = await preload(db, subject, ast, rowId, stack)
-  const map = new ValueMap(db, subject, stack)
+  const shared = map ?? new ValueMap(db, subject, stack)
+  const values = await preload(shared, ast, rowId)
   const series = new Map<string, FormulaValue[]>()
   for (const call of callsNamed(ast, 'LOOKUP')) {
     for (const arg of [call.args[0], call.args[2]]) {
       if (!arg || arg.type !== 'ref' || !arg.ref.tableId) continue
-      const column = await map.column(arg.ref.columnId)
+      const column = await shared.column(arg.ref.columnId)
       if (!column) continue
-      series.set(arg.ref.columnId, await map.columnSeries(column))
+      series.set(arg.ref.columnId, await shared.columnSeries(column))
     }
   }
   const criteria = new Map<string, FormulaValue[]>()
@@ -573,10 +587,10 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     for (const index of indexes) {
       const arg = call.args[index]
       if (!arg || arg.type !== 'ref' || criteria.has(arg.ref.columnId)) continue
-      const column = await map.column(arg.ref.columnId)
+      const column = await shared.column(arg.ref.columnId)
       if (!column) continue
       columnTables.set(column.id, column.tableId)
-      criteria.set(arg.ref.columnId, await map.columnSeries(column))
+      criteria.set(arg.ref.columnId, await shared.columnSeries(column))
     }
   }
   const related = new Map<string, FormulaValue>()
@@ -584,8 +598,8 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     const fromArg = call.args[0]
     const toArg = call.args[1]
     if (!fromArg || fromArg.type !== 'ref' || !toArg || toArg.type !== 'ref') continue
-    const from = await map.column(fromArg.ref.columnId)
-    const to = await map.column(toArg.ref.columnId)
+    const from = await shared.column(fromArg.ref.columnId)
+    const to = await shared.column(toArg.ref.columnId)
     const key = `${fromArg.ref.columnId}:${toArg.ref.columnId}`
     if (!from || from.type !== 'relation' || !to) {
       related.set(key, { error: '#VALUE' })
@@ -605,7 +619,7 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
       continue
     }
     const linked: FormulaValue[] = []
-    for (const link of links) linked.push(await map.cell(to, link.toRowId))
+    for (const link of links) linked.push(await shared.cell(to, link.toRowId))
     related.set(key, linked.some(isRefError) ? { error: '#REF' } : linked.length === 1 ? linked[0] : linked)
   }
   return runFormula(ast, {
@@ -740,6 +754,7 @@ async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; r
         : []
     const columnById = new Map(columns.map((column) => [column.id, column]))
 
+    const pendingFormulas: { columnId: string; rowId: string; depth: number }[] = []
     for (const target of cellTargets) {
       const column = columnById.get(target.columnId)
       if (!column) continue
@@ -747,15 +762,29 @@ async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; r
       const key = `${target.columnId}:${target.rowId}`
       if (seenFormula.has(key) || column.type !== 'formula') continue
       seenFormula.add(key)
-      const [formula] = await db
-        .select({ ast: formulas.ast })
-        .from(formulas)
-        .where(and(eq(formulas.columnId, target.columnId), eq(formulas.rowId, target.rowId)))
-        .limit(1)
-      if (!formula?.ast) continue
-      queue.push({ ast: formula.ast as AstNode, rowId: target.rowId, depth: current.depth + 1 })
+      pendingFormulas.push({ columnId: target.columnId, rowId: target.rowId, depth: current.depth + 1 })
     }
 
+    if (pendingFormulas.length > 0) {
+      const stored = await db
+        .select({ ast: formulas.ast, columnId: formulas.columnId, rowId: formulas.rowId })
+        .from(formulas)
+        .where(
+          or(
+            ...pendingFormulas.map((item) =>
+              and(eq(formulas.columnId, item.columnId), eq(formulas.rowId, item.rowId)),
+            ),
+          ),
+        )
+      const byKey = new Map(stored.map((formula) => [`${formula.columnId}:${formula.rowId}`, formula]))
+      for (const item of pendingFormulas) {
+        const formula = byKey.get(`${item.columnId}:${item.rowId}`)
+        if (!formula?.ast) continue
+        queue.push({ ast: formula.ast as AstNode, rowId: item.rowId, depth: item.depth })
+      }
+    }
+
+    const wholeFormulas: { columnId: string; depth: number }[] = []
     for (const columnId of wholeColumnIds) {
       if (seenWhole.has(columnId)) continue
       seenWhole.add(columnId)
@@ -763,15 +792,23 @@ async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; r
       if (!column) continue
       noteLabelColumn(expanded, column)
       if (column.type !== 'formula') continue
+      wholeFormulas.push({ columnId, depth: current.depth + 1 })
+    }
+    if (wholeFormulas.length > 0) {
       const stored = await db
-        .select({ ast: formulas.ast, rowId: formulas.rowId })
+        .select({ ast: formulas.ast, columnId: formulas.columnId, rowId: formulas.rowId })
         .from(formulas)
-        .where(eq(formulas.columnId, columnId))
+        .where(inArray(formulas.columnId, wholeFormulas.map((item) => item.columnId)))
+      const depthOf = new Map(wholeFormulas.map((item) => [item.columnId, item.depth]))
       for (const formula of stored) {
-        const key = `${columnId}:${formula.rowId}`
-        if (seenFormula.has(key) || !formula.ast) continue
+        const key = `${formula.columnId}:${formula.rowId}`
+        if (seenFormula.has(key) || !formula.ast || !formula.columnId) continue
         seenFormula.add(key)
-        queue.push({ ast: formula.ast as AstNode, rowId: formula.rowId, depth: current.depth + 1 })
+        queue.push({
+          ast: formula.ast as AstNode,
+          rowId: formula.rowId,
+          depth: depthOf.get(formula.columnId) ?? current.depth + 1,
+        })
       }
     }
   }
@@ -978,6 +1015,7 @@ export async function evaluateFormulasForRows(
     entries,
   )
   const stack = options.stack ?? new Set<string>()
+  const sharedMap = new ValueMap(db, subject, stack)
   const misses: {
     entry: (typeof formulas.$inferSelect)
     versionHash: string
@@ -1019,7 +1057,7 @@ export async function evaluateFormulasForRows(
     }
     stack.add(entry.id)
     try {
-      const resolved = await evaluateAst(db, subject, entry.ast as AstNode, entry.rowId, stack)
+      const resolved = await evaluateAst(db, subject, entry.ast as AstNode, entry.rowId, stack, sharedMap)
       await db
         .insert(formulaCache)
         .values({

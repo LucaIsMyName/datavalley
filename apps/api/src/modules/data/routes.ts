@@ -249,8 +249,8 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.patch('/tables/:tableId/cells/bulk', { schema: { body: dataSchema.bulkPatchBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { updates: { rowId: string; version: number; cells: Record<string, unknown> }[] }
-    await bulkPatch(db, request.subject, (request.params as { tableId: string }).tableId, body.updates)
-    return { ok: true }
+    const rows = await bulkPatch(db, request.subject, (request.params as { tableId: string }).tableId, body.updates)
+    return { rows }
   })
   app.post('/tables/:tableId/rows/bulk-delete', { schema: { body: dataSchema.rowIdsBody } }, async (request) => {
     if (!request.subject) throw unauthorized()

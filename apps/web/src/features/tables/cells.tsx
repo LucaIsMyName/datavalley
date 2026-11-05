@@ -90,7 +90,7 @@ export function CellEditor({
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
   onEdit: (value: string | string[] | boolean | DateRangeValue | { fileIds: string[] } | null, delay?: number) => void
-  onFlush: () => void
+  onFlush: (focusGrid?: boolean) => void
   onCancel: () => void
   onOpen: () => void
   onActivate: () => void
@@ -293,7 +293,7 @@ function TextEditor({
   value: string
   multiline?: boolean
   onEdit: (value: string) => void
-  onFlush: () => void
+  onFlush: (focusGrid?: boolean) => void
   onCancel: () => void
 }) {
   const [draft, setDraft] = useState(value)
@@ -301,6 +301,7 @@ function TextEditor({
   useEffect(() => {
     if (!focused.current) setDraft(value)
   }, [value])
+  const commitByEnter = useRef(false)
   const shared = {
     autoFocus: true,
     'aria-label': label,
@@ -314,7 +315,9 @@ function TextEditor({
     },
     onBlur: () => {
       focused.current = false
-      onFlush()
+      const focusGrid = commitByEnter.current
+      commitByEnter.current = false
+      onFlush(focusGrid)
     },
   }
   if (multiline) {
@@ -336,7 +339,12 @@ function TextEditor({
       {...shared}
       className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
       onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur()
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          commitByEnter.current = true
+          onFlush(true)
+          event.currentTarget.blur()
+        }
         if (event.key === 'Escape') {
           event.preventDefault()
           onCancel()
@@ -360,13 +368,16 @@ function CheckboxEditor({ column, value, onEdit, onFlush }: { column: Column; va
   )
 }
 
-function DateEditor({ column, value, onEdit, onFlush, onDateMode }: { column: Column; value: unknown; onEdit: (value: string | DateRangeValue | null, delay?: number) => void; onFlush: () => void; onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void }) {
+function DateEditor({ column, value, onEdit, onFlush, onDateMode }: { column: Column; value: unknown; onEdit: (value: string | DateRangeValue | null, delay?: number) => void; onFlush: (focusGrid?: boolean) => void; onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void }) {
   const { t } = useTranslation()
   const [calendarOpen, setCalendarOpen] = useState(true)
   const filled = value != null && value !== ''
+  function commit(next: string | DateRangeValue | null) {
+    onEdit(next, 0)
+    onFlush(true)
+  }
   function clear() {
-    onEdit(null, 0)
-    onFlush()
+    commit(null)
   }
   return (
     <div
@@ -376,10 +387,10 @@ function DateEditor({ column, value, onEdit, onFlush, onDateMode }: { column: Co
         if (calendarOpen) return
         const next = event.relatedTarget instanceof Element ? event.relatedTarget : document.activeElement
         if (next instanceof Element && next.closest('[data-date-picker-layer], [data-date-picker-trigger]')) return
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush()
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onFlush(true)
       }}
     >
-      <DateCellEditor column={column} value={value} onEdit={onEdit} onCalendarOpenChange={setCalendarOpen} onMode={onDateMode} />
+      <DateCellEditor column={column} value={value} onEdit={commit} onCalendarOpenChange={setCalendarOpen} onMode={onDateMode} />
       {filled ? (
         <button type="button" aria-label={t('clearCell')} className="shrink-0 text-muted-foreground" onClick={clear}>
           <X className="size-3.5" />
@@ -830,7 +841,7 @@ function SelectEditor({
         onEdit(next, 0)
       } else {
         onEdit(result.option.id, 0)
-        setOpen(false)
+        handleOpenChange(false)
       }
       setCreateDraft('')
     } finally {
@@ -892,11 +903,11 @@ function SelectEditor({
             }}
             onPickSingle={(optionId) => {
               onEdit(optionId, 0)
-              setOpen(false)
+              handleOpenChange(false)
             }}
             onPickNone={() => {
               onEdit('', 0)
-              setOpen(false)
+              handleOpenChange(false)
             }}
           />
         </PopoverContent>

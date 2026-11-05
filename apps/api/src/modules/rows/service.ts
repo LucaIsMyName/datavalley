@@ -55,6 +55,7 @@ function presentRows(
   page: { id: string; position: string; version: number; color?: string | null; notes?: string | null; rowNumber?: number | null }[],
   cells: (typeof tableCells.$inferSelect)[],
 ) {
+  const byKey = new Map(cells.map((cell) => [`${cell.rowId}:${cell.columnId}`, cell]))
   return page.map((row) => {
     const values: Record<string, unknown> = {}
     const backgrounds: Record<string, string> = {}
@@ -64,7 +65,7 @@ function presentRows(
         values[column.id] = column.config.style === 'uuid' ? row.id : row.rowNumber ?? null
         continue
       }
-      const cell = cells.find((item) => item.rowId === row.id && item.columnId === column.id)
+      const cell = byKey.get(`${row.id}:${column.id}`)
       values[column.id] = readCell(column, cell ? {
         valueText: cell.valueText,
         valueNumber: cell.valueNumber,
@@ -89,6 +90,47 @@ function presentRows(
   })
 }
 
+async function attachFormulaValues<T extends { id: string; cells: Record<string, unknown> }>(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  columns: LoadedColumn[],
+  rows: T[],
+) {
+  const formulaColumns = columns.filter((column) => column.type === 'formula')
+  if (formulaColumns.length === 0 || rows.length === 0) return rows
+  const rowIds = rows.map((row) => row.id)
+  const formulaColumnIds = formulaColumns.map((column) => column.id)
+  const stored = await db
+    .select()
+    .from(formulas)
+    .where(
+      and(
+        eq(formulas.tableId, tableId),
+        inArray(formulas.rowId, rowIds),
+        inArray(formulas.columnId, formulaColumnIds),
+      ),
+    )
+  try {
+    const evaluated = await evaluateFormulasForRows(db, subject, stored)
+    for (const row of rows) {
+      for (const column of formulaColumns) {
+        const value = evaluated.get(`${row.id}:${column.id}`)
+        if (value !== undefined) row.cells[column.id] = value
+      }
+    }
+  } catch {
+    for (const row of rows) {
+      for (const column of formulaColumns) {
+        if (stored.some((item) => item.columnId === column.id && item.rowId === row.id)) {
+          row.cells[column.id] = { error: '#N/A' }
+        }
+      }
+    }
+  }
+  return rows
+}
+
 export async function listRows(
   db: AppDatabase,
   subject: Subject,
@@ -109,39 +151,13 @@ export async function listRows(
     q: input.q,
   })
   const cells = await cellsFor(db, page.rows.map((row) => row.id))
-  const rows = presentRows(columns, page.rows, cells)
-  const formulaColumns = columns.filter((column) => column.type === 'formula')
-  if (formulaColumns.length > 0 && rows.length > 0) {
-    const rowIds = rows.map((row) => row.id)
-    const formulaColumnIds = formulaColumns.map((column) => column.id)
-    const stored = await db
-      .select()
-      .from(formulas)
-      .where(
-        and(
-          eq(formulas.tableId, physical.id),
-          inArray(formulas.rowId, rowIds),
-          inArray(formulas.columnId, formulaColumnIds),
-        ),
-      )
-    try {
-      const evaluated = await evaluateFormulasForRows(db, subject, stored)
-      for (const row of rows) {
-        for (const column of formulaColumns) {
-          const value = evaluated.get(`${row.id}:${column.id}`)
-          if (value !== undefined) row.cells[column.id] = value
-        }
-      }
-    } catch {
-      for (const row of rows) {
-        for (const column of formulaColumns) {
-          if (stored.some((item) => item.columnId === column.id && item.rowId === row.id)) {
-            row.cells[column.id] = { error: '#N/A' }
-          }
-        }
-      }
-    }
-  }
+  const rows = await attachFormulaValues(
+    db,
+    subject,
+    physical.id,
+    columns,
+    presentRows(columns, page.rows, cells),
+  )
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
 }
 
@@ -183,9 +199,11 @@ async function writeCell(db: AppDatabase, tableId: string, rowId: string, column
   const parsed = parseCell(column, value)
   const kept = background !== undefined ? background : (existing?.background ?? null)
   const rules = storedRules(existing?.formatRules)
-  await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
-  if (!parsed && !kept && rules.length === 0) return
-  await db.insert(tableCells).values({
+  if (!parsed && !kept && rules.length === 0) {
+    if (existing) await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
+    return
+  }
+  const record = {
     tableId,
     rowId,
     columnId: column.id,
@@ -196,7 +214,24 @@ async function writeCell(db: AppDatabase, tableId: string, rowId: string, column
     valueJsonb: (parsed?.valueJsonb ?? null) as never,
     background: kept,
     formatRules: rules as never,
-  })
+    updatedAt: new Date(),
+  }
+  await db
+    .insert(tableCells)
+    .values(record)
+    .onConflictDoUpdate({
+      target: [tableCells.rowId, tableCells.columnId],
+      set: {
+        valueText: record.valueText,
+        valueNumber: record.valueNumber,
+        valueBool: record.valueBool,
+        valueTimestamptz: record.valueTimestamptz,
+        valueJsonb: record.valueJsonb,
+        background: record.background,
+        formatRules: record.formatRules,
+        updatedAt: record.updatedAt,
+      },
+    })
   if (parsed && column.type === 'relation') await syncRelation(db, column, rowId, parsed)
 }
 
@@ -390,9 +425,17 @@ export async function patchRow(
     resourceId: row.id,
     metadata: { columnIds },
   })
-    const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, row.id))
-    const stored = await cellsFor(db, [row.id])
-    return presentRows(await visibleColumns(db, subject, table.id, table.projectId, columns), [fresh], stored)[0]
+  const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, row.id))
+  const stored = await cellsFor(db, [row.id])
+  const visible = await visibleColumns(db, subject, table.id, table.projectId, columns)
+  const [presented] = await attachFormulaValues(
+    db,
+    subject,
+    table.id,
+    visible,
+    presentRows(visible, [fresh], stored),
+  )
+  return presented
 }
 
 export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string) {
@@ -415,11 +458,57 @@ export async function bulkPatch(
 ) {
   const cellCount = updates.reduce((sum, update) => sum + Object.keys(update.cells).length, 0)
   if (cellCount > 500) throw badRequest('Bulk updates are limited to 500 cells')
+  if (updates.length === 0) return []
+  const table = await requireEditableTable(db, subject, tableId, 'edit')
+  const dataTableId = table.mirrorOfTableId ?? table.id
+  const columns = await loadColumns(db, dataTableId)
+  const columnById = new Map(columns.map((column) => [column.id, column]))
+  const grants = await resolveGrants(db, subject)
+  const rowIds = [...new Set(updates.map((update) => update.rowId))]
+  const existing = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
+  const rowById = new Map(existing.map((row) => [row.id, row]))
+  for (const update of updates) {
+    const row = rowById.get(update.rowId)
+    if (!row || row.tableId !== dataTableId) throw notFound()
+    if (row.version !== update.version) throw conflict('This row was changed by someone else')
+    if (!allows(subject, grants, 'edit', { type: 'row', id: row.id, parents: { table: dataTableId, project: table.projectId } })) {
+      throw notFound()
+    }
+    for (const columnId of Object.keys(update.cells)) {
+      const column = columnById.get(columnId)
+      if (!column) throw badRequest('Unknown column')
+      if (!allows(subject, grants, 'edit', { type: 'column', id: column.id, parents: { table: dataTableId, project: table.projectId } })) {
+        throw notFound()
+      }
+    }
+  }
   await db.transaction(async (tx) => {
+    const database = tx as unknown as AppDatabase
     for (const update of updates) {
-      await patchRow(tx as unknown as AppDatabase, subject, update.rowId, update)
+      const row = rowById.get(update.rowId)!
+      const updated = await database
+        .update(tableRows)
+        .set({ version: row.version + 1, updatedAt: new Date() })
+        .where(and(eq(tableRows.id, row.id), eq(tableRows.version, update.version)))
+        .returning()
+      if (updated.length === 0) throw conflict('This row was changed by someone else')
+      for (const [columnId, value] of Object.entries(update.cells)) {
+        const column = columnById.get(columnId)!
+        await assertReferences(database, subject, dataTableId, table.projectId, column, value)
+        await writeCell(database, dataTableId, row.id, column, value)
+      }
     }
   })
+  await writeAudit(db, subject, {
+    action: 'cell.bulk_update',
+    resourceType: 'table',
+    resourceId: table.id,
+    metadata: { count: cellCount, rows: rowIds.length },
+  })
+  const fresh = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
+  const stored = await cellsFor(db, rowIds)
+  const visible = await visibleColumns(db, subject, dataTableId, table.projectId, columns)
+  return attachFormulaValues(db, subject, dataTableId, visible, presentRows(visible, fresh, stored))
 }
 
 export async function bulkDelete(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {

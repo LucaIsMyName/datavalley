@@ -132,6 +132,14 @@ export function useColumnCommands(scope: Scope) {
             after: record.name,
           })
       },
+      revert: () => {
+        patchCachedTable(queryClient, tableId, (current) => ({
+          ...current,
+          columns: current.columns?.map((item) =>
+            item.id === column.id ? { ...item, name: before } : item,
+          ),
+        }))
+      },
       rollback: () => {
         patchCachedTable(queryClient, tableId, (current) => ({
           ...current,
