@@ -1471,7 +1471,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         <div
                           role="separator"
                           aria-label={t('resize')}
-                          className="absolute -right-1 top-5 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
+                          className="absolute -right-1 top-0 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
                           onPointerDown={(event) => {
                             if (event.button !== 0) return
                             event.preventDefault()
@@ -1510,7 +1510,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                             type="button"
                             data-header-control
                             aria-label={t('insertColumn')}
-                            className="absolute -right-2 -bottom-2 z-40 flex size-6 items-center justify-center border border-border bg-card"
+                            className="absolute -right-2 -bottom-2 z-40 flex size-4 items-center justify-center border border-border bg-card"
                             onClick={(event) => {
                               event.stopPropagation()
                               openNewColumn(
@@ -1533,7 +1533,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
                         onClick={(event) => openNewColumn(undefined, anchor(event))}
                       >
-                        <Plus className="size-4" />
+                        <Plus className="size-3" />
                       </button>
                     ) : null}
                   </th>
@@ -1672,7 +1672,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           </div>
         )}
         {display.mode === 'chart' || display.mode === 'timeline' ? null : (
-          <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
+          <div className="flex h-12 shrink-0 justify-start items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
             {!dataReadOnly ? (
               <button
                 type="button"
@@ -1706,7 +1706,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
               <Redo2 className="size-3.5" />
             </Button>
             {checked.length > 0 || selectedColumns.length > 0 ? (
-              <div className="ml-auto flex shrink-0 items-center gap-2">
+              <div className="border-l border-border pl-4 mr-auto flex shrink-0 items-center gap-2">
                 <span className="whitespace-nowrap text-sm">
                   {selectionKind(checked.length, selectedColumns.length) === 'both'
                     ? t('selectedRowsAndColumns', {

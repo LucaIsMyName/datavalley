@@ -92,7 +92,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
       size: GUTTER_WIDTH,
       cell: ({ row }) => (
         <div
-          className="flex h-9 items-center gap-1 px-1"
+          className="flex h-9 items-center gap-1 px-1 z-50"
           onContextMenu={(event) => openRowMenu(event, row.original)}
           onPointerDown={(event) => {
             if (event.pointerType === 'mouse') return
