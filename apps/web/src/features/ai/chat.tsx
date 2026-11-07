@@ -238,7 +238,7 @@ function AiChatPanel({ context }: { context: ChatContext }) {
   return (
     <section
       ref={panelRef}
-      className="fixed z-30 flex flex-col border border-border bg-card shadow-md"
+      className="fixed z-[100] flex flex-col border border-border bg-card shadow-md"
       style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
       aria-label={t('aiChatTitle')}
     >

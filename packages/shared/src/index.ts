@@ -9,7 +9,24 @@ export * from './selection.js'
 export * from './resource-icons.js'
 export * from './media.js'
 export * from './connectors/index.js'
-export * from './ai/index.js'
+export {
+  aiProviderDefaults,
+  aiProviderIds,
+  aiProviderModels,
+  isAiProviderId,
+} from './ai/providers.js'
+export type { AiModelOption, AiProviderId } from './ai/providers.js'
+export type {
+  AiCellChange,
+  AiCellProposal,
+  AiChatResponse,
+  AiConnectorDraft,
+  AiConnectorFieldDraft,
+  AiFormulaProposal,
+  AiHighlight,
+  AiHighlightTarget,
+  AiProposal,
+} from './ai/types.js'
 export * from './dates/index.js'
 export * from './select/index.js'
 export * from './displays/index.js'
