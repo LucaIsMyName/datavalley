@@ -500,6 +500,27 @@ describe('table fields', () => {
     })
     expect(listedColumn.statusCode).toBe(400)
     expect(listedColumn.json().error.message).toBe('People -> Column copy is every row. Choose one row, or wrap it in SUM.')
+    const ownRow = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId: peopleId, rowId: sample.id, expression: '1 + [People -> Column copy]' },
+    })
+    expect(ownRow.statusCode).toBe(200)
+    expect(ownRow.json().value).toBe(11)
+    const summed = await session.inject({
+      method: 'POST',
+      url: '/api/v1/formulas/validate',
+      payload: { tableId: peopleId, rowId: sample.id, expression: 'SUM([People -> Column copy])' },
+    })
+    expect(summed.statusCode).toBe(200)
+    const savedOwn = await session.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${sample.id}/columns/${formulaId}/formula`,
+      payload: { expression: '1 + [People -> Column copy]' },
+    })
+    expect(savedOwn.statusCode).toBe(200)
+    const openedOwn = await session.inject({ method: 'GET', url: `/api/v1/rows/${sample.id}/columns/${formulaId}/formula` })
+    expect(openedOwn.json().source).toBe('1 + [Column copy]')
     const orderSource = await session.inject({
       method: 'POST',
       url: `/api/v1/rows/${orderRow.id}/columns/${totalId}/formula`,

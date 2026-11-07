@@ -153,6 +153,72 @@ export function resolveBrackets(expression: string, catalog: BracketCatalog) {
   return replaceBrackets(expression, (body) => resolveBody(body, catalog))
 }
 
+function currentRowRef(ref: RefNode, tableId: string, keepColumn: boolean, mark: () => void) {
+  if (keepColumn || ref.rowId || ref.tableId !== tableId) return ref
+  mark()
+  return { columnId: ref.columnId }
+}
+
+function currentRowNode(node: AstNode, tableId: string, keepColumn: boolean, mark: () => void): AstNode {
+  if (node.type === 'ref') {
+    const ref = currentRowRef(node.ref, tableId, keepColumn, mark)
+    return ref === node.ref ? node : { type: 'ref', ref }
+  }
+  if (node.type === 'range' || node.type === 'number' || node.type === 'string' || node.type === 'bool' || node.type === 'it') return node
+  if (node.type === 'unary') {
+    const expr = currentRowNode(node.expr, tableId, keepColumn, mark)
+    return expr === node.expr ? node : { ...node, expr }
+  }
+  if (node.type === 'binary') {
+    const left = currentRowNode(node.left, tableId, keepColumn, mark)
+    const right = currentRowNode(node.right, tableId, keepColumn, mark)
+    return left === node.left && right === node.right ? node : { ...node, left, right }
+  }
+  if (node.name === 'RELATION') return node
+  const args = node.args.map((arg, index) => {
+    if (node.name === 'LOOKUP') return currentRowNode(arg, tableId, index === 0 || index === 2, mark)
+    if (AGGREGATES.has(node.name) && (arg.type === 'ref' || arg.type === 'range')) return currentRowNode(arg, tableId, true, mark)
+    return currentRowNode(arg, tableId, false, mark)
+  })
+  return args.every((arg, index) => arg === node.args[index]) ? node : { ...node, args }
+}
+
+function printCanonicalRef(ref: RefNode) {
+  const column = ref.tableId ? `{${ref.tableId}}.{${ref.columnId}}` : `{${ref.columnId}}`
+  return ref.rowId ? `${column}@{${ref.rowId}}` : column
+}
+
+function printCanonical(node: AstNode, parent = 0): string {
+  if (node.type === 'number') return String(node.value)
+  if (node.type === 'string') return `"${node.value.replaceAll('"', '""')}"`
+  if (node.type === 'bool') return node.value ? 'TRUE' : 'FALSE'
+  if (node.type === 'it') return 'IT'
+  if (node.type === 'ref') return printCanonicalRef(node.ref)
+  if (node.type === 'range') return `${printCanonicalRef(node.start)}:${printCanonicalRef(node.end)}`
+  if (node.type === 'unary') {
+    const text = node.op === '-' ? `-${printCanonical(node.expr, 7)}` : `NOT ${printCanonical(node.expr, 7)}`
+    return parent > 7 ? `(${text})` : text
+  }
+  if (node.type === 'binary') {
+    const level = precedence(node.op)
+    const text = `${printCanonical(node.left, level)} ${node.op} ${printCanonical(node.right, level + 1)}`
+    return parent > level ? `(${text})` : text
+  }
+  return `${node.name}(${node.args.map((arg) => printCanonical(arg)).join(', ')})`
+}
+
+export function ownRowFormula(expression: string, tableId: string) {
+  const ast = parseFormula(expression)
+  let changed = false
+  const next = currentRowNode(ast, tableId, false, () => {
+    changed = true
+  })
+  if (!changed) return expression
+  const source = printCanonical(next)
+  parseFormula(source)
+  return source
+}
+
 function bareColumn(node: AstNode): RefNode | null {
   if (node.type === 'ref' && node.ref.tableId && !node.ref.rowId) return node.ref
   if (node.type === 'call' && AGGREGATES.has(node.name)) return null

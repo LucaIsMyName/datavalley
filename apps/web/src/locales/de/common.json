@@ -179,7 +179,7 @@
   "formulaRelation": "Verknüpfung",
   "formulaWholeColumn": "Ganze Spalte",
   "formulaAggregate": "Zusammenfassung",
-  "formulaValueHint": "Eine Klammer mit einer Zeile, einer Verknüpfung oder dieser Zeile ist eine Zahl, die du addieren kannst. Eine Klammer, die nur eine Tabelle und eine Spalte nennt, ist jede Zeile.",
+  "formulaValueHint": "Eine Klammer mit einer Zeile, einer Verknüpfung oder dieser Zeile ist eine Zahl, die du addieren kannst. Diese Tabelle und eine Spalte ist diese Zeile. Eine Klammer, die eine andere Tabelle und eine Spalte nennt, ist jede Zeile.",
   "formulaMatch": "Vergleichsspalte",
   "formulaNeedle": "Wert dieser Zeile",
   "formulaResult": "Ergebnisspalte",

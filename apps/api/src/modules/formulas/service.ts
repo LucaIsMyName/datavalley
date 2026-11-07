@@ -6,6 +6,7 @@ import {
   conditionBlock,
   displayFormula,
   LIMITS,
+  ownRowFormula,
   parseFormula,
   resolveBrackets,
   matchesCriterion,
@@ -154,7 +155,7 @@ async function compileFormula(db: AppDatabase, subject: Subject, tableId: string
   catalog.rows = await rowsForBrackets(db, asks, catalog)
   let canonical: string
   try {
-    canonical = canonicalize(resolveBrackets(expression, catalog), names)
+    canonical = ownRowFormula(canonicalize(resolveBrackets(expression, catalog), names), tableId)
   } catch (error) {
     throw badRequest(error instanceof Error ? error.message : 'Invalid formula')
   }

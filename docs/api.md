@@ -1814,6 +1814,50 @@ const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/v
 })
 ```
 
+### `PATCH /api/v1/tables/{tableId}/views/{viewId}`
+
+Update a view
+
+**Path**
+
+- `tableId` string
+- `viewId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/views/00000000-0000-4000-8000-0000cf532ea0", {
+  method: "PATCH",
+})
+```
+
+### `DELETE /api/v1/tables/{tableId}/views/{viewId}`
+
+Delete a view
+
+**Path**
+
+- `tableId` string
+- `viewId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/views/00000000-0000-4000-8000-0000cf532ea0", {
+  method: "DELETE",
+})
+```
+
 ### `POST /api/v1/tables/{tableId}/conditions/compile`
 
 Create a compile
@@ -1914,6 +1958,167 @@ None
 
 ```ts
 const result = await api.request("/search?q=acme&locale=en")
+```
+
+## Ai
+
+### `GET /api/v1/ai/status`
+
+List status
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/ai/status")
+```
+
+### `GET /api/v1/ai/settings`
+
+List settings
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/ai/settings")
+```
+
+### `PUT /api/v1/ai/settings`
+
+Replace ai settings
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/ai/settings", {
+  method: "PUT",
+  body: JSON.stringify({
+    "provider": "openai",
+    "model": "model",
+    "enabled": false
+  }),
+})
+```
+
+### `GET /api/v1/ai/models`
+
+List models
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/ai/models")
+```
+
+### `POST /api/v1/ai/chat`
+
+Create a chat
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/ai/chat", {
+  method: "POST",
+  body: JSON.stringify({
+    "messages": [
+      {
+        "role": "user",
+        "content": "content"
+      }
+    ]
+  }),
+})
+```
+
+### `POST /api/v1/ai/formula`
+
+Create a formula
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/ai/formula", {
+  method: "POST",
+  body: JSON.stringify({
+    "prompt": "prompt",
+    "tableId": "00000000-0000-4000-8000-0000a3708989"
+  }),
+})
+```
+
+### `POST /api/v1/ai/connectors/draft`
+
+Create a draft
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/ai/connectors/draft", {
+  method: "POST",
+  body: JSON.stringify({
+    "prompt": "prompt",
+    "url": "url"
+  }),
+})
 ```
 
 ## Columns

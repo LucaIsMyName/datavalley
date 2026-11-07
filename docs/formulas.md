@@ -41,9 +41,10 @@ A reference is written in brackets. Inside the brackets, spaces and dots are par
 | Form | Meaning |
 | --- | --- |
 | `[Price]` | This column on this row. |
+| `[Orders -> Price]` | This column on this row when the formula is on Orders. `SUM([Orders -> Price])` is still every row of that column. |
 | `[People -> Name -> #15]` | One cell. `#15` is the row number in the grid. |
 | `[Customer -> Price]` | `Price` on the row this row's Customer link points at. Several links become a list, so wrap them in `SUM` when you need a number. |
-| `[People -> Amount]` | Every row of that column. `+ - * / %` reject the list. `SUM`, `AVERAGE`, `MIN`, `MAX`, and `COUNT` fold it. |
+| `[People -> Amount]` | Every row of that column when People is another table. `+ - * / %` reject the list. `SUM`, `AVERAGE`, `MIN`, `MAX`, and `COUNT` fold it. |
 | `LOOKUP([People -> Mail], [Email], [People -> Name])` | First row in People whose Mail equals this row's Email, then that row's Name. |
 
 A name that contains `]` or `->` is refused. A reference you cannot view is `#REF`.

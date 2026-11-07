@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { collectRefs, conditionBlock, matchesCondition, matchesCriterion, parseFormula, runFormula, canonicalize, displayFormula, resolveBrackets, wholeColumnInMath } from './index.js'
+import { collectRefs, conditionBlock, matchesCondition, matchesCriterion, parseFormula, runFormula, canonicalize, displayFormula, ownRowFormula, resolveBrackets, wholeColumnInMath } from './index.js'
 import type { BracketCatalog, EvalContext, FormulaValue, RefNode } from './index.js'
 
 const column = '11111111-1111-4111-8111-111111111111'
@@ -197,6 +197,12 @@ describe('formula engine', () => {
       columnId: column,
     })
     expect(wholeColumnInMath(parseFormula(resolveBrackets('SUM([People -> Column copy]) + [Price]', catalog)))).toBeNull()
+    expect(ownRowFormula(resolveBrackets('1 + [Orders -> Price]', catalog), orders)).toBe(`1 + {${other}}`)
+    expect(ownRowFormula(resolveBrackets('SUM([Orders -> Price])', catalog), orders)).toBe(`SUM({${orders}}.{${other}})`)
+    expect(ownRowFormula(resolveBrackets('1 + [People -> Column copy]', catalog), orders)).toBe(`1 + {${people}}.{${column}}`)
+    expect(ownRowFormula(resolveBrackets('LOOKUP([Orders -> Name], [Orders -> Price], [Orders -> Name])', catalog), orders)).toBe(
+      `LOOKUP({${orders}}.{${localName}}, {${other}}, {${orders}}.{${localName}})`,
+    )
     expect(() => resolveBrackets('[People -> Column copy -> #99]', catalog)).toThrow(/Unknown row #99/)
     expect(() =>
       resolveBrackets('[A -> B]', {
