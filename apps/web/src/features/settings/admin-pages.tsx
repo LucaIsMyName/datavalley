@@ -1,29 +1,50 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import * as Dialog from '@radix-ui/react-dialog'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ApiClientError, type User } from '@datavalley/api-client'
-import { Button } from '../../components/ui/button'
-import { Card } from '../../components/ui/card'
 import { ConfirmDialog } from '../../components/confirm-dialog'
+import { AppDialog } from '../../components/ui/app-dialog'
+import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../../components/ui/select'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../../components/states'
 import { api } from '../../lib/api'
+import { useSession } from '../../stores/session'
+
+function errorMessage(caught: unknown, fallback: string) {
+  return caught instanceof ApiClientError || caught instanceof Error ? caught.message : fallback
+}
 
 export function UsersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const currentUser = useSession((state) => state.user)
+  const setCurrentUser = useSession((state) => state.setUser)
   const [creating, setCreating] = useState(false)
-  const [role, setRole] = useState('user')
+  const [createRole, setCreateRole] = useState('user')
   const [createError, setCreateError] = useState('')
   const [createPending, setCreatePending] = useState(false)
+  const [editing, setEditing] = useState<User | null>(null)
+  const [editRole, setEditRole] = useState('user')
+  const [editError, setEditError] = useState('')
+  const [editPending, setEditPending] = useState(false)
+  const [deleting, setDeleting] = useState<User | null>(null)
+  const [deletePending, setDeletePending] = useState(false)
   const users = useQuery({
     queryKey: ['users'],
     queryFn: () => api.request<{ users: User[] }>('/users'),
   })
+  const roster = users.data?.users ?? []
+  const activeAdmins = roster.filter((item) => item.role === 'admin' && !item.disabled).length
+
+  function openEdit(user: User) {
+    setEditError('')
+    setEditRole(user.role)
+    setEditing(user)
+  }
+
   return (
     <Page
       title={t('users')}
@@ -32,7 +53,7 @@ export function UsersPage() {
           type="button"
           onClick={() => {
             setCreateError('')
-            setRole('user')
+            setCreateRole('user')
             setCreating(true)
           }}
         >
@@ -40,117 +61,284 @@ export function UsersPage() {
         </Button>
       }
     >
-      <Dialog.Root
+      <AppDialog
         open={creating}
+        title={t('create')}
         onOpenChange={(open) => {
           if (!open) setCreating(false)
         }}
       >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-border bg-card p-4 shadow-md">
-            <Dialog.Title className="text-base font-semibold">{t('create')}</Dialog.Title>
-            <Dialog.Description className="sr-only">{t('users')}</Dialog.Description>
-            <form
-              className="mt-3 flex flex-col gap-3"
-              onSubmit={async (event) => {
-                event.preventDefault()
-                const data = new FormData(event.currentTarget)
-                setCreateError('')
-                setCreatePending(true)
-                try {
-                  await api.request('/users', {
+        <form
+          className="mt-3 flex flex-col gap-3"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            const data = new FormData(event.currentTarget)
+            setCreateError('')
+            setCreatePending(true)
+            try {
+              await api.request('/users', {
+                method: 'POST',
+                body: JSON.stringify({
+                  username: data.get('username'),
+                  email: data.get('email'),
+                  password: data.get('password'),
+                  role: createRole,
+                }),
+              })
+              await queryClient.invalidateQueries({ queryKey: ['users'] })
+              setCreating(false)
+              setCreateRole('user')
+              event.currentTarget.reset()
+            } catch (caught) {
+              setCreateError(errorMessage(caught, t('error')))
+            } finally {
+              setCreatePending(false)
+            }
+          }}
+        >
+          <div className="grid gap-1">
+            <Label htmlFor="new-username">{t('username')}</Label>
+            <Input id="new-username" name="username" autoFocus required />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="new-email">{t('email')}</Label>
+            <Input id="new-email" name="email" type="email" autoComplete="email" required />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="new-password">{t('password')}</Label>
+            <Input
+              id="new-password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={12}
+            />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="new-role">{t('role')}</Label>
+            <Select value={createRole} onValueChange={setCreateRole}>
+              <SelectTrigger id="new-role" aria-label={t('role')} />
+              <SelectContent>
+                <SelectItem value="user">{t('roleUser')}</SelectItem>
+                <SelectItem value="admin">{t('roleAdmin')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {createError ? (
+            <p role="alert" className="text-sm text-danger">
+              {createError}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setCreating(false)}>
+              {t('cancel')}
+            </Button>
+            <Button type="submit" disabled={createPending}>
+              {t('create')}
+            </Button>
+          </div>
+        </form>
+      </AppDialog>
+      <AppDialog
+        open={Boolean(editing)}
+        title={t('editUser')}
+        className="max-h-[min(36rem,calc(100vh-2rem))] overflow-auto"
+        onOpenChange={(open) => {
+          if (!open && !editPending) setEditing(null)
+        }}
+      >
+        {editing ? (
+          <form
+            key={editing.id}
+            className="mt-3 flex flex-col gap-3"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              if (!editing || editPending) return
+              const data = new FormData(event.currentTarget)
+              const password = String(data.get('password') ?? '')
+              setEditError('')
+              setEditPending(true)
+              try {
+                const result = await api.request<{ user: User }>(`/users/${editing.id}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    username: data.get('username'),
+                    email: data.get('email'),
+                    role: editRole,
+                  }),
+                })
+                if (password) {
+                  await api.request(`/users/${editing.id}/reset-password`, {
                     method: 'POST',
-                    body: JSON.stringify({
-                      username: data.get('username'),
-                      email: data.get('email'),
-                      password: data.get('password'),
-                      role,
-                    }),
+                    body: JSON.stringify({ password }),
                   })
-                  await queryClient.invalidateQueries({ queryKey: ['users'] })
-                  setCreating(false)
-                  setRole('user')
-                  event.currentTarget.reset()
-                } catch (caught) {
-                  setCreateError(
-                    caught instanceof ApiClientError
-                      ? caught.message
-                      : caught instanceof Error
-                        ? caught.message
-                        : t('error'),
-                  )
-                } finally {
-                  setCreatePending(false)
                 }
-              }}
-            >
-              <div className="grid gap-1">
-                <Label htmlFor="new-username">{t('username')}</Label>
-                <Input id="new-username" name="username" autoFocus required />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor="new-email">{t('email')}</Label>
-                <Input id="new-email" name="email" type="email" autoComplete="email" required />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor="new-password">{t('password')}</Label>
-                <Input
-                  id="new-password"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={12}
+                await queryClient.invalidateQueries({ queryKey: ['users'] })
+                if (currentUser?.id === result.user.id) setCurrentUser(result.user)
+                setEditing(null)
+              } catch (caught) {
+                setEditError(errorMessage(caught, t('error')))
+              } finally {
+                setEditPending(false)
+              }
+            }}
+          >
+            <div className="grid gap-1">
+              <Label htmlFor="edit-username">{t('username')}</Label>
+              <Input id="edit-username" name="username" defaultValue={editing.username} autoFocus required />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="edit-email">{t('email')}</Label>
+              <Input
+                id="edit-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                defaultValue={editing.email}
+                required
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="edit-password">{t('newPassword')}</Label>
+              <Input
+                id="edit-password"
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                placeholder={t('optionalPassword')}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="edit-role">{t('role')}</Label>
+              <Select
+                value={editRole}
+                onValueChange={setEditRole}
+                disabled={editing.role === 'admin' && !editing.disabled && activeAdmins <= 1}
+              >
+                <SelectTrigger
+                  id="edit-role"
+                  aria-label={t('role')}
+                  title={
+                    editing.role === 'admin' && !editing.disabled && activeAdmins <= 1
+                      ? t('lastAdminHint')
+                      : undefined
+                  }
                 />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor="new-role">{t('role')}</Label>
-                <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger id="new-role" aria-label={t('role')} />
-                  <SelectContent>
-                    <SelectItem value="user">{t('roleUser')}</SelectItem>
-                    <SelectItem value="admin">{t('roleAdmin')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {createError ? (
-                <p role="alert" className="text-sm text-danger">
-                  {createError}
-                </p>
-              ) : null}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setCreating(false)}>
-                  {t('cancel')}
-                </Button>
-                <Button type="submit" disabled={createPending}>
-                  {t('create')}
-                </Button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+                <SelectContent>
+                  <SelectItem value="user">{t('roleUser')}</SelectItem>
+                  <SelectItem value="admin">{t('roleAdmin')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {editError ? (
+              <p role="alert" className="text-sm text-danger">
+                {editError}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="mr-auto"
+                disabled={editPending || (editing.role === 'admin' && !editing.disabled && activeAdmins <= 1)}
+                title={
+                  editing.role === 'admin' && !editing.disabled && activeAdmins <= 1 ? t('lastAdminHint') : undefined
+                }
+                onClick={() => {
+                  if (!editing || editPending) return
+                  const path = editing.disabled ? 'enable' : 'disable'
+                  setEditError('')
+                  setEditPending(true)
+                  void api
+                    .request<{ user: User }>(`/users/${editing.id}/${path}`, { method: 'POST' })
+                    .then(async (result) => {
+                      await queryClient.invalidateQueries({ queryKey: ['users'] })
+                      setEditing(result.user)
+                      setEditRole(result.user.role)
+                      if (currentUser?.id === result.user.id) setCurrentUser(result.user)
+                    })
+                    .catch((caught: unknown) => {
+                      setEditError(errorMessage(caught, t('error')))
+                    })
+                    .finally(() => setEditPending(false))
+                }}
+              >
+                {editing.disabled ? t('enable') : t('disable')}
+              </Button>
+              <Button type="button" variant="outline" disabled={editPending} onClick={() => setEditing(null)}>
+                {t('cancel')}
+              </Button>
+              <Button type="submit" disabled={editPending}>
+                {t('save')}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </AppDialog>
       {users.isLoading ? <LoadingBlock /> : null}
       {users.isError ? <ErrorState message={(users.error as Error).message} /> : null}
       {users.data && users.data.users.length === 0 ? (
         <EmptyState title={t('emptyUsers')} body={t('emptyUsers')} />
       ) : null}
       <div className="overflow-hidden border border-border">
-        {users.data?.users.map((user) => (
-          <div
-            key={user.id}
-            className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3 text-sm last:border-b-0"
-          >
-            <span className="min-w-0 truncate">
-              {user.username} · {user.email}
-            </span>
-            <span className="shrink-0 text-muted-foreground">
-              {user.role === 'admin' ? t('roleAdmin') : t('roleUser')}
-            </span>
-          </div>
-        ))}
+        {roster.map((user) => {
+          const lastAdmin = user.role === 'admin' && !user.disabled && activeAdmins <= 1
+          return (
+            <div
+              key={user.id}
+              className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2 text-sm last:border-b-0"
+            >
+              <span className="min-w-0 truncate">
+                {user.username} · {user.email}
+                {user.disabled ? ` · ${t('disabled')}` : ''}
+              </span>
+              <span className="flex shrink-0 flex-wrap items-center gap-2">
+                <span className="text-muted-foreground">
+                  {user.role === 'admin' ? t('roleAdmin') : t('roleUser')}
+                </span>
+                <Button type="button" variant="outline" onClick={() => openEdit(user)}>
+                  {t('edit')}
+                </Button>
+                {currentUser?.id === user.id ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={lastAdmin}
+                    title={lastAdmin ? t('lastAdminHint') : undefined}
+                    onClick={() => setDeleting(user)}
+                  >
+                    {t('delete')}
+                  </Button>
+                )}
+              </span>
+            </div>
+          )
+        })}
       </div>
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        title={t('deleteUserTitle')}
+        body={t('deleteUserWarning', { name: deleting?.username ?? '' })}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        pending={deletePending}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => {
+          if (!deleting || deletePending) return
+          const id = deleting.id
+          setDeletePending(true)
+          void api
+            .request(`/users/${id}`, { method: 'DELETE' })
+            .then(() => queryClient.invalidateQueries({ queryKey: ['users'] }))
+            .then(() => setDeleting(null))
+            .catch((caught: unknown) => {
+              toast.error(errorMessage(caught, t('error')))
+            })
+            .finally(() => setDeletePending(false))
+        }}
+      />
     </Page>
   )
 }
@@ -160,8 +348,8 @@ export function ApiKeysPage() {
   const [created, setCreated] = useState('')
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
-  const [revoke, setRevoke] = useState<{ id: string; name: string } | null>(null)
-  const [revokePending, setRevokePending] = useState(false)
+  const [confirm, setConfirm] = useState<{ id: string; name: string; kind: 'revoke' | 'delete' } | null>(null)
+  const [confirmPending, setConfirmPending] = useState(false)
   const keys = useQuery({
     queryKey: ['api-keys'],
     queryFn: () =>
@@ -197,11 +385,26 @@ export function ApiKeysPage() {
           }
         }}
       >
-        <Label className='sr-only' htmlFor="api-key-name">{t('name')}</Label>
-        <Input id="api-key-name" name="name" required placeholder={t('name')} aria-label={t('name')} className="max-w-xs flex-1 w-full max-w-full" />
-        <Button type="submit" disabled={creating} aria-busy={creating}>{t('createKey')}</Button>
+        <Label className="sr-only" htmlFor="api-key-name">
+          {t('name')}
+        </Label>
+        <Input
+          id="api-key-name"
+          name="name"
+          required
+          placeholder={t('name')}
+          aria-label={t('name')}
+          className="max-w-xs w-full max-w-full flex-1"
+        />
+        <Button type="submit" disabled={creating} aria-busy={creating}>
+          {t('createKey')}
+        </Button>
       </form>
-      {createError ? <p role="alert" className="text-sm text-danger">{createError}</p> : null}
+      {createError ? (
+        <p role="alert" className="text-sm text-danger">
+          {createError}
+        </p>
+      ) : null}
       {created ? (
         <div className="min-h-20 py-3 text-sm">
           {t('keyOnce')}
@@ -217,36 +420,53 @@ export function ApiKeysPage() {
       {keys.data?.apiKeys.map((key) => (
         <div
           key={key.id}
-          className="border-b border-border flex flex-col items-start justify-between gap-2 py-3 text-sm sm:flex-row sm:items-center"
+          className="flex flex-col items-start justify-between gap-2 border-b border-border py-3 text-sm sm:flex-row sm:items-center"
         >
-          <div className="text-sm flex gap-4">
-            <div>{key.name}</div> <code className="text-muted-foreground font-mono border border-border rounded-md px-1 py-0">{key.prefix}...</code>
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div>{key.name}</div>
+            <code className="rounded-md border border-border px-1 py-0 font-mono text-muted-foreground">
+              {key.prefix}...
+            </code>
+            {key.revokedAt ? <span className="text-muted-foreground">{t('revoked')}</span> : null}
           </div>
-          <Button variant="outline" onClick={() => setRevoke({ id: key.id, name: key.name })}>
-            {t('revoke')}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {key.revokedAt ? null : (
+              <Button variant="outline" onClick={() => setConfirm({ id: key.id, name: key.name, kind: 'revoke' })}>
+                {t('revoke')}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setConfirm({ id: key.id, name: key.name, kind: 'delete' })}>
+              {t('delete')}
+            </Button>
+          </div>
         </div>
       ))}
       <ConfirmDialog
-        open={Boolean(revoke)}
-        title={t('revokeKeyTitle')}
-        body={t('revokeKeyWarning', { name: revoke?.name ?? '' })}
-        confirmLabel={t('revoke')}
+        open={Boolean(confirm)}
+        title={confirm?.kind === 'delete' ? t('deleteKeyTitle') : t('revokeKeyTitle')}
+        body={
+          confirm?.kind === 'delete'
+            ? t('deleteKeyWarning', { name: confirm?.name ?? '' })
+            : t('revokeKeyWarning', { name: confirm?.name ?? '' })
+        }
+        confirmLabel={confirm?.kind === 'delete' ? t('delete') : t('revoke')}
         cancelLabel={t('cancel')}
-        pending={revokePending}
-        onClose={() => setRevoke(null)}
+        pending={confirmPending}
+        onClose={() => setConfirm(null)}
         onConfirm={() => {
-          if (!revoke || revokePending) return
-          const id = revoke.id
-          setRevokePending(true)
+          if (!confirm || confirmPending) return
+          const { id, kind } = confirm
+          setConfirmPending(true)
           void api
-            .request(`/api-keys/${id}`, { method: 'DELETE' })
+            .request(kind === 'delete' ? `/api-keys/${id}` : `/api-keys/${id}/revoke`, {
+              method: kind === 'delete' ? 'DELETE' : 'POST',
+            })
             .then(() => keys.refetch())
-            .then(() => setRevoke(null))
+            .then(() => setConfirm(null))
             .catch((error: unknown) => {
               toast.error(error instanceof Error ? error.message : t('error'))
             })
-            .finally(() => setRevokePending(false))
+            .finally(() => setConfirmPending(false))
         }}
       />
     </Page>

@@ -13,6 +13,8 @@ export const listUsersQuery = Type.Object({
 })
 
 export const patchUserBody = Type.Object({
+  username: Type.Optional(Type.String({ minLength: 1 })),
+  email: Type.Optional(Type.String({ minLength: 1 })),
   role: Type.Optional(Type.Union([Type.Literal('admin'), Type.Literal('user')])),
   locale: Type.Optional(Type.String({ minLength: 1 })),
   timezone: Type.Optional(Type.String({ minLength: 1 })),

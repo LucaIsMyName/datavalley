@@ -14,6 +14,6 @@ The first level that has any grant for that action decides the result. At that l
 
 Row, column, and cell grants are exception overlays. Opening a table still requires permission to view that table, usually inherited from the project. A row `deny` hides that row from the page query. A column `deny` removes the column from reads and exports.
 
-Admins bypass checks only for system resources such as user management, API keys, plugins, and the audit log. Project data still uses explicit grants. Creating a project writes a full owner grant set for the creator. Adding a member grants view, create, edit, delete, export, and import on that project. Changing tables, columns, and who else has access stays with people granted those actions.
+Admins bypass checks only for system resources such as user management, API keys, plugins, and the audit log. Admins can edit and delete other users (including other admins), and can revoke or delete API keys. Project data still uses explicit grants. Creating a project writes a full owner grant set for the creator. Adding a member grants view, create, edit, delete, export, and import on that project. Changing tables, columns, and who else has access stays with people granted those actions.
 
 The `share` action is stored for later public sharing. This version does not create public links.

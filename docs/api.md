@@ -306,6 +306,8 @@ await api.ensureCsrf()
 const result = await api.request("/users/00000000-0000-4000-8000-000006a68e08", {
   method: "PATCH",
   body: JSON.stringify({
+    "username": "username",
+    "email": "admin@example.com",
     "role": "admin",
     "locale": "locale",
     "timezone": "timezone",
@@ -715,6 +717,55 @@ const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a
         "effect": "allow"
       }
     ]
+  }),
+})
+```
+
+### `GET /api/v1/projects/{id}/events`
+
+List events
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/events")
+```
+
+### `POST /api/v1/projects/{id}/presence`
+
+Create a presence
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/presence", {
+  method: "POST",
+  body: JSON.stringify({
+    "clear": false,
+    "tableId": "00000000-0000-4000-8000-0000a3708989",
+    "tableName": "tableName",
+    "editing": false,
+    "draft": "draft",
+    "focus": {
+      "kind": "cell"
+    }
   }),
 })
 ```
@@ -2729,6 +2780,27 @@ None
 ```ts
 await api.ensureCsrf()
 const result = await api.request("/api-keys/00000000-0000-4000-8000-000036e515c7/rotate", {
+  method: "POST",
+})
+```
+
+### `POST /api/v1/api-keys/{id}/revoke`
+
+Revoke an API key
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/api-keys/00000000-0000-4000-8000-000036e515c7/revoke", {
   method: "POST",
 })
 ```

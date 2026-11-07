@@ -50,6 +50,7 @@ import {
   confirmTotp,
   connectionSecret,
   createApiKey,
+  deleteApiKey,
   disableTotp,
   enrollTotp,
   googleAuthUrl,
@@ -484,9 +485,14 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     if (!request.subject) throw unauthorized()
     return { apiKey: await rotateApiKey(db, request.subject, (request.params as { id: string }).id) }
   })
-  app.delete('/api-keys/:id', async (request) => {
+  app.post('/api-keys/:id/revoke', async (request) => {
     if (!request.subject) throw unauthorized()
     await revokeApiKey(db, request.subject, (request.params as { id: string }).id)
+    return { ok: true }
+  })
+  app.delete('/api-keys/:id', async (request) => {
+    if (!request.subject) throw unauthorized()
+    await deleteApiKey(db, request.subject, (request.params as { id: string }).id)
     return { ok: true }
   })
   app.get('/audit', async (request) => {

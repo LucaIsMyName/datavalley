@@ -111,6 +111,7 @@ describe('api reference', () => {
     expect(describeOperation('GET', '/widgets/{id}')).toBe('Get a widget')
     expect(describeOperation('POST', '/widgets')).toBe('Create a widget')
     expect(describeOperation('POST', '/widgets/{id}/archive')).toBe('Archive a widget')
+    expect(describeOperation('POST', '/api-keys/{id}/revoke')).toBe('Revoke an API key')
     expect(describeOperation('GET', '/search')).toBe('Search records')
     expect(needsCsrf('POST')).toBe(true)
     expect(needsCsrf('GET')).toBe(false)

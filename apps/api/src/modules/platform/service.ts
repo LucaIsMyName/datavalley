@@ -18,6 +18,7 @@ import {
   notifications,
   pluginConfigurations,
   pluginConnections,
+  permissionGrants,
   pluginPermissions,
   plugins,
   recoveryCodes,
@@ -27,6 +28,7 @@ import {
 } from '../../database/schema.js'
 import { AppError, badRequest, notFound, unauthorized } from '../../errors.js'
 import { assertCan, replaceGrants } from '../../security/access.js'
+import { invalidateGrantsCache } from '../../security/grants-cache.js'
 import { allowedMediaMime, sniffMediaMime } from '../../security/media-mime.js'
 import type { RateLimiter } from '../../security/rate-limit.js'
 import { writeAudit } from '../../security/audit.js'
@@ -103,6 +105,19 @@ export async function revokeApiKey(db: AppDatabase, actor: Subject, id: string) 
   const [key] = await db.update(apiKeys).set({ revokedAt: new Date() }).where(eq(apiKeys.id, id)).returning()
   if (!key) throw notFound()
   await writeAudit(db, actor, { action: 'api_key.revoke', resourceType: 'api_key', resourceId: id })
+}
+
+export async function deleteApiKey(db: AppDatabase, actor: Subject, id: string) {
+  if (actor.role !== 'admin') throw new AppError(403, 'forbidden', 'Admin access is required')
+  const [key] = await db.select().from(apiKeys).where(eq(apiKeys.id, id)).limit(1)
+  if (!key) throw notFound()
+  await db
+    .delete(permissionGrants)
+    .where(and(eq(permissionGrants.subjectType, 'api_key'), eq(permissionGrants.subjectId, id)))
+  await db.delete(apiKeys).where(eq(apiKeys.id, id))
+  await db.delete(serviceAccounts).where(eq(serviceAccounts.id, key.serviceAccountId))
+  invalidateGrantsCache({ kind: 'api_key', id })
+  await writeAudit(db, actor, { action: 'api_key.delete', resourceType: 'api_key', resourceId: id })
 }
 
 export async function rotateApiKey(db: AppDatabase, actor: Subject, id: string) {

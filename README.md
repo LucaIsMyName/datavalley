@@ -6,7 +6,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 
 - **Projects and tables** — Create and organise "Projects" via Tables. A table can be any type of datalist you need.
 - **Formulas** — Per-cell expressions with cross-table references, aggregates, and conditional formatting. Saving a cell returns that row's formula values, so the grid can update without reloading the table. Function reference: [docs/formulas.md](docs/formulas.md).
-- **Access control** — Grant-based permissions; admins manage users, API keys, and audit logs.
+- **Access control** — Grant-based permissions; admins can edit and delete users (including other admins), revoke or delete API keys, and view the audit log.
 - **Media** — Organization file library with table attachments and MIME-validated uploads.
 - **Integrations** — Built-in plugins (CSV, optional Google Sheets) plus user-defined HTTP data connectors (JSON/CSV/XML/HTML). Background worker runs sync jobs and schedules when Redis is configured. See [docs/connectors.md](docs/connectors.md).
 - **Collapsible sidebar** — Desktop nav collapses to icons; hover previews labels; the pinned open/closed state is stored in `localStorage`.

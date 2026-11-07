@@ -493,6 +493,14 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "username": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "email": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
                   "role": {
                     "anyOf": [
                       {
@@ -1303,6 +1311,142 @@
                         }
                       }
                     }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{id}/events": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{id}/presence": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clear": {
+                    "type": "boolean"
+                  },
+                  "tableId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "tableName": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "editing": {
+                    "type": "boolean"
+                  },
+                  "draft": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "focus": {
+                    "type": "object",
+                    "required": [
+                      "kind"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "cell"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "projectName"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "projectDescription"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "tableName"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "columnName"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "notes"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "formula"
+                            ]
+                          }
+                        ]
+                      },
+                      "tableId": {
+                        "type": "string"
+                      },
+                      "rowId": {
+                        "type": "string"
+                      },
+                      "columnId": {
+                        "type": "string"
+                      }
+                    },
+                    "nullable": true
                   }
                 }
               }
@@ -4291,6 +4435,25 @@
       }
     },
     "/api-keys/{id}/rotate": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api-keys/{id}/revoke": {
       "post": {
         "parameters": [
           {

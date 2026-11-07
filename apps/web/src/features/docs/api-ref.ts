@@ -75,6 +75,7 @@ const ACTIONS = new Set([
   'disable',
   'configure',
   'rotate',
+  'revoke',
   'enroll',
   'confirm',
   'import',
