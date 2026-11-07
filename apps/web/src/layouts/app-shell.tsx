@@ -1,4 +1,18 @@
-import { Bell, BookOpen, FolderKanban, Hexagon, LayoutDashboard, LogOut, Menu, Paperclip, Plug, Settings, Star, Clock3, type LucideIcon } from 'lucide-react'
+import {
+  Bell,
+  BookOpen,
+  FolderKanban,
+  Hexagon,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Paperclip,
+  Plug,
+  Settings,
+  Star,
+  Clock3,
+  type LucideIcon,
+} from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,7 +50,13 @@ const links: { to: string; key: string; icon: LucideIcon; end: boolean }[] = [
   { to: '/settings/profile', key: 'settings', icon: Settings, end: false },
 ]
 
-export function SideNav({ onNavigate, showCollapse }: { onNavigate?: () => void; showCollapse?: boolean }) {
+export function SideNav({
+  onNavigate,
+  showCollapse,
+}: {
+  onNavigate?: () => void
+  showCollapse?: boolean
+}) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -45,7 +65,10 @@ export function SideNav({ onNavigate, showCollapse }: { onNavigate?: () => void;
       <SidebarHeader>
         {showCollapse ? (
           <div data-sidebar="brand" className="flex h-10 items-center px-2">
-            <Hexagon aria-hidden className="size-4 shrink-0 group-data-[state=expanded]/sidebar:hidden group-hover/sidebar-panel:hidden" />
+            <Hexagon
+              aria-hidden
+              className="size-4 shrink-0 group-data-[state=expanded]/sidebar:hidden group-hover/sidebar-panel:hidden"
+            />
             <span className="hidden min-w-0 flex-1 truncate text-sm font-semibold tracking-tight group-data-[state=expanded]/sidebar:block group-hover/sidebar-panel:block">
               {t('appName')}
             </span>
@@ -67,12 +90,14 @@ export function SideNav({ onNavigate, showCollapse }: { onNavigate?: () => void;
               end={link.end}
               onClick={onNavigate}
               className={({ isActive }) => {
-                const active = link.to.startsWith('/settings') ? pathname.startsWith('/settings') : isActive
-                return `flex h-11 items-center gap-2 overflow-hidden whitespace-nowrap px-2 text-sm md:h-9 ${active ? 'bg-accent font-medium' : 'hover:bg-accent'}`
+                const active = link.to.startsWith('/settings')
+                  ? pathname.startsWith('/settings')
+                  : isActive
+                return `flex h-11 items-center gap-2 overflow-hidden whitespace-nowrap px-2 text-sm md:h-9 ${active ? 'text-primary font-medium' : 'hover:bg-accent'}`
               }}
             >
               <link.icon className="size-4 shrink-0" />
-              {t(link.key)}
+              <span className={''}>{t(link.key)}</span>
             </NavLink>
           ))}
         </SidebarMenu>
@@ -129,14 +154,21 @@ function NotificationsBell({
   }, [open, onOpen])
   return (
     <div ref={root} className="relative shrink-0">
-      <Button variant="ghost" aria-label={t('notifications')} aria-expanded={open} onClick={() => onOpen(!open)}>
+      <Button
+        variant="ghost"
+        aria-label={t('notifications')}
+        aria-expanded={open}
+        onClick={() => onOpen(!open)}
+      >
         <Bell className="size-4" />
       </Button>
       {open ? (
         <div className="absolute right-0 z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-sm">
           <p className="px-2 py-1 text-sm font-medium">{t('notifications')}</p>
           <div className="min-h-16">
-            {loading ? <p className="px-2 py-3 text-sm text-muted-foreground">{t('loading')}</p> : null}
+            {loading ? (
+              <p className="px-2 py-3 text-sm text-muted-foreground">{t('loading')}</p>
+            ) : null}
             {!loading && items.length === 0 ? (
               <p className="px-2 py-3 text-sm text-muted-foreground">{t('noNotifications')}</p>
             ) : null}
@@ -169,11 +201,15 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
   const notifications = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => api.request<{ notifications: { id: string; title: string; readAt: string | null }[] }>('/notifications'),
+    queryFn: () =>
+      api.request<{ notifications: { id: string; title: string; readAt: string | null }[] }>(
+        '/notifications',
+      ),
   })
 
   useEffect(() => {
-    const stored = (localStorage.getItem('theme') ?? user?.theme ?? 'system') as 'light' | 'dark' | 'system'
+    const stored = (localStorage.getItem('theme') ?? user?.theme ?? 'system') as
+      'light' | 'dark' | 'system'
     applyTheme(stored)
     if (user?.locale) void i18n.changeLanguage(user.locale)
   }, [i18n, user?.locale, user?.theme])
@@ -200,7 +236,12 @@ export function AppShell() {
         </Sidebar>
         {nav ? (
           <div className="fixed inset-0 z-40 md:hidden">
-            <button type="button" className="absolute inset-0 bg-black/40" aria-label={t('close')} onClick={() => setNav(false)} />
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              aria-label={t('close')}
+              onClick={() => setNav(false)}
+            />
             <aside className="relative flex h-full w-60 flex-col border-r border-border bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <SideNav onNavigate={() => setNav(false)} />
             </aside>
@@ -208,7 +249,12 @@ export function AppShell() {
         ) : null}
         <SidebarInset className="overflow-x-hidden">
           <header className="flex h-14 min-w-0 items-center gap-1 border-b border-border px-3 md:px-4">
-            <Button variant="ghost" className="shrink-0 md:hidden" aria-label={t('menu')} onClick={() => setNav(true)}>
+            <Button
+              variant="ghost"
+              className="shrink-0 md:hidden"
+              aria-label={t('menu')}
+              onClick={() => setNav(true)}
+            >
               <Menu className="size-4" />
             </Button>
             <Breadcrumbs />
@@ -219,7 +265,9 @@ export function AppShell() {
               items={notifications.data?.notifications ?? []}
               loading={notifications.isLoading}
               onRead={(id) => {
-                void api.request(`/notifications/${id}/read`, { method: 'POST' }).then(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }))
+                void api
+                  .request(`/notifications/${id}/read`, { method: 'POST' })
+                  .then(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }))
               }}
             />
           </header>

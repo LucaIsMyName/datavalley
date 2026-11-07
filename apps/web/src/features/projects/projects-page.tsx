@@ -121,8 +121,8 @@ export function ProjectsPage() {
               to={`/projects/${project.id}`}
               onContextMenu={(event) => openMenu(event, items)}
             >
-              <Card className="flex min-h-24 flex-col items-start gap-2 p-4 hover:bg-accent">
-                <div className="flex w-full items-start gap-2">
+              <Card className="flex min-h-24 flex-col items-start gap-2 px-4 py-2 hover:bg-accent">
+                <div className="flex w-full items-center gap-2">
                   <ResourceIcon name={project.icon} />
                   <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
                   <button
