@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
-import { invalidateFooter, mapCachedRows, readCachedRow } from './cache'
+import { invalidateFooter, invalidateOtherRowQueries, mapCachedRows, readCachedRow } from './cache'
 import { columnFeedsFooter } from './grid-edit'
 import { cellFormatError } from './cell-format'
 import { editFailureMessage } from './edit-error'
@@ -141,6 +141,7 @@ export function useRowCellEdit({
               table?: { footerConfig?: { enabled?: boolean; columns?: Record<string, string> } }
             }>(['table', tableId])?.table?.footerConfig
             if (columnFeedsFooter(footer, columnId)) void invalidateFooter(queryClient, tableId)
+            void invalidateOtherRowQueries(queryClient, tableId)
             onRefreshRows?.()
           }
         },
@@ -218,6 +219,7 @@ export function useRowCellEdit({
           table?: { footerConfig?: { enabled?: boolean; columns?: Record<string, string> } }
         }>(['table', tableId])?.table?.footerConfig
         if (columnFeedsFooter(footer, columnId)) void invalidateFooter(queryClient, tableId)
+        void invalidateOtherRowQueries(queryClient, tableId)
         onRefreshRows?.()
       }
       void queryClient.invalidateQueries({ queryKey: ['media', 'catalog'] })

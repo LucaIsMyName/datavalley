@@ -35,3 +35,10 @@ export function patchCachedTable(queryClient: QueryClient, tableId: string, upda
 export function invalidateFooter(queryClient: QueryClient, tableId: string) {
   return queryClient.invalidateQueries({ queryKey: ['footer', tableId] })
 }
+
+export function invalidateOtherRowQueries(queryClient: QueryClient, tableId: string) {
+  return queryClient.invalidateQueries({
+    queryKey: ['rows'],
+    predicate: (query) => query.queryKey[1] !== tableId,
+  })
+}

@@ -3,7 +3,7 @@ import { type Column, type RowRecord, type MediaFile } from '@datavalley/api-cli
 import { type PointerEvent as ReactPointerEvent } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
-import { invalidateFooter, mapCachedRows, readCachedRow, replaceCachedRows } from './cache'
+import { invalidateFooter, invalidateOtherRowQueries, mapCachedRows, readCachedRow, replaceCachedRows } from './cache'
 import { fillableColumn as fillable } from './cell-display'
 import { editFailureMessage } from './edit-error'
 import { fillTargets } from './fill-range'
@@ -405,6 +405,7 @@ export function useRowCommands(scope: Scope) {
       }))
     pushCommand(tableId, { kind: 'patch', undo: stamp(previous), redo: stamp(updates) })
     void invalidateFooter(queryClient, tableId)
+    void invalidateOtherRowQueries(queryClient, tableId)
   }
 
   async function commitFormulaFill(column: Column, sourceRowId: string, rowIds: string[]) {

@@ -56,7 +56,7 @@ import { EmptyState, ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
-import { invalidateFooter, patchCachedTable, readCachedRow } from './cache'
+import { invalidateFooter, invalidateOtherRowQueries, patchCachedTable, readCachedRow } from './cache'
 import { ConditionalDialog } from './conditional-dialog'
 import { CsvImportDialog } from './csv-import-dialog'
 import { cellWritable as isColumnWritable, displayCellValue } from './cell-display'
@@ -427,6 +427,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
     await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+    await invalidateOtherRowQueries(queryClient, tableId)
     await invalidateFooter(queryClient, tableId)
     setHistoryTick((value) => value + 1)
   }

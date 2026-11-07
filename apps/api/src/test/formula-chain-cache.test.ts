@@ -107,6 +107,88 @@ describe('formula-on-formula cache', () => {
     await harness.close()
   })
 
+  it('recomputes a whole-column array when a source cell changes', async () => {
+    const harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Array' } })
+    const projectId = project.json().project.id as string
+    const source = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables`,
+      payload: { name: 'Source' },
+    })
+    const sourceId = source.json().table.id as string
+    const amount = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${sourceId}/columns`,
+      payload: { name: 'Amount', type: 'number' },
+    })
+    const amountId = amount.json().column.id as string
+    await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${sourceId}/rows`,
+      payload: { cells: { [amountId]: 10 } },
+    })
+    const second = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${sourceId}/rows`,
+      payload: { cells: { [amountId]: 4 } },
+    })
+    const secondId = second.json().row.id as string
+
+    const board = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables`,
+      payload: { name: 'Board' },
+    })
+    const boardId = board.json().table.id as string
+    const listed = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${boardId}/columns`,
+      payload: { name: 'Listed', type: 'formula' },
+    })
+    const listedId = listed.json().column.id as string
+    await session.inject({ method: 'POST', url: `/api/v1/tables/${boardId}/rows`, payload: { cells: {} } })
+    expect(
+      (
+        await session.inject({
+          method: 'POST',
+          url: `/api/v1/columns/${listedId}/formula`,
+          payload: { expression: '[Source -> Amount]' },
+        })
+      ).statusCode,
+    ).toBe(200)
+
+    const warm = await session.inject({ method: 'GET', url: `/api/v1/tables/${boardId}/rows` })
+    expect(warm.json().rows[0]?.cells[listedId]).toEqual([10, 4])
+    const warmAgain = await session.inject({ method: 'GET', url: `/api/v1/tables/${boardId}/rows` })
+    expect(warmAgain.json().rows[0]?.cells[listedId]).toEqual([10, 4])
+
+    const sourceCurrent = await session.inject({ method: 'GET', url: `/api/v1/tables/${sourceId}/rows` })
+    const sourceVersion = (sourceCurrent.json().rows as { id: string; version: number }[]).find(
+      (row) => row.id === secondId,
+    )?.version
+    const patched = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${secondId}`,
+      payload: { version: sourceVersion, cells: { [amountId]: 9 } },
+    })
+    expect(patched.statusCode).toBe(200)
+
+    const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${boardId}/rows` })
+    expect(after.json().rows[0]?.cells[listedId]).toEqual([10, 9])
+
+    await harness.close()
+  })
+
   it('refreshes a whole-column formula when an inner formula upstream changes', async () => {
     const harness = await createHarness()
     await createUser(harness.db, harness.env, harness.organizationId, {
