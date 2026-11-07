@@ -32,7 +32,7 @@ export function ProjectCard({
       onContextMenu={onContextMenu}
       className="block min-h-24"
     >
-      <Card className="flex h-full min-h-24 flex-col items-start gap-2 px-4 py-2 hover:bg-accent">
+      <Card className="flex h-full min-h-24 flex-col items-start gap-2 px-4 py-3 hover:bg-accent">
         <div className="flex w-full items-center gap-2">
           <ResourceIcon name={project.icon} />
           <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
