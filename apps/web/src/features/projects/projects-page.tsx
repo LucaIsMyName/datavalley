@@ -1,112 +1,41 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, FolderOpen, MoreHorizontal, Pencil, Trash2, Upload } from 'lucide-react'
-import * as Dialog from '@radix-ui/react-dialog'
-import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Download, FolderOpen, Pencil, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import type { Project } from '@datavalley/api-client'
-import type { ProjectTransferDocument } from '@datavalley/shared'
-import { ResourceIcon } from '../../components/resource-icon'
 import { useContextMenu } from '../../components/context-menu'
-import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
-import { Label } from '../../components/ui/label'
-import { Checkbox } from '../../components/ui/checkbox'
-import { Card } from '../../components/ui/card'
 import { ConfirmDialog, PromptDialog } from '../../components/confirm-dialog'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../../components/states'
-import { createdProjectPath } from '../tables/grid-ux'
 import {
   downloadProjectJson,
   fetchProjectExport,
-  importProjectWorkspace,
-  parseProjectImportFile,
 } from './project-transfer'
+import { ProjectCard } from './project-card'
+import { ProjectAdminActions, useProjectCreateImport } from './project-create-import'
 import { api } from '../../lib/api'
-import { formatDateTime } from '../../lib/format'
-import { sync } from '../../lib/sync'
 import { useSession } from '../../stores/session'
-import { reportPresence } from '../realtime/presence-store'
 
 export function ProjectsPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const user = useSession((state) => state.user)
   const navigate = useNavigate()
   const { open: openMenu } = useContextMenu()
   const queryClient = useQueryClient()
   const [rename, setRename] = useState<Project | null>(null)
   const [remove, setRemove] = useState<Project | null>(null)
-  const [creating, setCreating] = useState(false)
   const [renamePending, setRenamePending] = useState(false)
   const [removePending, setRemovePending] = useState(false)
-  const [projectName, setProjectName] = useState('')
-  const [customers, setCustomers] = useState(false)
-  const [createError, setCreateError] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [importName, setImportName] = useState('')
-  const [importFile, setImportFile] = useState<ProjectTransferDocument | null>(null)
-  const [importPending, setImportPending] = useState(false)
-  const [importError, setImportError] = useState('')
-  const fileInput = useRef<HTMLInputElement>(null)
-  const nameInput = useRef<HTMLInputElement>(null)
+  const { openCreate, openImport, dialogs } = useProjectCreateImport()
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: () => api.request<{ projects: Project[] }>('/projects'),
   })
-  const create = useMutation({
-    mutationFn: (input: { name: string; template?: 'customers' }) =>
-      api.request<{ project: Project }>('/projects', {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }),
-    onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      setCreating(false)
-      setCreateError('')
-      const path = createdProjectPath(result)
-      if (path) navigate(path)
-    },
-    onError: (error) => {
-      setCreateError(error instanceof Error ? error.message : t('error'))
-    },
-  })
-  useEffect(() => {
-    if (!creating) return
-    const frame = window.requestAnimationFrame(() => nameInput.current?.select())
-    return () => window.cancelAnimationFrame(frame)
-  }, [creating])
   return (
     <Page
       title={t('projects')}
-      actions={
-        user?.role === 'admin' ? (
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setImportName('')
-                setImportFile(null)
-                setImportError('')
-                setImporting(true)
-              }}
-            >
-              {t('importProject')}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                setProjectName('')
-                setCustomers(false)
-                setCreating(true)
-              }}
-            >
-              {t('newProject')}
-            </Button>
-          </div>
-        ) : null
-      }
+      actions={user?.role === 'admin' ? <ProjectAdminActions openCreate={openCreate} openImport={openImport} /> : null}
     >
       {projects.isLoading && !projects.data ? <LoadingBlock /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
@@ -156,184 +85,21 @@ export function ProjectsPage() {
               : []),
           ]
           return (
-            <Link
+            <ProjectCard
               key={project.id}
-              to={`/projects/${project.id}`}
+              project={project}
+              showActions
               onContextMenu={(event) => openMenu(event, items)}
-            >
-              <Card className="flex min-h-24 flex-col items-start gap-2 px-4 py-2 hover:bg-accent">
-                <div className="flex w-full items-center gap-2">
-                  <ResourceIcon name={project.icon} />
-                  <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
-                  <button
-                    type="button"
-                    aria-label={t('menu')}
-                    className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      openMenu(event, items)
-                    }}
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('projectTableCount', { count: project.tableCount })} ·{' '}
-                  {t('lastEdited', { date: formatDateTime(project.lastEditedAt, i18n.language) })}
-                </p>
-              </Card>
-            </Link>
+              onMenuClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                openMenu(event, items)
+              }}
+            />
           )
         })}
       </div>
-      <Dialog.Root
-        open={creating}
-        onOpenChange={(open) => {
-          if (!open) setCreating(false)
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
-            <Dialog.Title className="text-base font-semibold">{t('newProject')}</Dialog.Title>
-            <Dialog.Description className="sr-only">{t('newProject')}</Dialog.Description>
-            <form
-              className="mt-3 flex flex-col gap-3"
-              onSubmit={(event) => {
-                event.preventDefault()
-                const name = projectName.trim()
-                if (!name) return
-                setCreateError('')
-                create.mutate({ name, template: customers ? 'customers' : undefined })
-              }}
-            >
-              <Label htmlFor="new-project-name">{t('name')}</Label>
-              <Input
-                id="new-project-name"
-                ref={nameInput}
-                autoFocus
-                value={projectName}
-                onChange={(event) => setProjectName(event.target.value)}
-              />
-              <label
-                htmlFor="project-customers-template"
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <Checkbox
-                  id="project-customers-template"
-                  checked={customers}
-                  onCheckedChange={(next) => setCustomers(next === true)}
-                />
-                {t('customersTemplate')}
-              </label>
-              {createError ? (
-                <p role="alert" className="text-sm text-danger">
-                  {createError}
-                </p>
-              ) : null}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setCreating(false)}>
-                  {t('cancel')}
-                </Button>
-                <Button type="submit" disabled={create.isPending}>
-                  {t('create')}
-                </Button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <Dialog.Root
-        open={importing}
-        onOpenChange={(open) => {
-          if (!open) setImporting(false)
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-border bg-card p-4 shadow-md">
-            <Dialog.Title className="text-base font-semibold">{t('importProject')}</Dialog.Title>
-            <Dialog.Description className="sr-only">{t('importProject')}</Dialog.Description>
-            <form
-              className="mt-3 flex flex-col gap-3"
-              onSubmit={(event) => {
-                event.preventDefault()
-                if (!importFile || importPending) return
-                const name = importName.trim() || importFile.project.name
-                if (!name) return
-                setImportPending(true)
-                setImportError('')
-                void importProjectWorkspace(name, importFile)
-                  .then((result) => {
-                    void queryClient.invalidateQueries({ queryKey: ['projects'] })
-                    setImporting(false)
-                    const path = createdProjectPath(result)
-                    if (path) navigate(path)
-                    if (result.warnings?.length) toast.message(t('importProjectWarnings'))
-                  })
-                  .catch((error: unknown) => {
-                    setImportError(error instanceof Error ? error.message : t('error'))
-                  })
-                  .finally(() => setImportPending(false))
-              }}
-            >
-              <input
-                ref={fileInput}
-                type="file"
-                accept="application/json,.json"
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  if (!file) return
-                  setImportError('')
-                  void file
-                    .text()
-                    .then((text) => {
-                      const parsed = parseProjectImportFile(text)
-                      setImportFile(parsed)
-                      setImportName(parsed.project.name)
-                    })
-                    .catch(() => {
-                      setImportFile(null)
-                      setImportError(t('importProjectInvalid'))
-                    })
-                    .finally(() => {
-                      event.target.value = ''
-                    })
-                }}
-              />
-              <Button type="button" variant="outline" onClick={() => fileInput.current?.click()}>
-                <Upload className="mr-2 size-4" />
-                {importFile ? t('importProjectChangeFile') : t('importProjectChooseFile')}
-              </Button>
-              {importFile ? (
-                <p className="text-sm text-muted-foreground">{t('importProjectFileReady')}</p>
-              ) : null}
-              <Label htmlFor="import-project-name">{t('name')}</Label>
-              <Input
-                id="import-project-name"
-                value={importName}
-                onChange={(event) => setImportName(event.target.value)}
-                disabled={!importFile}
-              />
-              {importError ? (
-                <p role="alert" className="text-sm text-danger">
-                  {importError}
-                </p>
-              ) : null}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setImporting(false)}>
-                  {t('cancel')}
-                </Button>
-                <Button type="submit" disabled={!importFile || importPending}>
-                  {t('importProjectConfirm')}
-                </Button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      {dialogs}
       <PromptDialog
         open={Boolean(rename)}
         title={t('rename')}
@@ -386,58 +152,4 @@ export function ProjectsPage() {
   )
 }
 
-export function ProjectDescription({ projectId, value }: { projectId: string; value: string }) {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [text, setText] = useState(value)
-  const focused = useRef(false)
-  const baseline = useRef(value)
-  useEffect(() => {
-    if (focused.current) return
-    setText(value)
-    baseline.current = value
-  }, [value])
-  return (
-    <textarea
-      aria-label={t('description')}
-      className="min-h-40 w-full flex-1 resize-none  border border-border bg-transparent p-2 text-sm leading-5 outline-none"
-      value={text}
-      placeholder={t('description')}
-      onFocus={() => {
-        focused.current = true
-        reportPresence({ tableId: null, tableName: null, focus: { kind: 'projectDescription' }, editing: true })
-      }}
-      onChange={(event) => {
-        const next = event.target.value
-        setText(next)
-        reportPresence({
-          tableId: null,
-          tableName: null,
-          focus: { kind: 'projectDescription' },
-          editing: true,
-          draft: next,
-        })
-        sync.edit(`project:${projectId}:description`, {
-          draft: next,
-          delay: 300,
-          apply: () => undefined,
-          commit: (draft) =>
-            api.request<{ project: Project }>(`/projects/${projectId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ description: draft }),
-            }),
-          accept: (result) => {
-            baseline.current = result.project.description
-            queryClient.setQueryData(['project', projectId], result)
-          },
-          rollback: () => setText(baseline.current),
-        })
-      }}
-      onBlur={() => {
-        focused.current = false
-        void sync.flush(`project:${projectId}:description`)
-        reportPresence({ focus: null, editing: false, draft: null, tableId: null, tableName: null })
-      }}
-    />
-  )
-}
+export { ProjectDescription } from './project-description'
