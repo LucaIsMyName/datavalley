@@ -197,16 +197,16 @@ export function ApiKeysPage() {
           }
         }}
       >
-        <Label htmlFor="api-key-name">{t('name')}</Label>
-        <Input id="api-key-name" name="name" required placeholder={t('name')} aria-label={t('name')} className="max-w-xs" />
+        <Label className='sr-only' htmlFor="api-key-name">{t('name')}</Label>
+        <Input id="api-key-name" name="name" required placeholder={t('name')} aria-label={t('name')} className="max-w-xs flex-1 w-full max-w-full" />
         <Button type="submit" disabled={creating} aria-busy={creating}>{t('createKey')}</Button>
       </form>
       {createError ? <p role="alert" className="text-sm text-danger">{createError}</p> : null}
       {created ? (
-        <Card className="min-h-20 p-3 text-sm">
+        <div className="min-h-20 py-3 text-sm">
           {t('keyOnce')}
           <p className="mt-2 font-mono break-all">{created}</p>
-        </Card>
+        </div>
       ) : (
         <div className="min-h-0" />
       )}
@@ -215,17 +215,17 @@ export function ApiKeysPage() {
         <EmptyState title={t('emptyApiKeys')} body={t('emptyApiKeys')} />
       ) : null}
       {keys.data?.apiKeys.map((key) => (
-        <Card
+        <div
           key={key.id}
-          className="flex flex-col items-start justify-between gap-2 p-3 text-sm sm:flex-row sm:items-center"
+          className="border-b border-border flex flex-col items-start justify-between gap-2 py-3 text-sm sm:flex-row sm:items-center"
         >
-          <span>
-            {key.name} · {key.prefix}
-          </span>
+          <div className="text-sm flex gap-4">
+            <div>{key.name}</div> <code className="text-muted-foreground font-mono border border-border rounded-md px-1 py-0">{key.prefix}...</code>
+          </div>
           <Button variant="outline" onClick={() => setRevoke({ id: key.id, name: key.name })}>
             {t('revoke')}
           </Button>
-        </Card>
+        </div>
       ))}
       <ConfirmDialog
         open={Boolean(revoke)}
