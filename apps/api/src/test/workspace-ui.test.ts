@@ -157,6 +157,19 @@ describe('workspace library', () => {
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Roster' } })
     const projectId = project.json().project.id as string
     expect((await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/members`, payload: { username: 'member' } })).statusCode).toBe(200)
+    const tables = await memberSession.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const people = (tables.json().tables as { id: string; name: string }[]).find((table) => table.name === 'People')
+    const detail = await memberSession.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}` })
+    const nameId = (detail.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Name')!.id
+    const listed = await memberSession.inject({ method: 'GET', url: `/api/v1/tables/${people?.id}/rows` })
+    const row = listed.json().rows[0] as { id: string; version: number }
+    const edited = await memberSession.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${row.id}`,
+      payload: { version: row.version, cells: { [nameId]: 'Edited' } },
+    })
+    expect(edited.statusCode).toBe(200)
+    expect(edited.json().row.cells[nameId]).toBe('Edited')
     const deniedTable = await memberSession.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Notes' } })
     expect(deniedTable.statusCode).toBe(404)
     const granted = await session.inject({

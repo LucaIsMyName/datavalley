@@ -1,5 +1,5 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, max, notInArray, sql } from 'drizzle-orm'
-import { escapeLike, isResourceIcon, projectOwnerActions, type Action } from '@datavalley/shared'
+import { escapeLike, isResourceIcon, projectMemberActions, projectOwnerActions, type Action } from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
 import { permissionGrants, projectMembers, projects, tables, users } from '../../database/schema.js'
 import { AppError, badRequest, notFound } from '../../errors.js'
@@ -237,14 +237,31 @@ export async function addMember(db: AppDatabase, subject: Subject, projectId: st
   const [user] = await db.select().from(users).where(eq(users.username, username.trim().toLowerCase())).limit(1)
   if (!user) throw notFound()
   await db.insert(projectMembers).values({ projectId, userId: user.id }).onConflictDoNothing()
-  await db.insert(permissionGrants).values({
-    subjectType: 'user',
-    subjectId: user.id,
-    resourceType: 'project',
-    resourceId: projectId,
-    action: 'view',
-    effect: 'allow',
-  })
+  const existing = await db
+    .select({ action: permissionGrants.action })
+    .from(permissionGrants)
+    .where(
+      and(
+        eq(permissionGrants.subjectType, 'user'),
+        eq(permissionGrants.subjectId, user.id),
+        eq(permissionGrants.resourceType, 'project'),
+        eq(permissionGrants.resourceId, projectId),
+      ),
+    )
+  const have = new Set(existing.map((grant) => grant.action))
+  const missing = projectMemberActions.filter((action) => !have.has(action))
+  if (missing.length) {
+    await db.insert(permissionGrants).values(
+      missing.map((action) => ({
+        subjectType: 'user' as const,
+        subjectId: user.id,
+        resourceType: 'project' as const,
+        resourceId: projectId,
+        action,
+        effect: 'allow' as const,
+      })),
+    )
+  }
   await writeAudit(db, subject, { action: 'project.member.add', resourceType: 'project', resourceId: projectId, metadata: { userId: user.id } })
   return { userId: user.id, username: user.username, email: user.email }
 }

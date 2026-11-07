@@ -31,6 +31,9 @@ export const projectOwnerActions = [
   'manage_structure',
 ] as const satisfies readonly Action[]
 
+/** Grants written when someone is added to a project. Structure and access changes stay separate. */
+export const projectMemberActions = ['view', 'create', 'edit', 'delete', 'export', 'import'] as const satisfies readonly Action[]
+
 export type Effect = 'allow' | 'deny'
 
 export type Grant = {
