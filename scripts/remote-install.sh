@@ -165,6 +165,12 @@ write_caddy() {
 }
 
 ${DOMAIN} {
+	@events path /api/v1/projects/*/events
+	handle @events {
+		reverse_proxy 127.0.0.1:${API_PORT} {
+			flush_interval -1
+		}
+	}
 	handle /api/* {
 		reverse_proxy 127.0.0.1:${API_PORT}
 	}

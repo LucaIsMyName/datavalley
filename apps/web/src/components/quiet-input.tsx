@@ -11,6 +11,7 @@ export function QuietInput({
   onDraft,
   onFlush,
   onCancel,
+  onFocus,
   onContextMenu,
 }: {
   value: string
@@ -23,6 +24,7 @@ export function QuietInput({
   onDraft: (value: string) => void
   onFlush: () => void
   onCancel?: () => void
+  onFocus?: () => void
   onContextMenu?: (event: ReactMouseEvent<HTMLInputElement>) => void
 }) {
   const [text, setText] = useState(value)
@@ -44,6 +46,7 @@ export function QuietInput({
       value={text}
       onFocus={() => {
         focused.current = true
+        onFocus?.()
       }}
       onChange={(event) => {
         setText(event.target.value)

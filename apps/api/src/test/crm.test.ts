@@ -116,12 +116,13 @@ describe('crm api', () => {
     })
     expect(saved.statusCode).toBe(200)
     expect(saved.json().row.cells[columnId]).toBe(7)
-    const conflict = await session.inject({
+    const later = await session.inject({
       method: 'PATCH',
       url: `/api/v1/rows/${rowId}`,
       payload: { version: 1, cells: { [columnId]: 8 } },
     })
-    expect(conflict.statusCode).toBe(409)
+    expect(later.statusCode).toBe(200)
+    expect(later.json().row.cells[columnId]).toBe(8)
     await session.inject({
       method: 'PUT',
       url: `/api/v1/projects/${projectId}/permissions`,
@@ -224,7 +225,7 @@ describe('crm api', () => {
     })
     expect(
       valued.json().rows.find((item: { id: string }) => item.id === rowId).cells[doubledId],
-    ).toBe(7)
+    ).toBe(8)
 
     const relation = await session.inject({
       method: 'POST',

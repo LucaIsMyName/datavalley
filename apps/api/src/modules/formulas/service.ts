@@ -41,6 +41,7 @@ import { allows, resolveGrants } from '../../security/access.js'
 import { sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
 import { loadColumns, requireTable, resolveTableContext, type LoadedColumn } from '../tables/service.js'
+import { publishTableSignal } from '../realtime/publish.js'
 
 const textTypes = new Set(['text', 'long_text', 'mail', 'url', 'date', 'datetime'])
 
@@ -385,13 +386,14 @@ class ValueMap {
   }
 }
 
-export async function saveFormula(db: AppDatabase, subject: Subject, columnId: string, expression: string, rowId?: string) {
+export async function saveFormula(db: AppDatabase, subject: Subject, columnId: string, expression: string, rowId?: string, notify = true) {
   const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
   if (!column) throw badRequest('Unknown column')
   await requireTable(db, subject, column.tableId, 'edit')
   if (!expression.trim()) {
     if (rowId) await db.delete(formulas).where(and(eq(formulas.columnId, column.id), eq(formulas.rowId, rowId)))
     else await db.delete(formulas).where(eq(formulas.columnId, column.id))
+    if (notify) await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
     return { id: null, canonical: '', cycle: false }
   }
   const { canonical, ast } = await compileFormula(db, subject, column.tableId, expression)
@@ -424,6 +426,7 @@ export async function saveFormula(db: AppDatabase, subject: Subject, columnId: s
     }
     first ??= { id: formula.id, cycle }
   }
+  if (notify) await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
   return { id: first?.id ?? null, canonical, cycle: first?.cycle ?? false }
 }
 
@@ -460,9 +463,10 @@ export async function fillFormulas(
   }))
   await db.transaction(async (tx) => {
     for (const rowId of targets) {
-      await saveFormula(tx as unknown as AppDatabase, subject, column.id, expression, rowId)
+      await saveFormula(tx as unknown as AppDatabase, subject, column.id, expression, rowId, false)
     }
   })
+  await publishTableSignal(db, subject.id, table.id, 'rows.changed')
   return { expression, previous }
 }
 

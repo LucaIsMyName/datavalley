@@ -18,4 +18,4 @@ Indexes cover row order, cell lookup by row, and column value filters for text, 
 
 Dates are calendar dates (`YYYY-MM-DD`) in `value_text`. Date-times are `timestamptz` stored in UTC and shown in the user timezone. Currency amounts use `numeric(19,4)` plus an ISO code on the column. There is no exchange-rate conversion.
 
-Row updates send the current `version`. A mismatch returns `409`.
+Row updates send the current `version`. The server keeps that number as a clock and applies only the cells in the request. Two people can edit different cells of the same row. A later write to the same cell replaces the earlier one.

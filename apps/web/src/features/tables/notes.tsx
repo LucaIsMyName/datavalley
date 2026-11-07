@@ -17,6 +17,10 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, readCachedRow } from './cache'
+import { applyStashedNotes } from '../realtime/apply'
+import { setNotesEditing, takeStashedNotes } from '../realtime/editing'
+import { PresenceChip } from '../realtime/presence-chip'
+import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { isNotesDialogOutsideTarget } from './notes-dialog-outside'
 import { NotesRowFields } from './notes-row-fields'
 import type { TableReadOnlyReason } from './table-read-only'
@@ -471,6 +475,10 @@ export function NotesDrawer({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const people = usePresencePeople()
+  const noteDraft = row
+    ? people.find((person) => person.focus?.kind === 'notes' && person.focus.rowId === row.id && person.focus.tableId === tableId && person.draft != null)?.draft
+    : undefined
   const [text, setText] = useState(row?.notes ?? '')
   const focused = useRef(false)
   const baseline = useRef(row?.notes ?? '')
@@ -484,9 +492,10 @@ export function NotesDrawer({
 
   useEffect(() => {
     if (focused.current) return
-    setText(row?.notes ?? '')
-    baseline.current = row?.notes ?? ''
-  }, [row?.id, row?.notes])
+    const next = noteDraft ?? row?.notes ?? ''
+    setText(next)
+    if (noteDraft == null) baseline.current = row?.notes ?? ''
+  }, [noteDraft, row?.id, row?.notes])
 
   function flushRowEdits(rowId: string) {
     for (const column of columns) {
@@ -498,6 +507,12 @@ export function NotesDrawer({
   function schedule(next: string) {
     if (!row || readOnly) return
     const rowId = row.id
+    reportPresence({
+      tableId,
+      focus: { kind: 'notes', tableId, rowId },
+      editing: true,
+      draft: next,
+    })
     const version = row.version
     sync.edit(`row:${rowId}:notes`, {
       draft: next,
@@ -512,6 +527,7 @@ export function NotesDrawer({
         return result.row
       },
       accept: (saved) => {
+        takeStashedNotes(saved.id)
         baseline.current = saved.notes
         mapCachedRows(queryClient, tableId, (item) =>
           item.id === saved.id ? { ...item, notes: saved.notes, version: saved.version } : item,
@@ -557,7 +573,13 @@ export function NotesDrawer({
             if (isNotesDialogOutsideTarget(event.target)) event.preventDefault()
           }}
         >
-          <Dialog.Title className="text-lg font-semibold">{t('notes')}</Dialog.Title>
+          <Dialog.Title className="relative text-lg font-semibold">
+            {t('notes')}
+            <PresenceChip
+              people={people.filter((person) => person.focus?.kind === 'notes' && person.focus.rowId === row?.id && person.focus.tableId === tableId)}
+              className="absolute left-16 top-1 z-20"
+            />
+          </Dialog.Title>
           <Dialog.Description className="sr-only">{t('notes')}</Dialog.Description>
           {row ? (
             <>
@@ -589,7 +611,19 @@ export function NotesDrawer({
                 }}
                 onFocusChange={(next) => {
                   focused.current = next
-                  if (!next) void sync.flush(`row:${row.id}:notes`)
+                  setNotesEditing(row.id, next)
+                  if (next) {
+                    reportPresence({
+                      tableId,
+                      focus: { kind: 'notes', tableId, rowId: row.id },
+                      editing: true,
+                    })
+                    return
+                  }
+                  void sync.flush(`row:${row.id}:notes`).finally(() => {
+                    if (!sync.has(`row:${row.id}:notes`)) applyStashedNotes(queryClient, tableId, row.id)
+                    reportPresence({ focus: null, editing: false, draft: null })
+                  })
                 }}
               />
             </>

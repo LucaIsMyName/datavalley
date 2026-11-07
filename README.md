@@ -11,6 +11,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 - **Integrations** — Built-in plugins (CSV, optional Google Sheets) plus user-defined HTTP data connectors (JSON/CSV/XML/HTML). Background worker runs sync jobs and schedules when Redis is configured. See [docs/connectors.md](docs/connectors.md).
 - **Collapsible sidebar** — Desktop nav collapses to icons; hover previews labels; the pinned open/closed state is stored in `localStorage`.
 - **Table editing** — Click a cell to select it. Enter, F2, or typing starts an edit. Tab moves across the row. Row and column deletes ask for confirmation. Saved views keep the grid, chart, or timeline you were using.
+- **Live edits** — People with a project open see each other's saved changes without reloading. A colored ring and name show the cell or field someone else is in, including text as they type. Sort, filter, and hidden columns stay personal.
 - **AI assistant** — An admin turns a provider on at Settings → AI. Signed-in users can then ask from any page about data they can already view. The assistant can open the project or table it is describing. The Ask window can be moved and resized, and earlier chats stay in this browser until you delete them. Suggestions for cells, formulas, and connectors stay drafts until the user confirms them with the existing save actions.
 
 ## Repository layout
@@ -80,7 +81,7 @@ npm run deploy       # Remote install (see docs/deploy.md)
 
 - Use PostgreSQL, not embedded PGLite.
 - Set strong `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY` (see `.env.production.example`).
-- Set `REDIS_URL` when running multiple API processes or the worker, so API-key rate limits and job queues stay consistent.
+- Set `REDIS_URL` when running multiple API processes or the worker, so API-key rate limits, live edit events, and job queues stay consistent. Without Redis, live edits still work on the single API process.
 - Configure SMTP for password reset emails.
 - `npm run deploy` keeps the previous release and switches back to it if `https://DOMAIN/api/v1/health` does not succeed. It does not copy the local database to the server.
 

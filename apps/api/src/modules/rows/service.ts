@@ -21,6 +21,7 @@ import {
   type LoadedColumn,
 } from '../tables/service.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
+import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 
 async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
   const grants = await resolveGrants(db, subject)
@@ -319,6 +320,7 @@ export async function createRow(
   tableId: string,
   cells: Record<string, unknown> = {},
   placement: { beforeId?: string; afterId?: string } = {},
+  notify = true,
 ) {
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
@@ -344,6 +346,7 @@ export async function createRow(
     }
     return created
   })
+  if (notify) await publishTableSignal(db, subject.id, table.id, 'rows.changed')
   return { id: row.id, position: row.position, version: row.version }
 }
 
@@ -368,6 +371,7 @@ export async function moveRow(
     placement.afterId,
   )
   await db.update(tableRows).set({ position, updatedAt: new Date() }).where(eq(tableRows.id, rowId))
+  await publishTableSignal(db, subject.id, table.id, 'rows.changed')
   return { id: rowId, position }
 }
 
@@ -378,7 +382,6 @@ export async function patchRow(
   input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; formats?: Record<string, FormatRule[]>; notes?: string },
 ) {
   const { row, table, grants } = await assertRow(db, subject, rowId, 'edit')
-  if (row.version !== input.version) throw conflict('This row was changed by someone else')
   const cells = input.cells ?? {}
   const columns = await loadColumns(db, table.id)
   const columnIds = Object.keys(cells)
@@ -393,14 +396,14 @@ export async function patchRow(
     const updated = await tx
       .update(tableRows)
       .set({
-        version: row.version + 1,
+        version: sql`${tableRows.version} + 1`,
         updatedAt: new Date(),
         ...('color' in input ? { color: input.color ?? null } : {}),
         ...('notes' in input ? { notes: input.notes ?? '' } : {}),
       })
-      .where(and(eq(tableRows.id, row.id), eq(tableRows.version, input.version)))
+      .where(eq(tableRows.id, row.id))
       .returning()
-    if (updated.length === 0) throw conflict('This row was changed by someone else')
+    if (updated.length === 0) throw notFound()
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
       await assertReferences(tx as unknown as AppDatabase, subject, table.id, table.projectId, column, value)
@@ -435,11 +438,13 @@ export async function patchRow(
     visible,
     presentRows(visible, [fresh], stored),
   )
+  publishRowUpdated(subject.id, table.projectId, table.id, presented)
+  publishRealtime(table.projectId, { type: 'rows.changed', actorId: subject.id, projectId: table.projectId, tableId: table.id })
   return presented
 }
 
-export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string) {
-  const { row } = await assertRow(db, subject, rowId, 'delete')
+export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string, notify = true) {
+  const { row, table } = await assertRow(db, subject, rowId, 'delete')
   const links = await db.select().from(relationRecords).where(eq(relationRecords.toRowId, row.id))
   if (links.length) {
     const related = await db.select().from(relations).where(inArray(relations.id, links.map((link) => link.relationId)))
@@ -448,6 +453,7 @@ export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string
   }
   await db.delete(tableRows).where(eq(tableRows.id, row.id))
   await writeAudit(db, subject, { action: 'row.delete', resourceType: 'row', resourceId: row.id, metadata: { count: 1 } })
+  if (notify) await publishTableSignal(db, subject.id, table.id, 'rows.changed')
 }
 
 export async function bulkPatch(
@@ -470,7 +476,6 @@ export async function bulkPatch(
   for (const update of updates) {
     const row = rowById.get(update.rowId)
     if (!row || row.tableId !== dataTableId) throw notFound()
-    if (row.version !== update.version) throw conflict('This row was changed by someone else')
     if (!allows(subject, grants, 'edit', { type: 'row', id: row.id, parents: { table: dataTableId, project: table.projectId } })) {
       throw notFound()
     }
@@ -488,10 +493,10 @@ export async function bulkPatch(
       const row = rowById.get(update.rowId)!
       const updated = await database
         .update(tableRows)
-        .set({ version: row.version + 1, updatedAt: new Date() })
-        .where(and(eq(tableRows.id, row.id), eq(tableRows.version, update.version)))
+        .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
+        .where(eq(tableRows.id, row.id))
         .returning()
-      if (updated.length === 0) throw conflict('This row was changed by someone else')
+      if (updated.length === 0) throw notFound()
       for (const [columnId, value] of Object.entries(update.cells)) {
         const column = columnById.get(columnId)!
         await assertReferences(database, subject, dataTableId, table.projectId, column, value)
@@ -508,13 +513,17 @@ export async function bulkPatch(
   const fresh = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
   const stored = await cellsFor(db, rowIds)
   const visible = await visibleColumns(db, subject, dataTableId, table.projectId, columns)
-  return attachFormulaValues(db, subject, dataTableId, visible, presentRows(visible, fresh, stored))
+  const presented = await attachFormulaValues(db, subject, dataTableId, visible, presentRows(visible, fresh, stored))
+  for (const row of presented) publishRowUpdated(subject.id, table.projectId, table.id, row)
+  publishRealtime(table.projectId, { type: 'rows.changed', actorId: subject.id, projectId: table.projectId, tableId: table.id })
+  return presented
 }
 
 export async function bulkDelete(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {
   await requireEditableTable(db, subject, tableId, 'delete')
-  for (const rowId of rowIds) await deleteRow(db, subject, rowId)
+  for (const rowId of rowIds) await deleteRow(db, subject, rowId, false)
   await writeAudit(db, subject, { action: 'row.bulk_delete', resourceType: 'table', resourceId: tableId, metadata: { count: rowIds.length } })
+  await publishTableSignal(db, subject.id, tableId, 'rows.changed')
 }
 
 export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {
@@ -523,7 +532,7 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
   for (const rowId of rowIds) {
     const { row } = await assertRow(db, subject, rowId, 'view')
     const cells = await cellsFor(db, [row.id])
-    const copy = await createRow(db, subject, tableId)
+    const copy = await createRow(db, subject, tableId, {}, {}, false)
     if (row.color || row.notes) await db.update(tableRows).set({ color: row.color, notes: row.notes }).where(eq(tableRows.id, copy.id))
     const columns = await loadColumns(db, tableId)
     for (const cell of cells) {
@@ -534,6 +543,7 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
     }
     created.push(copy.id)
   }
+  await publishTableSignal(db, subject.id, tableId, 'rows.changed')
   return created
 }
 
@@ -553,6 +563,7 @@ export async function fillDown(db: AppDatabase, subject: Subject, tableId: strin
     await writeCell(db, dataTableId, rowId, column, value)
     await db.update(tableRows).set({ version: row.version + 1, updatedAt: new Date() }).where(eq(tableRows.id, rowId))
   }
+  await publishTableSignal(db, subject.id, table.id, 'rows.changed')
 }
 
 export async function footer(db: AppDatabase, subject: Subject, tableId: string, filter?: FilterNode | null) {
@@ -607,7 +618,7 @@ export async function importCsv(
             coerceImport(column, raw)
             cells[column.id] = column.type === 'select' || column.type === 'radio' ? raw : raw
           })
-          await createRow(tx as unknown as AppDatabase, subject, table.id, cells)
+          await createRow(tx as unknown as AppDatabase, subject, table.id, cells, {}, false)
           void rowOffset
         }
       })
@@ -617,6 +628,8 @@ export async function importCsv(
       chunks.push({ chunk, error: error instanceof Error ? error.message : 'Import failed' })
     }
   }
+  await publishTableSignal(db, subject.id, table.id, 'rows.changed')
+  await publishTableSignal(db, subject.id, table.id, 'columns.changed')
   return { created, chunks, errors: chunks.filter((chunk) => chunk.error) }
 }
 

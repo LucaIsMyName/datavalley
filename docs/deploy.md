@@ -30,7 +30,8 @@ The script checks the SSH key, installs `openssh-client` and `rsync` on the serv
 - Creates the database role from `DATABASE_URL` and the `APP_USER` (default `datavalley`) only when they are missing
 - Builds the web app in the new release, runs migrations, and seeds the admin on the first deploy
 - Points `current` at that release, then installs the systemd units and a Caddy site that proxies `/api` to the API and serves the web build (Swagger UI at `/docs` is development-only; production still exposes OpenAPI JSON for the in-app API reference)
-- Uses Redis when `REDIS_URL` is set for the worker and for shared API-key rate limiting across processes
+- Uses Redis when `REDIS_URL` is set for the worker, for shared API-key rate limiting, and to fan out live project events across API processes
+- Proxies `/api/v1/projects/*/events` with `flush_interval -1` so Caddy sends each live edit as soon as the API writes it
 - Requests an HTTPS certificate for `DOMAIN`
 - Checks that the API and Caddy are active and that `https://DOMAIN/api/v1/health` succeeds
 

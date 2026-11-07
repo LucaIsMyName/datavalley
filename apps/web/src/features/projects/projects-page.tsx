@@ -20,6 +20,7 @@ import { api } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { sync } from '../../lib/sync'
 import { useSession } from '../../stores/session'
+import { reportPresence } from '../realtime/presence-store'
 
 export function ProjectsPage() {
   const { t, i18n } = useTranslation()
@@ -275,10 +276,18 @@ export function ProjectDescription({ projectId, value }: { projectId: string; va
       placeholder={t('description')}
       onFocus={() => {
         focused.current = true
+        reportPresence({ tableId: null, tableName: null, focus: { kind: 'projectDescription' }, editing: true })
       }}
       onChange={(event) => {
         const next = event.target.value
         setText(next)
+        reportPresence({
+          tableId: null,
+          tableName: null,
+          focus: { kind: 'projectDescription' },
+          editing: true,
+          draft: next,
+        })
         sync.edit(`project:${projectId}:description`, {
           draft: next,
           delay: 300,
@@ -298,6 +307,7 @@ export function ProjectDescription({ projectId, value }: { projectId: string; va
       onBlur={() => {
         focused.current = false
         void sync.flush(`project:${projectId}:description`)
+        reportPresence({ focus: null, editing: false, draft: null, tableId: null, tableName: null })
       }}
     />
   )

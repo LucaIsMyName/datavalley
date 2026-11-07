@@ -42,6 +42,7 @@ import {
   updateTag,
 } from '../tables/service.js'
 import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
+import { publishTableSignal } from '../realtime/publish.js'
 import { canonicalizeFormatRules, compileCondition, evaluateStored, fillFormulas, formulaCatalog, formulaDependenciesFor, previewFormula, readCellFormula, saveFormula } from '../formulas/service.js'
 import { requireTable } from '../tables/service.js'
 import {
@@ -421,6 +422,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     if (!relation) throw notFound()
     await requireTable(db, request.subject, relation.fromTableId, 'manage_structure')
     await db.delete(relations).where(eq(relations.id, relation.id))
+    await publishTableSignal(db, request.subject.id, relation.fromTableId, 'columns.changed')
     return { ok: true }
   })
   app.post('/relations/:id/records', async (request) => {

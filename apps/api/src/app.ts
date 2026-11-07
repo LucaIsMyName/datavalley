@@ -21,6 +21,8 @@ import { subjectFromSession } from './modules/auth/service.js'
 import { ensurePlugins, subjectFromApiKey } from './modules/platform/service.js'
 import { registerConnectorRoutes, registerProjectConnectorRoutes } from './modules/connectors/routes.js'
 import { registerProjectRoutes } from './modules/projects/routes.js'
+import { bindRealtimeHub, createRealtimeHub } from './modules/realtime/hub.js'
+import { registerRealtimeRoutes } from './modules/realtime/routes.js'
 import { registerSearchRoutes } from './modules/search/routes.js'
 import { registerUserRoutes } from './modules/users/routes.js'
 import './types.js'
@@ -36,6 +38,12 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
   app.decorateRequest('subject', null)
   app.decorateRequest('grants', null)
   const apiKeyRateLimiter = createRateLimiter(env)
+  const realtime = createRealtimeHub({ redisUrl: env.REDIS_URL })
+  bindRealtimeHub(realtime)
+  app.addHook('onClose', async () => {
+    bindRealtimeHub(null)
+    await realtime.close()
+  })
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     try {
       const text = typeof body === 'string' ? body : ''
@@ -114,6 +122,7 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       registerAuthRoutes(api, db, env)
       registerUserRoutes(api, db, env)
       registerProjectRoutes(api, db)
+      registerRealtimeRoutes(api, db)
       registerProjectConnectorRoutes(api, db, env)
       registerConnectorRoutes(api, db, env)
       registerSearchRoutes(api, db)

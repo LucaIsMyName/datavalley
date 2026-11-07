@@ -88,6 +88,11 @@ import { useRowCommands } from './use-row-commands'
 import { useTableMenus } from './use-table-menus'
 import { createTableColumns, GUTTER_WIDTH } from './table-columns'
 import { EMPTY_ROWS, GridBodyRow, type GridRowHandlers } from './grid-row'
+import { applyStashedCell } from '../realtime/apply'
+import { clearCellEditing, setCellEditing, splitCellKey } from '../realtime/editing'
+import { PresenceChip } from '../realtime/presence-chip'
+import { rowRemoteKey } from '../realtime/presence'
+import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { GridPopovers } from './grid-popovers'
 
 const TABLE_HEADER_CELL = 'bg-card'
@@ -250,6 +255,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }
 
   function releaseEdit(key: string, focusGrid = false) {
+    const parts = splitCellKey(key)
+    if (parts && !sync.has(`cell:${parts.rowId}:${parts.columnId}`)) {
+      applyStashedCell(queryClient, tableId, parts.rowId, parts.columnId)
+    }
     const released = editingRef.current === key
     if (released) editingRef.current = null
     setEditing((current) => editingAfterRelease(current, key))
@@ -281,6 +290,29 @@ export function TableScreen({ tableId }: { tableId: string }) {
   })
   const rowPages = rowsQuery.data?.pages
   const rows = useMemo(() => rowPages?.flatMap((page) => page.rows) ?? [], [rowPages])
+  const people = usePresencePeople()
+  useEffect(() => {
+    if (!editing) {
+      clearCellEditing()
+      return
+    }
+    const parts = splitCellKey(editing)
+    if (parts) setCellEditing(parts.rowId, parts.columnId)
+    return () => clearCellEditing()
+  }, [editing])
+  useEffect(() => {
+    const row = rows[selected.row]
+    const column = visible[selected.column]
+    if (!row || !column) return
+    const editingThis = editing === `${row.id}:${column.id}`
+    reportPresence({
+      tableId,
+      tableName: table?.name ?? null,
+      focus: { kind: 'cell', tableId, rowId: row.id, columnId: column.id },
+      editing: editingThis,
+      ...(editingThis ? {} : { draft: null }),
+    })
+  }, [editing, rows, selected.column, selected.row, table?.name, tableId, visible])
   useEffect(() => {
     if (display.mode !== 'chart' && display.mode !== 'timeline') return
     if (rowsQuery.isError || rowsQuery.isFetchingNextPage || !rowsQuery.hasNextPage) return
@@ -1405,27 +1437,65 @@ export function TableScreen({ tableId }: { tableId: string }) {
                               )}
                             />
                           </button>
+                          <PresenceChip
+                            people={people.filter(
+                              (person) =>
+                                person.focus?.kind === 'columnName' &&
+                                person.focus.tableId === tableId &&
+                                person.focus.columnId === column.id,
+                            )}
+                            className="absolute -top-2 left-8 z-20"
+                          />
                           {renamingColumn === column.id ? (
                             <QuietInput
                               autoFocus
                               label={t('rename')}
                               className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
                               value={column.name}
-                              onDraft={(next) => scheduleColumnName(column, next)}
+                              onFocus={() =>
+                                reportPresence({
+                                  tableId,
+                                  tableName: table?.name ?? null,
+                                  focus: { kind: 'columnName', tableId, columnId: column.id },
+                                  editing: true,
+                                })
+                              }
+                              onDraft={(next) => {
+                                scheduleColumnName(column, next)
+                                reportPresence({
+                                  tableId,
+                                  tableName: table?.name ?? null,
+                                  focus: { kind: 'columnName', tableId, columnId: column.id },
+                                  editing: true,
+                                  draft: next,
+                                })
+                              }}
                               onFlush={() => {
                                 void sync
                                   .flush(`column:${column.id}:name`)
                                   .catch(() => showEditError(t('error')))
-                                  .finally(() => setRenamingColumn(null))
+                                  .finally(() => {
+                                    setRenamingColumn(null)
+                                    reportPresence({ focus: null, editing: false, draft: null })
+                                  })
                               }}
                               onCancel={() => {
                                 sync.cancel(`column:${column.id}:name`)
                                 setRenamingColumn(null)
+                                reportPresence({ focus: null, editing: false, draft: null })
                               }}
                             />
                           ) : (
                             <ColumnTitle
-                              name={column.name}
+                              name={
+                                people.find(
+                                  (person) =>
+                                    person.focus?.kind === 'columnName' &&
+                                    person.focus.tableId === tableId &&
+                                    person.focus.columnId === column.id &&
+                                    person.draft != null,
+                                )?.draft ?? column.name
+                              }
                               type={column.type}
                               onClick={(event) => {
                                 event.stopPropagation()
@@ -1632,6 +1702,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       }
                       tableId={tableId}
                       handlers={rowHandlers}
+                      remoteKey={rowRemoteKey(people, tableId, row.id)}
+                      peers={people}
                     />
                   )
                 })}

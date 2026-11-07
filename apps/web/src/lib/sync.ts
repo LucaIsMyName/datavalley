@@ -137,7 +137,11 @@ export function createSync() {
     watches.set(key, { generation: next, timer })
   }
 
-  return { edit, flush, cancel, discard, watch }
+  function has(key: string) {
+    return pending.has(key)
+  }
+
+  return { edit, flush, cancel, discard, watch, has }
 }
 
 export const sync = createSync()

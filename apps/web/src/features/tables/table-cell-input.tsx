@@ -26,6 +26,7 @@ export function TableCellInput({
   members,
   relationRows,
   readOnly,
+  remoteDraft,
   invalid,
   onScheduleCell,
   onClearInvalid,
@@ -50,6 +51,7 @@ export function TableCellInput({
   members: { userId: string; username: string }[]
   relationRows: RowRecord[]
   readOnly: boolean
+  remoteDraft?: string
   invalid?: { text: string; message: string }
   onScheduleCell: (row: RowRecord, column: Column, value: unknown, delay?: number) => void
   onClearInvalid: (rowId: string, columnId: string) => void
@@ -71,7 +73,7 @@ export function TableCellInput({
 }) {
   const { t, i18n } = useTranslation()
   const value = row.cells[column.id]
-  const text = invalid?.text ?? displayCellValue(column, value, i18n.language)
+  const text = invalid?.text ?? (remoteDraft != null && !active ? remoteDraft : displayCellValue(column, value, i18n.language))
   const writable = !readOnly && column.type !== 'formula' && column.type !== 'lookup'
   const cellKey = `cell:${row.id}:${column.id}`
   const editingKey = `${row.id}:${column.id}`

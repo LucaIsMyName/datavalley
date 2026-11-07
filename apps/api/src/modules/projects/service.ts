@@ -7,6 +7,7 @@ import { allows, assertCan, resolveGrants, replaceGrants } from '../../security/
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { seedCustomers, seedStarter } from '../tables/template.js'
+import { publishRealtime } from '../realtime/publish.js'
 
 type ProjectTableStats = { tableCount: number; latestTableEdit: Date | null }
 
@@ -128,7 +129,18 @@ export async function updateProject(db: AppDatabase, subject: Subject, id: strin
     .where(eq(projects.id, id))
     .returning()
   const stats = await projectTableStats(db, [project.id])
-  return present(project, stats.get(project.id))
+  const presented = present(project, stats.get(project.id))
+  publishRealtime(presented.id, {
+    type: 'project.updated',
+    actorId: subject.id,
+    project: {
+      id: presented.id,
+      name: presented.name,
+      description: presented.description ?? '',
+      icon: presented.icon,
+    },
+  })
+  return presented
 }
 
 export async function setArchived(db: AppDatabase, subject: Subject, id: string, archived: boolean) {

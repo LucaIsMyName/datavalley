@@ -15,6 +15,9 @@ import { columnHasFormatRules } from './grid-edit'
 import { rowTint } from './grid-ux'
 import { beforeDropEdge } from './drop-place'
 import { TableCellInput } from './table-cell-input'
+import type { PresencePerson } from '@datavalley/shared'
+import { PresenceChip, remoteRing } from '../realtime/presence-chip'
+import { cellPeers } from '../realtime/presence'
 
 const TABLE_GRID_DIVIDER = 'border-b border-r border-border'
 
@@ -88,6 +91,8 @@ type GridBodyRowProps = {
   relationRows: RowRecord[]
   tableId: string
   handlers: { current: GridRowHandlers | null }
+  remoteKey: string
+  peers: PresencePerson[]
 }
 
 function GridBodyRowView({
@@ -114,6 +119,7 @@ function GridBodyRowView({
   relationRows,
   tableId,
   handlers,
+  peers,
 }: GridBodyRowProps) {
   const api = handlers.current
   if (!api) return null
@@ -261,6 +267,9 @@ function GridBodyRowView({
         const aiMarked = aiColumnKey.split(',').includes(column.id)
         const inFill = fillColumnId === column.id
         const dateEditing = active && isDateColumnType(column.type)
+        const remotes = cellPeers(peers, tableId, row.id, column.id)
+        const remoteDraft = !active ? remotes.find((person) => person.editing && person.draft != null)?.draft : undefined
+        const presenceRing = remoteRing(remotes, picked || lit)
         return (
           <td
             key={column.id}
@@ -277,7 +286,7 @@ function GridBodyRowView({
               style={{
                 color: paintSwatch(ruleStyle.color, 'text'),
                 background: inFill && !picked ? undefined : painted,
-                boxShadow: stripe ? `inset 3px 0 0 ${stripe}` : undefined,
+                boxShadow: [stripe ? `inset 3px 0 0 ${stripe}` : null, presenceRing].filter(Boolean).join(', ') || undefined,
                 fontWeight: ruleStyle.bold ? 700 : 400,
               }}
               onContextMenu={(event) => api.openCellMenu(event, row, column)}
@@ -288,6 +297,7 @@ function GridBodyRowView({
                 if (event.detail >= 2) api.activateCell(row, column)
               }}
             >
+              <PresenceChip people={remotes} also={active} className="absolute top-0 left-1 z-20" />
               <TableCellInput
                 column={column}
                 row={row}
@@ -298,6 +308,7 @@ function GridBodyRowView({
                 members={members}
                 relationRows={relationRows}
                 readOnly={readOnly}
+                remoteDraft={remoteDraft ?? undefined}
                 invalid={api.invalidFor(row.id, column.id)}
                 onScheduleCell={api.scheduleCell}
                 onClearInvalid={api.clearInvalid}
@@ -358,7 +369,8 @@ function sameRow(prev: GridBodyRowProps, next: GridBodyRowProps) {
     prev.readOnly === next.readOnly &&
     prev.relationRows === next.relationRows &&
     prev.tableId === next.tableId &&
-    prev.handlers === next.handlers
+    prev.handlers === next.handlers &&
+    prev.remoteKey === next.remoteKey
   )
 }
 

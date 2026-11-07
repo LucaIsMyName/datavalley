@@ -9,6 +9,8 @@ import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
+import { PresenceChip } from '../realtime/presence-chip'
+import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { useFormulaWindow, type FormulaCell } from '../../stores/formula-window'
 import { AiFormulaSuggest } from '../ai/formula-suggest'
 import { FormulaEditor, type FormulaEditorHandle } from './formula-editor'
@@ -63,6 +65,14 @@ export function FormulaWindow() {
 function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: number; y: number; width: number; height: number }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const people = usePresencePeople()
+  const remoteFormula = people.filter(
+    (person) =>
+      person.focus?.kind === 'formula' &&
+      person.focus.tableId === cell.tableId &&
+      person.focus.columnId === cell.columnId &&
+      person.focus.rowId === cell.rowId,
+  )
   const panelRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<FormulaEditorHandle>(null)
   const [draft, setDraft] = useState<string | null>(null)
@@ -76,6 +86,23 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
   const [menu, setMenu] = useState<{ span: BracketSpan; rect: DOMRect } | null>(null)
   const columnTitle = t('formulaTitle', { name: cell.columnName })
   const title = cell.tableName ? `${columnTitle} ${t('formulaIn')} ${cell.tableName}` : columnTitle
+
+  useEffect(() => {
+    if (draft === null) return
+    reportPresence({
+      tableId: cell.tableId,
+      tableName: cell.tableName,
+      focus: { kind: 'formula', tableId: cell.tableId, columnId: cell.columnId, rowId: cell.rowId },
+      editing: true,
+      draft,
+    })
+  }, [cell.columnId, cell.rowId, cell.tableId, cell.tableName, draft])
+
+  useEffect(() => {
+    return () => {
+      reportPresence({ focus: null, editing: false, draft: null })
+    }
+  }, [cell.columnId, cell.rowId])
 
   useEffect(() => {
     let cancelled = false
@@ -252,7 +279,8 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
       data-formula-window=""
     >
       <div data-formula-drag="" className="flex shrink-0 cursor-grab items-center justify-between gap-2 border-b border-border px-3 py-2 select-none">
-        <h2 className="min-w-0 truncate text-sm font-semibold" title={title}>
+        <h2 className="relative min-w-0 truncate text-sm font-semibold" title={title}>
+          <PresenceChip people={remoteFormula} className="absolute -top-3 left-0 z-20" />
           {columnTitle}
           {cell.tableName ? (
             <>
@@ -265,6 +293,11 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
             </>
           ) : null}
         </h2>
+        {remoteFormula.some((person) => person.draft) ? (
+          <p className="max-w-48 truncate text-xs text-muted-foreground">
+            {remoteFormula.filter((person) => person.draft).map((person) => `${person.username}: ${person.draft}`).join(' · ')}
+          </p>
+        ) : null}
         <Button type="button" variant="ghost" className="h-7 px-2" aria-label={t('close')} onClick={requestClose}>
           <X className="size-4" />
         </Button>

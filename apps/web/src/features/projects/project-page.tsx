@@ -22,6 +22,9 @@ import { deleteTableInProject } from '../tables/table-delete'
 import { TableToolbarProvider, TableToolbarRow } from '../tables/table-toolbar'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
+import { PresenceChip } from '../realtime/presence-chip'
+import { reportPresence, usePresencePeople } from '../realtime/presence-store'
+import { useProjectEvents } from '../realtime/use-project-events'
 import type { SavedHit } from '../home/pages'
 import { ProjectDescription } from './projects-page'
 import { ProjectMembersDialog } from './project-members-dialog'
@@ -54,6 +57,10 @@ export function ProjectPage() {
   const location = useLocation()
   const { open: openMenu } = useContextMenu()
   const queryClient = useQueryClient()
+  useProjectEvents(projectId)
+  const people = usePresencePeople()
+  const nameDraft = people.find((person) => person.focus?.kind === 'projectName' && person.draft != null)?.draft
+  const descriptionDraft = people.find((person) => person.focus?.kind === 'projectDescription' && person.draft != null)?.draft
   const nameRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
@@ -256,20 +263,53 @@ export function ProjectPage() {
                 name={record?.icon ?? 'FolderKanban'}
                 onChange={(icon) => void saveIcon('project', projectId, icon)}
               />
-              <h1 aria-label={record?.name ?? t('projects')} className="min-w-0">
+              <h1 aria-label={record?.name ?? t('projects')} className="relative min-w-0">
+                <PresenceChip people={people.filter((person) => person.focus?.kind === 'projectName')} />
                 <QuietInput
                   fit
                   fitMaxClass="max-w-[min(28rem,calc(100vw-9rem))]"
                   label={t('name')}
                   className="h-8 bg-transparent px-0 text-xl font-semibold outline-none"
-                  value={record?.name ?? ''}
-                  onDraft={scheduleProjectName}
-                  onFlush={() => void sync.flush(`project:${projectId}:name`)}
-                  onCancel={() => sync.cancel(`project:${projectId}:name`)}
+                  value={nameDraft ?? record?.name ?? ''}
+                  onFocus={() =>
+                    reportPresence({
+                      tableId: null,
+                      tableName: null,
+                      focus: { kind: 'projectName' },
+                      editing: true,
+                    })
+                  }
+                  onDraft={(next) => {
+                    scheduleProjectName(next)
+                    reportPresence({
+                      tableId: null,
+                      tableName: null,
+                      focus: { kind: 'projectName' },
+                      editing: true,
+                      draft: next,
+                    })
+                  }}
+                  onFlush={() => {
+                    void sync.flush(`project:${projectId}:name`)
+                    reportPresence({ focus: null, editing: false, draft: null, tableId: null, tableName: null })
+                  }}
+                  onCancel={() => {
+                    sync.cancel(`project:${projectId}:name`)
+                    reportPresence({ focus: null, editing: false, draft: null, tableId: null, tableName: null })
+                  }}
                 />
               </h1>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex min-w-0 items-center gap-1">
+              {people.map((person) => (
+                <span
+                  key={person.userId}
+                  className="max-w-40 truncate rounded-sm px-1.5 text-xs leading-6 text-white"
+                  style={{ backgroundColor: person.color }}
+                >
+                  {person.tableName ? `${person.username} · ${person.tableName}` : person.username}
+                </span>
+              ))}
               <button
                 type="button"
                 aria-label={projectFavorited ? t('removeFromFavorites') : t('addToFavorites')}
@@ -432,16 +472,51 @@ export function ProjectPage() {
                     onChange={(icon) => void saveIcon('table', table.id, icon)}
                   />
                   {current ? (
-                    <div className="flex min-w-0 items-center gap-1.5">
+                    <div className="relative flex min-w-0 items-center gap-1.5">
+                      <PresenceChip
+                        people={people.filter(
+                          (person) => person.focus?.kind === 'tableName' && person.focus.tableId === table.id,
+                        )}
+                      />
                       <QuietInput
                         fit
                         inputRef={nameRef}
                         label={t('tableName')}
                         className="h-8 bg-transparent px-0 text-sm font-medium outline-none"
-                        value={table.name}
-                        onDraft={(next) => scheduleTableName(table, next)}
-                        onFlush={() => void sync.flush(`table:${table.id}:name`)}
-                        onCancel={() => sync.cancel(`table:${table.id}:name`)}
+                        value={
+                          people.find(
+                            (person) =>
+                              person.focus?.kind === 'tableName' &&
+                              person.focus.tableId === table.id &&
+                              person.draft != null,
+                          )?.draft ?? table.name
+                        }
+                        onFocus={() =>
+                          reportPresence({
+                            tableId: table.id,
+                            tableName: table.name,
+                            focus: { kind: 'tableName', tableId: table.id },
+                            editing: true,
+                          })
+                        }
+                        onDraft={(next) => {
+                          scheduleTableName(table, next)
+                          reportPresence({
+                            tableId: table.id,
+                            tableName: table.name,
+                            focus: { kind: 'tableName', tableId: table.id },
+                            editing: true,
+                            draft: next,
+                          })
+                        }}
+                        onFlush={() => {
+                          void sync.flush(`table:${table.id}:name`)
+                          reportPresence({ focus: null, editing: false, draft: null })
+                        }}
+                        onCancel={() => {
+                          sync.cancel(`table:${table.id}:name`)
+                          reportPresence({ focus: null, editing: false, draft: null })
+                        }}
                       />
                       {table.mirrorOfTableId ? (
                         <Badge className="shrink-0 normal-case" color="slate">
@@ -501,7 +576,13 @@ export function ProjectPage() {
             <Dialog.Content className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col gap-3 border-l border-border bg-card p-4 shadow-lg">
               <Dialog.Title className="text-lg font-semibold">{t('description')}</Dialog.Title>
               <Dialog.Description className="sr-only">{t('description')}</Dialog.Description>
-              <ProjectDescription projectId={projectId} value={record?.description ?? ''} />
+              <div className="relative min-h-0 flex-1">
+                <PresenceChip
+                  people={people.filter((person) => person.focus?.kind === 'projectDescription')}
+                  className="absolute -top-2 left-1 z-20"
+                />
+                <ProjectDescription projectId={projectId} value={descriptionDraft ?? record?.description ?? ''} />
+              </div>
               <Dialog.Close className="self-end border border-border px-3 py-1.5 text-sm">
                 {t('close')}
               </Dialog.Close>

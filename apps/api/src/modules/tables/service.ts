@@ -30,6 +30,7 @@ import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } from './resolve.js'
 import { seedDemoTable } from './template.js'
+import { publishRealtime, publishTableSignal } from '../realtime/publish.js'
 
 export type LoadedColumn = ColumnShape & {
   tableId: string
@@ -133,6 +134,7 @@ export async function lockTable(db: AppDatabase, subject: Subject, tableId: stri
     .where(eq(tables.id, tableId))
     .returning()
   await writeAudit(db, subject, { action: 'table.lock', resourceType: 'table', resourceId: tableId })
+  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
   return presentTable(updated)
 }
 
@@ -145,6 +147,7 @@ export async function unlockTable(db: AppDatabase, subject: Subject, tableId: st
     .where(eq(tables.id, tableId))
     .returning()
   await writeAudit(db, subject, { action: 'table.unlock', resourceType: 'table', resourceId: tableId })
+  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
   return presentTable(updated)
 }
 
@@ -174,6 +177,7 @@ export async function createTableMirror(
         })
         .returning()
       await writeAudit(db, subject, { action: 'table.mirror', resourceType: 'table', resourceId: table.id, metadata: { sourceTableId: source.id } })
+      publishRealtime(hostProjectId, { type: 'tables.changed', actorId: subject.id, projectId: hostProjectId, tableId: table.id })
       return presentTable(table)
     } catch (error) {
       if (requested || attempt === 4) return uniqueOrConflict(error)
@@ -264,6 +268,7 @@ export async function createTable(
         .returning()
       if (input.template === 'demo') await seedDemoTable(db, table.id, subject.id)
       await writeAudit(db, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
+      publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId: table.id })
       return presentTable(table)
     } catch (error) {
       if (requested || attempt === 4) return uniqueOrConflict(error)
@@ -282,6 +287,7 @@ export async function reorderTables(db: AppDatabase, subject: Subject, projectId
     previous = generateKeyBetween(previous, null)
     await db.update(tables).set({ position: previous, updatedAt: new Date() }).where(and(eq(tables.id, tableId), eq(tables.projectId, projectId)))
   }
+  publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId })
 }
 
 export async function ensureTextColumns(db: AppDatabase, tableId: string, names: string[]) {
@@ -372,6 +378,9 @@ export async function createTableFromCsv(
       await tx.update(tables).set({ nextRowNumber: rowNumber }).where(eq(tables.id, table.id))
       await writeAudit(tx as unknown as AppDatabase, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
       return presentTable(table)
+    }).then((table) => {
+      publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId: table.id })
+      return table
     })
   } catch (error) {
     return uniqueOrConflict(error)
@@ -427,6 +436,7 @@ export async function updateTable(
       })
       .where(eq(tables.id, tableId))
       .returning()
+    publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
     return presentTable(updated)
   } catch (error) {
     return uniqueOrConflict(error)
@@ -440,6 +450,7 @@ export async function setTableArchived(db: AppDatabase, subject: Subject, tableI
     .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
     .where(eq(tables.id, tableId))
     .returning()
+  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
   return presentTable(table)
 }
 
@@ -448,6 +459,7 @@ export async function deleteTable(db: AppDatabase, subject: Subject, tableId: st
   if (table.lockedAt) throw conflict('Unlock the table before deleting')
   await db.delete(tables).where(eq(tables.id, tableId))
   await writeAudit(db, subject, { action: 'table.delete', resourceType: 'table', resourceId: tableId })
+  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
 }
 
 export async function addColumn(
@@ -492,6 +504,7 @@ export async function addColumn(
       await db.insert(columnOptions).values({ columnId: column.id, label: option.label, color: option.color ?? null, position: optionPos })
     }
     await writeAudit(db, subject, { action: 'column.create', resourceType: 'column', resourceId: column.id, metadata: { tableId, type: input.type } })
+    await publishTableSignal(db, subject.id, tableId, 'columns.changed')
     return presentColumn((await loadColumns(db, tableId)).find((item) => item.id === column.id)!)
   } catch (error) {
     return uniqueOrConflict(error)
@@ -513,6 +526,7 @@ export async function updateColumn(
     .where(eq(tableColumns.id, columnId))
     .returning()
   await writeAudit(db, subject, { action: 'column.update', resourceType: 'column', resourceId: columnId })
+  await publishTableSignal(db, subject.id, updated.tableId, 'columns.changed')
   return presentColumn((await loadColumns(db, updated.tableId)).find((item) => item.id === columnId)!)
 }
 
@@ -522,6 +536,7 @@ export async function deleteColumn(db: AppDatabase, subject: Subject, columnId: 
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   await db.delete(tableColumns).where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, { action: 'column.delete', resourceType: 'column', resourceId: columnId })
+  await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
 }
 
 export async function duplicateColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
@@ -558,6 +573,7 @@ export async function duplicateColumns(db: AppDatabase, subject: Subject, tableI
     }
     created.unshift(copy)
   }
+  await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return created
 }
 
@@ -568,6 +584,7 @@ export async function reorderColumns(db: AppDatabase, subject: Subject, tableId:
     previous = generateKeyBetween(previous, null)
     await db.update(tableColumns).set({ position: previous, updatedAt: new Date() }).where(and(eq(tableColumns.id, columnId), eq(tableColumns.tableId, tableId)))
   }
+  await publishTableSignal(db, subject.id, tableId, 'columns.changed')
 }
 
 const structuralTypes = new Set(['formula', 'lookup', 'media', 'relation'])
@@ -640,6 +657,8 @@ export async function convertColumn(db: AppDatabase, subject: Subject, columnId:
     })
     .where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, { action: 'column.convert', resourceType: 'column', resourceId: columnId, metadata: { from: column.type, to: type, cleared } })
+  await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
+  await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
   return { cleared, kept }
 }
 
@@ -742,6 +761,7 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       }
     }
   }
+  publishRealtime(shell.projectId, { type: 'tables.changed', actorId: subject.id, projectId: shell.projectId, tableId: copy.id })
   return presentTable(copy)
 }
 
@@ -763,6 +783,8 @@ export async function moveTable(db: AppDatabase, subject: Subject, tableId: stri
     .where(eq(tables.id, table.id))
     .returning()
   await writeAudit(db, subject, { action: 'table.move', resourceType: 'table', resourceId: tableId, metadata: { from: table.projectId, to: projectId } })
+  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+  publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId })
   return presentTable(updated)
 }
 
@@ -788,6 +810,7 @@ export async function createTag(db: AppDatabase, subject: Subject, tableId: stri
   const match = existing.find((tag) => tag.name.toLowerCase() === trimmed.toLowerCase())
   if (match) return match
   const [tag] = await db.insert(tableTags).values({ tableId, name: trimmed, color: nextTagColor(existing.length) }).returning()
+  await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return tag
 }
 
@@ -806,6 +829,7 @@ export async function updateTag(db: AppDatabase, subject: Subject, tableId: stri
   if (!patch.color && !patch.name) throw badRequest('Tag name is required')
   const [tag] = await db.update(tableTags).set(patch).where(and(eq(tableTags.id, tagId), eq(tableTags.tableId, tableId))).returning()
   if (!tag) throw notFound()
+  await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return tag
 }
 
@@ -822,6 +846,7 @@ export async function createStatus(db: AppDatabase, subject: Subject, tableId: s
     color: nextTagColor(existing.length),
     position: positionBetween(existing),
   }).returning()
+  await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return status
 }
 
@@ -879,6 +904,7 @@ export async function createColumnOption(db: AppDatabase, subject: Subject, colu
     resourceId: columnId,
     metadata: { optionId: option.id, label: trimmed },
   })
+  await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
   return option
 }
 
@@ -909,6 +935,7 @@ export async function updateColumnOption(
   if (!patch.color && !patch.label && !patch.position) throw badRequest('Nothing to update')
   const [option] = await db.update(columnOptions).set(patch).where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId))).returning()
   if (!option) throw notFound()
+  await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
   return option
 }
 
@@ -940,6 +967,8 @@ export async function deleteColumnOption(db: AppDatabase, subject: Subject, colu
     resourceId: columnId,
     metadata: { optionId, label: current.label },
   })
+  await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
+  await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
   return { ok: true }
 }
 
@@ -962,6 +991,7 @@ export async function updateStatus(db: AppDatabase, subject: Subject, tableId: s
     .where(and(eq(tableStatuses.id, statusId), eq(tableStatuses.tableId, tableId)))
     .returning()
   if (!status) throw notFound()
+  await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return status
 }
 

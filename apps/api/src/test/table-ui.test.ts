@@ -196,7 +196,7 @@ describe('table interactions', () => {
     const whole = await session.inject({
       method: 'PATCH',
       url: `/api/v1/tables/${people?.id}`,
-      payload: { formatRules: [{ id: 'bad', scope: 'cell', columnId: nameId, expression: 'IF([People -> Name] = "A")', style: { background: '#bbf7d0' } }] },
+      payload: { formatRules: [{ id: 'bad', scope: 'cell', columnId: nameId, expression: 'IF(SUM([People -> Name]) = 1)', style: { background: '#bbf7d0' } }] },
     })
     expect(whole.statusCode).toBe(400)
     const cell = await session.inject({

@@ -11,6 +11,8 @@ import { cellFormatError } from './cell-format'
 import { editFailureMessage } from './edit-error'
 import { pushCommand } from './history'
 import { toast } from 'sonner'
+import { dropStashedCell } from '../realtime/editing'
+import { reportPresence } from '../realtime/presence-store'
 
 function showEditError(message: string) {
   toast.error(message, { id: 'table-edit-error' })
@@ -90,6 +92,14 @@ export function useRowCellEdit({
         return
       }
       clearInvalid(key)
+      if (column.type === 'text' || column.type === 'long_text' || column.type === 'url' || column.type === 'mail') {
+        reportPresence({
+          tableId,
+          focus: { kind: 'cell', tableId, rowId: row.id, columnId },
+          editing: true,
+          draft: next == null ? '' : String(next),
+        })
+      }
       if (!cellBaseline.current.has(key)) cellBaseline.current.set(key, row.cells[columnId] ?? null)
       const previous = cellBaseline.current.get(key) ?? null
       const paint = delay === 0
@@ -123,6 +133,7 @@ export function useRowCellEdit({
           }
         },
         accept: (result) => {
+          dropStashedCell(row.id, columnId)
           mapCachedRows(queryClient, tableId, (item) =>
             item.id === row.id
               ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } }
