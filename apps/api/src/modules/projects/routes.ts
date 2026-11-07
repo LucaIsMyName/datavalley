@@ -20,6 +20,7 @@ import {
   addMemberBody,
   createProjectBody,
   directoryQuery,
+  importProjectBody,
   listProjectsQuery,
   patchProjectBody,
   projectIdParams,
@@ -27,6 +28,7 @@ import {
   projectPermissionsBody,
   setMemberDisabledBody,
 } from './schema.js'
+import { exportProject, importProject } from './transfer.js'
 
 export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
   app.get('/projects', { schema: { querystring: listProjectsQuery } }, async (request) => {
@@ -38,6 +40,22 @@ export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
   app.post('/projects', { schema: { body: createProjectBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     return { project: await createProject(db, request.subject, request.body as { name: string; template?: 'blank' | 'customers' }) }
+  })
+
+  app.post('/projects/import', { schema: { body: importProjectBody }, bodyLimit: 64 * 1024 * 1024 }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    const body = request.body as Record<string, unknown>
+    const name = typeof body.name === 'string' ? body.name : undefined
+    return importProject(db, request.subject, body, name)
+  })
+
+  app.get('/projects/:id/export', { schema: { params: projectIdParams } }, async (request, reply) => {
+    if (!request.subject) throw unauthorized()
+    const doc = await exportProject(db, request.subject, (request.params as { id: string }).id)
+    const safe = doc.project.name.replace(/[^\w.-]+/g, '_').slice(0, 80) || 'project'
+    reply.header('Content-Disposition', `attachment; filename="${safe}.json"`)
+    reply.type('application/json')
+    return doc
   })
 
   app.get('/projects/:id', { schema: { params: projectIdParams } }, async (request) => {

@@ -3,7 +3,7 @@ import { canSubject, type Action, type Grant, type ResourceRef, type ResourceTyp
 import { permissionGrants, projectMembers } from '../database/schema.js'
 import type { AppDatabase } from '../database/client.js'
 import { notFound } from '../errors.js'
-import { cachedGrants } from './request-context.js'
+import { bindRequestGrants, cachedGrants } from './request-context.js'
 import { invalidateGrantsCache, readGrantsCache, writeGrantsCache } from './grants-cache.js'
 import type { Subject } from './subject.js'
 
@@ -37,6 +37,17 @@ export async function resolveGrants(db: AppDatabase, subject: Subject): Promise<
   const cached = cachedGrants()
   if (cached !== undefined) return cached
   return loadGrants(db, subject)
+}
+
+/** Replace this request's grant snapshot after new grants are written, so later checks see them. */
+export async function refreshRequestGrants(db: AppDatabase, subject: Subject) {
+  const fresh = await queryGrantsFromDb(db, subject)
+  const current = cachedGrants()
+  if (current) {
+    current.splice(0, current.length, ...fresh)
+    return
+  }
+  bindRequestGrants(fresh)
 }
 
 export async function assertCan(db: AppDatabase, subject: Subject, action: Action, resource: ResourceRef) {

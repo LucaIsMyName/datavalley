@@ -4,7 +4,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 
 ## Features
 
-- **Projects and tables** — Create and organise "Projects" via Tables. A table can be any type of datalist you need.
+- **Projects and tables** — Create and organise "Projects" via Tables. A table can be any type of datalist you need. Organization admins can export a whole project as JSON (all tables, cells, relations, views, and formulas) and import it into another instance as a new project.
 - **Formulas** — Per-cell expressions with cross-table references, aggregates, and conditional formatting. Saving a cell returns that row's formula values, so the grid can update without reloading the table. Function reference: [docs/formulas.md](docs/formulas.md).
 - **Access control** — Grant-based permissions; admins can edit and delete users (including other admins), revoke or delete API keys, and view the audit log.
 - **Media** — Organization file library with table attachments and MIME-validated uploads.

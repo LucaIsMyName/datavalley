@@ -476,6 +476,58 @@ const result = await api.request("/projects", {
 })
 ```
 
+### `POST /api/v1/projects/import`
+
+Import a project
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/projects/import", {
+  method: "POST",
+  body: JSON.stringify({
+    "name": "name",
+    "document": "document",
+    "kind": "datavalley.project",
+    "version": 1,
+    "project": "project",
+    "tables": [
+      "tables"
+    ],
+    "formulas": [
+      "formulas"
+    ]
+  }),
+})
+```
+
+### `GET /api/v1/projects/{id}/export`
+
+Export a project
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/export")
+```
+
 ### `GET /api/v1/projects/{id}`
 
 Get a project

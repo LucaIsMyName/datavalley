@@ -885,6 +885,71 @@
         }
       }
     },
+    "/projects/import": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "document": {},
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "datavalley.project"
+                    ]
+                  },
+                  "version": {
+                    "type": "number"
+                  },
+                  "project": {},
+                  "tables": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "formulas": {
+                    "type": "array",
+                    "items": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{id}/export": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/projects/{id}": {
       "get": {
         "parameters": [

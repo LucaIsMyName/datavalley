@@ -51,3 +51,13 @@ export const projectPermissionsBody = Type.Object({
 export const directoryQuery = Type.Object({
   q: Type.Optional(Type.String()),
 })
+
+export const importProjectBody = Type.Object({
+  name: Type.Optional(Type.String({ minLength: 1 })),
+  document: Type.Optional(Type.Unknown()),
+  kind: Type.Optional(Type.Literal('datavalley.project')),
+  version: Type.Optional(Type.Number()),
+  project: Type.Optional(Type.Unknown()),
+  tables: Type.Optional(Type.Array(Type.Unknown())),
+  formulas: Type.Optional(Type.Array(Type.Unknown())),
+})

@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Download, FolderOpen, MoreHorizontal, Pencil, Trash2, Upload } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import type { Project } from '@datavalley/api-client'
+import type { ProjectTransferDocument } from '@datavalley/shared'
 import { ResourceIcon } from '../../components/resource-icon'
 import { useContextMenu } from '../../components/context-menu'
 import { Button } from '../../components/ui/button'
@@ -16,6 +17,12 @@ import { Card } from '../../components/ui/card'
 import { ConfirmDialog, PromptDialog } from '../../components/confirm-dialog'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../../components/states'
 import { createdProjectPath } from '../tables/grid-ux'
+import {
+  downloadProjectJson,
+  fetchProjectExport,
+  importProjectWorkspace,
+  parseProjectImportFile,
+} from './project-transfer'
 import { api } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { sync } from '../../lib/sync'
@@ -36,6 +43,12 @@ export function ProjectsPage() {
   const [projectName, setProjectName] = useState('')
   const [customers, setCustomers] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importName, setImportName] = useState('')
+  const [importFile, setImportFile] = useState<ProjectTransferDocument | null>(null)
+  const [importPending, setImportPending] = useState(false)
+  const [importError, setImportError] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
   const nameInput = useRef<HTMLInputElement>(null)
   const projects = useQuery({
     queryKey: ['projects'],
@@ -68,16 +81,30 @@ export function ProjectsPage() {
       title={t('projects')}
       actions={
         user?.role === 'admin' ? (
-          <Button
-            type="button"
-            onClick={() => {
-              setProjectName('')
-              setCustomers(false)
-              setCreating(true)
-            }}
-          >
-            {t('newProject')}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setImportName('')
+                setImportFile(null)
+                setImportError('')
+                setImporting(true)
+              }}
+            >
+              {t('importProject')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setProjectName('')
+                setCustomers(false)
+                setCreating(true)
+              }}
+            >
+              {t('newProject')}
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -100,6 +127,18 @@ export function ProjectsPage() {
             },
             ...(user?.role === 'admin'
               ? [
+                  {
+                    id: 'export',
+                    label: t('exportProject'),
+                    icon: Download,
+                    onSelect: () => {
+                      void fetchProjectExport(project.id)
+                        .then((document) => downloadProjectJson(project.name, document))
+                        .catch((error: unknown) => {
+                          toast.error(error instanceof Error ? error.message : t('error'))
+                        })
+                    },
+                  },
                   {
                     id: 'rename',
                     label: t('rename'),
@@ -199,6 +238,96 @@ export function ProjectsPage() {
                 </Button>
                 <Button type="submit" disabled={create.isPending}>
                   {t('create')}
+                </Button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root
+        open={importing}
+        onOpenChange={(open) => {
+          if (!open) setImporting(false)
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-border bg-card p-4 shadow-md">
+            <Dialog.Title className="text-base font-semibold">{t('importProject')}</Dialog.Title>
+            <Dialog.Description className="sr-only">{t('importProject')}</Dialog.Description>
+            <form
+              className="mt-3 flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!importFile || importPending) return
+                const name = importName.trim() || importFile.project.name
+                if (!name) return
+                setImportPending(true)
+                setImportError('')
+                void importProjectWorkspace(name, importFile)
+                  .then((result) => {
+                    void queryClient.invalidateQueries({ queryKey: ['projects'] })
+                    setImporting(false)
+                    const path = createdProjectPath(result)
+                    if (path) navigate(path)
+                    if (result.warnings?.length) toast.message(t('importProjectWarnings'))
+                  })
+                  .catch((error: unknown) => {
+                    setImportError(error instanceof Error ? error.message : t('error'))
+                  })
+                  .finally(() => setImportPending(false))
+              }}
+            >
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (!file) return
+                  setImportError('')
+                  void file
+                    .text()
+                    .then((text) => {
+                      const parsed = parseProjectImportFile(text)
+                      setImportFile(parsed)
+                      setImportName(parsed.project.name)
+                    })
+                    .catch(() => {
+                      setImportFile(null)
+                      setImportError(t('importProjectInvalid'))
+                    })
+                    .finally(() => {
+                      event.target.value = ''
+                    })
+                }}
+              />
+              <Button type="button" variant="outline" onClick={() => fileInput.current?.click()}>
+                <Upload className="mr-2 size-4" />
+                {importFile ? t('importProjectChangeFile') : t('importProjectChooseFile')}
+              </Button>
+              {importFile ? (
+                <p className="text-sm text-muted-foreground">{t('importProjectFileReady')}</p>
+              ) : null}
+              <Label htmlFor="import-project-name">{t('name')}</Label>
+              <Input
+                id="import-project-name"
+                value={importName}
+                onChange={(event) => setImportName(event.target.value)}
+                disabled={!importFile}
+              />
+              {importError ? (
+                <p role="alert" className="text-sm text-danger">
+                  {importError}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setImporting(false)}>
+                  {t('cancel')}
+                </Button>
+                <Button type="submit" disabled={!importFile || importPending}>
+                  {t('importProjectConfirm')}
                 </Button>
               </div>
             </form>

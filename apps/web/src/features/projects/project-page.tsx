@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, GripVertical, Info, Plus, Star, Trash2, Users } from 'lucide-react'
+import { Download, FolderOpen, GripVertical, Info, Plus, Star, Trash2, Users } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -29,6 +29,8 @@ import type { SavedHit } from '../home/pages'
 import { ProjectDescription } from './projects-page'
 import { ProjectMembersDialog } from './project-members-dialog'
 import { CreateTableDialog } from './create-table-dialog'
+import { downloadProjectJson, fetchProjectExport } from './project-transfer'
+import { useSession } from '../../stores/session'
 
 function rememberTableName(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -53,6 +55,7 @@ export function ProjectPage() {
   const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
   const tableId = tableMatch?.params.tableId ?? ''
   const { t } = useTranslation()
+  const user = useSession((state) => state.user)
   const navigate = useNavigate()
   const location = useLocation()
   const { open: openMenu } = useContextMenu()
@@ -327,6 +330,22 @@ export function ProjectPage() {
               >
                 <Users className="size-4" />
               </button>
+              {user?.role === 'admin' ? (
+                <button
+                  type="button"
+                  aria-label={t('exportProject')}
+                  className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+                  onClick={() => {
+                    void fetchProjectExport(projectId)
+                      .then((document) => downloadProjectJson(record?.name ?? 'project', document))
+                      .catch((error: unknown) => {
+                        toast.error(error instanceof Error ? error.message : t('error'))
+                      })
+                  }}
+                >
+                  <Download className="size-4" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 aria-label={t('info')}
