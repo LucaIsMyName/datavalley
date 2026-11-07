@@ -4,6 +4,7 @@ import type { AppDatabase } from '../../database/client.js'
 import { permissionGrants, projectMembers, projects, tables, users } from '../../database/schema.js'
 import { AppError, badRequest, notFound } from '../../errors.js'
 import { allows, assertCan, resolveGrants, replaceGrants } from '../../security/access.js'
+import { invalidateGrantsCache } from '../../security/grants-cache.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { seedCustomers, seedStarter } from '../tables/template.js'
@@ -101,6 +102,7 @@ export async function createProject(
     if (input.template === 'customers') await seedCustomers(tx as unknown as AppDatabase, project.id, subject.id)
     await writeAudit(tx as unknown as AppDatabase, subject, { action: 'project.create', resourceType: 'project', resourceId: project.id })
     const stats = await projectTableStats(tx as unknown as AppDatabase, [project.id])
+    invalidateGrantsCache(subject)
     return present(project, stats.get(project.id))
   })
 }
@@ -262,6 +264,7 @@ export async function addMember(db: AppDatabase, subject: Subject, projectId: st
       })),
     )
   }
+  invalidateGrantsCache({ kind: 'user', id: user.id })
   await writeAudit(db, subject, { action: 'project.member.add', resourceType: 'project', resourceId: projectId, metadata: { userId: user.id } })
   return { userId: user.id, username: user.username, email: user.email }
 }
@@ -272,6 +275,7 @@ export async function removeMember(db: AppDatabase, subject: Subject, projectId:
   await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
   const grants = await db.select().from(permissionGrants).where(and(eq(permissionGrants.subjectId, userId), eq(permissionGrants.resourceId, projectId)))
   for (const grant of grants) await db.delete(permissionGrants).where(eq(permissionGrants.id, grant.id))
+  invalidateGrantsCache({ kind: 'user', id: userId })
   await writeAudit(db, subject, { action: 'project.member.remove', resourceType: 'project', resourceId: projectId, metadata: { userId } })
 }
 

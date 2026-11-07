@@ -126,7 +126,7 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       registerProjectConnectorRoutes(api, db, env)
       registerConnectorRoutes(api, db, env)
       registerSearchRoutes(api, db)
-      registerAiRoutes(api, db, env)
+      registerAiRoutes(api, db, env, apiKeyRateLimiter)
       registerDataRoutes(api, db, env)
     },
     { prefix: '/api/v1' },

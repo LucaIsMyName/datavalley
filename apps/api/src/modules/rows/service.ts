@@ -5,7 +5,7 @@ import { formulas, projectMembers, relations, relationRecords, tableCells, table
 import { normalizeMediaCellValue } from '@datavalley/shared'
 import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
 import { assertMediaReadable, loadMediaFile } from '../platform/media-access.js'
-import { badRequest, conflict, notFound } from '../../errors.js'
+import { badRequest, conflict, notFound, versionConflict } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
@@ -23,7 +23,7 @@ import {
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 
-async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
+export async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
   const grants = await resolveGrants(db, subject)
   return columns.filter((column) =>
     allows(subject, grants, 'view', { type: 'column', id: column.id, parents: { table: tableId, project: projectId } }),
@@ -89,6 +89,22 @@ function presentRows(
       formats,
     }
   })
+}
+
+async function presentRowRecord(db: AppDatabase, subject: Subject, tableId: string, projectId: string, rowId: string) {
+  const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
+  if (!fresh) throw notFound()
+  const columns = await loadColumns(db, tableId)
+  const stored = await cellsFor(db, [rowId])
+  const visible = await visibleColumns(db, subject, tableId, projectId, columns)
+  const [presented] = await attachFormulaValues(
+    db,
+    subject,
+    tableId,
+    visible,
+    presentRows(visible, [fresh], stored),
+  )
+  return presented
 }
 
 async function attachFormulaValues<T extends { id: string; cells: Record<string, unknown> }>(
@@ -401,9 +417,23 @@ export async function patchRow(
         ...('color' in input ? { color: input.color ?? null } : {}),
         ...('notes' in input ? { notes: input.notes ?? '' } : {}),
       })
-      .where(eq(tableRows.id, row.id))
+      .where(and(eq(tableRows.id, row.id), eq(tableRows.version, input.version)))
       .returning()
-    if (updated.length === 0) throw notFound()
+    if (updated.length === 0) {
+      const [stillThere] = await tx.select().from(tableRows).where(eq(tableRows.id, row.id)).limit(1)
+      if (!stillThere) throw notFound()
+      if (stillThere.version !== input.version) {
+        const current = await presentRowRecord(
+          tx as unknown as AppDatabase,
+          subject,
+          table.id,
+          table.projectId,
+          row.id,
+        )
+        throw versionConflict(undefined, { row: current })
+      }
+      throw notFound()
+    }
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
       await assertReferences(tx as unknown as AppDatabase, subject, table.id, table.projectId, column, value)
@@ -494,9 +524,17 @@ export async function bulkPatch(
       const updated = await database
         .update(tableRows)
         .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
-        .where(eq(tableRows.id, row.id))
+        .where(and(eq(tableRows.id, row.id), eq(tableRows.version, update.version)))
         .returning()
-      if (updated.length === 0) throw notFound()
+      if (updated.length === 0) {
+        const [stillThere] = await database.select().from(tableRows).where(eq(tableRows.id, row.id)).limit(1)
+        if (!stillThere) throw notFound()
+        if (stillThere.version !== update.version) {
+          const current = await presentRowRecord(database, subject, dataTableId, table.projectId, row.id)
+          throw versionConflict(undefined, { row: current, rowId: row.id })
+        }
+        throw notFound()
+      }
       for (const [columnId, value] of Object.entries(update.cells)) {
         const column = columnById.get(columnId)!
         await assertReferences(database, subject, dataTableId, table.projectId, column, value)

@@ -4,9 +4,10 @@ import { permissionGrants, projectMembers } from '../database/schema.js'
 import type { AppDatabase } from '../database/client.js'
 import { notFound } from '../errors.js'
 import { cachedGrants } from './request-context.js'
+import { invalidateGrantsCache, readGrantsCache, writeGrantsCache } from './grants-cache.js'
 import type { Subject } from './subject.js'
 
-export async function loadGrants(db: AppDatabase, subject: Subject): Promise<Grant[]> {
+async function queryGrantsFromDb(db: AppDatabase, subject: Subject): Promise<Grant[]> {
   const rows = await db
     .select()
     .from(permissionGrants)
@@ -17,6 +18,15 @@ export async function loadGrants(db: AppDatabase, subject: Subject): Promise<Gra
     action: row.action as Action,
     effect: row.effect as 'allow' | 'deny',
   }))
+}
+
+export async function loadGrants(db: AppDatabase, subject: Subject): Promise<Grant[]> {
+  if (process.env.NODE_ENV === 'test') return queryGrantsFromDb(db, subject)
+  const cached = readGrantsCache(subject)
+  if (cached) return cached
+  const grants = await queryGrantsFromDb(db, subject)
+  writeGrantsCache(subject, grants)
+  return grants
 }
 
 export function allows(subject: Subject, grants: Grant[], action: Action, resource: ResourceRef) {
@@ -75,4 +85,5 @@ export async function replaceGrants(
       )
     }
   })
+  invalidateGrantsCache(subject)
 }

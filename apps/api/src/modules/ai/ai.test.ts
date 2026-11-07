@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { dataConnectors, formulas, tableCells } from '../../database/schema.js'
+import { dataConnectors, formulas, permissionGrants, tableCells } from '../../database/schema.js'
 import { eq } from 'drizzle-orm'
 import type { Subject } from '../../security/subject.js'
 import { ApiSession, createHarness, createUser, login, userByName, type Harness } from '../../test/harness.js'
@@ -48,6 +48,21 @@ describe('organization AI', () => {
     const user = await userByName(harness.db, username)
     return { kind: 'user', id: user.id, role: user.role === 'admin' ? 'admin' : 'user', source: 'web', user }
   }
+
+  it('rejects AI base URLs that target private networks', async () => {
+    const blocked = await admin.inject({
+      method: 'PUT',
+      url: '/api/v1/ai/settings',
+      payload: {
+        provider: 'openai',
+        model: 'gpt-4.1',
+        baseUrl: 'http://169.254.169.254',
+        enabled: false,
+        apiKey: 'secret-key',
+      },
+    })
+    expect(blocked.statusCode).toBe(400)
+  })
 
   it('keeps the API key private and lets an admin activate AI', async () => {
     expect((await member.inject({ method: 'GET', url: '/api/v1/ai/settings' })).statusCode).toBe(403)
@@ -147,6 +162,61 @@ describe('organization AI', () => {
     const opened = await runTool({ db: harness.db, subject: ada, effects }, 'navigate', { tableId })
     expect(opened).toEqual({ ok: true, path: `/projects/${projectId}/tables/${tableId}` })
     expect(effects.navigation).toEqual({ path: `/projects/${projectId}/tables/${tableId}` })
+  })
+
+  it('hides columns denied to the user in describe_table and sample_rows', async () => {
+    const project = await admin.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Shared board' } })
+    const projectId = project.json().project.id as string
+    const created = await admin.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Board' } })
+    const tableId = created.json().table.id as string
+    const open = await admin.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Title', type: 'text' },
+    })
+    const hidden = await admin.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Salary', type: 'text' },
+    })
+    const openId = open.json().column.id as string
+    const hiddenId = hidden.json().column.id as string
+    const row = await admin.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [openId]: 'Public', [hiddenId]: 'secret-pay' } },
+    })
+    const rowId = row.json().row.id as string
+    await admin.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/permissions`,
+      payload: { userId: (await userByName(harness.db, 'bob')).id, grants: [{ action: 'view', effect: 'allow' }] },
+    })
+    await admin.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/members`,
+      payload: { username: 'bob' },
+    })
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: (await userByName(harness.db, 'bob')).id,
+      resourceType: 'column',
+      resourceId: hiddenId,
+      action: 'view',
+      effect: 'deny',
+    })
+    const bob = await subject('bob')
+    const effects = emptyEffects()
+    const described = await runTool({ db: harness.db, subject: bob, effects }, 'describe_table', { tableId })
+    const columnIds = (described as { columns: { id: string }[] }).columns.map((column) => column.id)
+    expect(columnIds).toContain(openId)
+    expect(columnIds).not.toContain(hiddenId)
+    const sample = await runTool({ db: harness.db, subject: bob, effects }, 'sample_rows', { tableId })
+    const sampleJson = JSON.stringify(sample)
+    expect(sampleJson).toContain('Public')
+    expect(sampleJson).not.toContain('secret-pay')
+    expect(sampleJson).not.toContain(hiddenId)
+    expect((sample as { rows: { id: string }[] }).rows.some((item) => item.id === rowId)).toBe(true)
   })
 
   it('returns a formula expression without inserting a formula', async () => {

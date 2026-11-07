@@ -90,7 +90,7 @@ type GridBodyRowProps = {
   readOnly: boolean
   relationRows: RowRecord[]
   tableId: string
-  handlers: { current: GridRowHandlers | null }
+  handlers: GridRowHandlers
   remoteKey: string
   peers: PresencePerson[]
 }
@@ -121,8 +121,7 @@ function GridBodyRowView({
   handlers,
   peers,
 }: GridBodyRowProps) {
-  const api = handlers.current
-  if (!api) return null
+  const api = handlers
   const presented = presentFormatRow(columns, row.cells, {
     tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
     statuses: statuses.map((status) => ({ id: status.id, name: status.name })),

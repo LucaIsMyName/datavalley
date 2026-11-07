@@ -11,6 +11,24 @@ import {
   takeStashedNotes,
 } from './editing.js'
 
+const ROWS_INVALIDATE_MS = 200
+const rowsInvalidateTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function scheduleRowsInvalidation(queryClient: QueryClient, tableId: string) {
+  const existing = rowsInvalidateTimers.get(tableId)
+  if (existing) clearTimeout(existing)
+  rowsInvalidateTimers.set(
+    tableId,
+    setTimeout(() => {
+      rowsInvalidateTimers.delete(tableId)
+      void queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+      void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+      void invalidateFooter(queryClient, tableId)
+      void invalidateOtherRowQueries(queryClient, tableId)
+    }, ROWS_INVALIDATE_MS),
+  )
+}
+
 export function applyRemoteRow(queryClient: QueryClient, tableId: string, row: RealtimeRow) {
   let found = false
   mapCachedRows(queryClient, tableId, (item) => {
@@ -85,9 +103,6 @@ export function applyRealtimeEvent(queryClient: QueryClient, event: RealtimeEven
     return
   }
   if (event.type === 'rows.changed' || event.type === 'columns.changed') {
-    void queryClient.invalidateQueries({ queryKey: ['table', event.tableId] })
-    void queryClient.invalidateQueries({ queryKey: ['rows', event.tableId] })
-    void invalidateFooter(queryClient, event.tableId)
-    void invalidateOtherRowQueries(queryClient, event.tableId)
+    scheduleRowsInvalidation(queryClient, event.tableId)
   }
 }

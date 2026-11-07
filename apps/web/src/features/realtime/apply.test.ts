@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import type { RowRecord } from '@datavalley/api-client'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyRealtimeEvent, applyRemoteRow, applyStashedCell } from './apply.js'
 import { clearCellEditing, setCellEditing } from './editing.js'
 
@@ -97,5 +97,25 @@ describe('remote row apply', () => {
       backgrounds: {},
     })
     expect(readName(client)?.id).toBe('row-1')
+  })
+
+  it('debounces rows.changed invalidation', () => {
+    vi.useFakeTimers()
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    applyRealtimeEvent(
+      client,
+      { id: '1', type: 'rows.changed', actorId: 'other', projectId: 'p1', tableId: 'table-1' },
+      'me',
+    )
+    applyRealtimeEvent(
+      client,
+      { id: '2', type: 'rows.changed', actorId: 'other', projectId: 'p1', tableId: 'table-1' },
+      'me',
+    )
+    expect(invalidate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(250)
+    expect(invalidate).toHaveBeenCalled()
+    vi.useRealTimers()
   })
 })

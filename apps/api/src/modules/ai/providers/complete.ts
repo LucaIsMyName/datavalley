@@ -1,4 +1,6 @@
+import { isAiProviderId } from '@datavalley/shared'
 import { badRequest } from '../../../errors.js'
+import { assertAiProviderBaseUrl } from '../provider-url.js'
 import { completeAnthropic } from './anthropic.js'
 import { completeChat } from './chat-completions.js'
 import type { Complete, CompleteInput } from './types.js'
@@ -12,6 +14,9 @@ export function setCompleteForTests(next: Complete | null) {
 
 export async function complete(input: CompleteInput) {
   if (process.env.NODE_ENV === 'test' && override) return override(input)
+  if (isAiProviderId(input.provider) && input.baseUrl) {
+    await assertAiProviderBaseUrl(input.provider, input.baseUrl)
+  }
   if (input.provider === 'anthropic') return completeAnthropic(input)
   if (input.provider === 'openai' || input.provider === 'mistral' || input.provider === 'spacexai' || input.provider === 'ollama') {
     return completeChat(input)
@@ -20,6 +25,7 @@ export async function complete(input: CompleteInput) {
 }
 
 export async function listOllamaModels(baseUrl: string) {
+  await assertAiProviderBaseUrl('ollama', baseUrl)
   let url: URL
   try {
     url = new URL(baseUrl)

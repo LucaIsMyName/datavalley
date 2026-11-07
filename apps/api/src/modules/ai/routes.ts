@@ -2,17 +2,19 @@ import { Type } from '@sinclair/typebox'
 import { aiProviderIds, aiProviderModels, isAiProviderId } from '@datavalley/shared'
 import type { FastifyInstance } from 'fastify'
 import type { Env } from '../../config/env.js'
+import type { RateLimiter } from '../../security/rate-limit.js'
 import type { AppDatabase } from '../../database/client.js'
 import { unauthorized } from '../../errors.js'
 import { answerChat } from './chat.js'
 import { draftConnector } from './connector-draft.js'
 import { suggestFormula } from './formula.js'
 import { listOllamaModels } from './providers/complete.js'
+import { assertAiChatRateLimit } from './chat-rate-limit.js'
 import { aiStatus, presentAiSettings, readAiSettings, requireAdmin, saveAiSettings } from './settings.js'
 
 const providerSchema = Type.Union(aiProviderIds.map((id) => Type.Literal(id)))
 
-export function registerAiRoutes(app: FastifyInstance, db: AppDatabase, env: Env) {
+export function registerAiRoutes(app: FastifyInstance, db: AppDatabase, env: Env, rateLimiter: RateLimiter) {
   app.get('/ai/status', async (request) => {
     if (!request.subject) throw unauthorized()
     return aiStatus(db, request.subject)
@@ -78,6 +80,7 @@ export function registerAiRoutes(app: FastifyInstance, db: AppDatabase, env: Env
     },
     async (request) => {
       if (!request.subject?.user) throw unauthorized()
+      await assertAiChatRateLimit(rateLimiter, env, request.subject.id)
       const body = request.body as {
         messages: { role: 'user' | 'assistant'; content: string }[]
         context?: { projectId?: string; tableId?: string }

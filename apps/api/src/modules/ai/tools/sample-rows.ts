@@ -1,4 +1,4 @@
-import { listRows } from '../../rows/service.js'
+import { listRows, visibleColumns } from '../../rows/service.js'
 import { loadColumns, resolveTableContext } from '../../tables/service.js'
 import { asString, clip } from './types.js'
 import type { AiTool } from './types.js'
@@ -17,7 +17,8 @@ export const sampleRowsTool: AiTool = {
     const requested = typeof args.limit === 'number' ? args.limit : 20
     const limit = Math.max(1, Math.min(20, Math.floor(requested)))
     const { shell, physical } = await resolveTableContext(host.db, host.subject, tableId, 'view')
-    const columns = (await loadColumns(host.db, physical.id)).slice(0, 12)
+    const loaded = await loadColumns(host.db, physical.id)
+    const columns = (await visibleColumns(host.db, host.subject, physical.id, shell.projectId, loaded)).slice(0, 12)
     const page = await listRows(host.db, host.subject, shell.id, { limit })
     return {
       tableId: shell.id,

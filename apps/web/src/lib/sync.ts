@@ -4,7 +4,7 @@ export type SyncEdit<TDraft, TRecord> = {
   apply: (draft: TDraft) => void
   commit: (draft: TDraft) => Promise<TRecord>
   accept: (record: TRecord) => void
-  rollback: () => void
+  rollback: (reason?: unknown) => void
   /** Restores the previous value when the user cancels. A failed commit still calls `rollback`. */
   revert?: () => void
 }
@@ -16,7 +16,7 @@ type Slot = {
   apply: (draft: unknown) => void
   commit: (draft: unknown) => Promise<unknown>
   accept: (record: unknown) => void
-  rollback: () => void
+  rollback: (reason?: unknown) => void
   revert: (() => void) | null
   queued: boolean
 }
@@ -86,7 +86,7 @@ export function createSync() {
         } catch (error) {
           const latest = pending.get(key)
           if (latest?.generation === gen) {
-            latest.rollback()
+            latest.rollback(error)
             pending.delete(key)
           }
           throw error

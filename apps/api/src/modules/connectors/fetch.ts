@@ -25,7 +25,7 @@ function isPrivateIp(address: string) {
   return false
 }
 
-async function assertPublicHost(hostname: string) {
+export async function assertPublicHost(hostname: string) {
   const host = hostname.toLowerCase()
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     throw badRequest('URL host is not allowed')

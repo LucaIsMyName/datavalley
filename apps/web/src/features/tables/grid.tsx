@@ -87,7 +87,9 @@ import { useColumnCommands } from './use-column-commands'
 import { useRowCommands } from './use-row-commands'
 import { useTableMenus } from './use-table-menus'
 import { createTableColumns, GUTTER_WIDTH } from './table-columns'
-import { EMPTY_ROWS, GridBodyRow, type GridRowHandlers } from './grid-row'
+import { createGridRowHandlers } from './grid-row-handlers'
+import { EMPTY_ROWS, GridBodyRow } from './grid-row'
+import { useGridInfiniteScroll, useGridViewportWidth } from './use-grid-infinite-scroll'
 import { applyStashedCell } from '../realtime/apply'
 import { clearCellEditing, setCellEditing, splitCellKey } from '../realtime/editing'
 import { PresenceChip } from '../realtime/presence-chip'
@@ -151,7 +153,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [searchParams] = useSearchParams()
   const columnParam = searchParams.get('column') ?? ''
   const rowParam = searchParams.get('row') ?? ''
-  const rowHandlers = useRef<GridRowHandlers | null>(null)
   const parentRef = useRef<HTMLDivElement>(null)
   const mediaUploadRef = useRef<FileUploadHandle>(null)
   const [csvImportOpen, setCsvImportOpen] = useState(false)
@@ -888,6 +889,67 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   titleMenuRef.current = openTitleMenu
 
+  const gridRowHandlers = useMemo(
+    () =>
+      createGridRowHandlers({
+        t,
+        queryClient,
+        tableId,
+        refresh,
+        openRowMenu,
+        insertRow,
+        setChecked,
+        setDrawerRowId,
+        focusCell,
+        activateCell,
+        scheduleCell,
+        clearInvalid,
+        releaseEdit,
+        setMediaLibrary,
+        openMediaPreview,
+        requestMediaUpload,
+        applyMediaCell,
+        applyDateMode,
+        beginFill,
+        openCellMenu,
+        cellWritable,
+        dataReadOnly,
+        invalidFor,
+        reorderRow,
+        setSort: () => setSort((current) => (current ? null : current)),
+        dragItem,
+        setDropTarget,
+        rowsRef,
+        pressOrigin,
+        pressTimer,
+      }),
+    [
+      activateCell,
+      applyDateMode,
+      applyMediaCell,
+      beginFill,
+      cellWritable,
+      clearInvalid,
+      dataReadOnly,
+      focusCell,
+      insertRow,
+      invalidFor,
+      openCellMenu,
+      openMediaPreview,
+      openRowMenu,
+      queryClient,
+      refresh,
+      releaseEdit,
+      reorderRow,
+      requestMediaUpload,
+      scheduleCell,
+      setChecked,
+      setDrawerRowId,
+      t,
+      tableId,
+    ],
+  )
+
   const toolbarActions = useMemo(() => {
     if (!table) return null
     return {
@@ -1091,89 +1153,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const virtualItems = virtualizer.getVirtualItems()
   const paddingTop = virtualItems[0]?.start ?? 0
   const paddingBottom = virtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0)
-  const pageState = useRef({ hasNext: false, fetching: false, fetch: rowsQuery.fetchNextPage })
-  pageState.current = {
-    hasNext: rowsQuery.hasNextPage,
-    fetching: rowsQuery.isFetchingNextPage,
-    fetch: rowsQuery.fetchNextPage,
-  }
   const gridReady = !tableQuery.isLoading && !rowsQuery.isLoading && Boolean(table)
-  useEffect(() => {
-    const parent = parentRef.current
-    if (!parent) return
-    const load = () => {
-      const state = pageState.current
-      const nearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 288
-      if (!nearBottom || !state.hasNext || state.fetching) return
-      void state.fetch()
-    }
-    parent.addEventListener('scroll', load, { passive: true })
-    return () => parent.removeEventListener('scroll', load)
-  }, [display.mode, gridReady])
-  useEffect(() => {
-    const parent = parentRef.current
-    if (!parent) return
-    const measure = () => setViewportWidth(parent.clientWidth)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(parent)
-    return () => observer.disconnect()
-  }, [display.mode, gridReady])
+  useGridInfiniteScroll(parentRef, gridReady, display.mode, rowsQuery)
+  useGridViewportWidth(parentRef, gridReady, display.mode, setViewportWidth)
 
   const tags: CatalogItem[] = table?.tags ?? EMPTY_TAGS
   const statuses: CatalogItem[] = table?.statuses ?? EMPTY_TAGS
   const members = membersQuery.data?.members ?? EMPTY_MEMBERS
-  rowHandlers.current = {
-    t: (key, options) => t(key, options),
-    openRowMenu,
-    insertRow,
-    setChecked,
-    setDrawerRowId,
-    focusCell,
-    activateCell,
-    scheduleCell,
-    clearInvalid,
-    releaseEdit,
-    setMediaLibrary,
-    openMediaPreview,
-    requestMediaUpload,
-    applyMediaCell,
-    applyDateMode,
-    beginFill,
-    openCellMenu,
-    onCreated: (kind, item) => {
-      patchCachedTable(queryClient, tableId, (current) => ({
-        ...current,
-        tags:
-          kind === 'tag'
-            ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item]
-            : current.tags,
-        statuses:
-          kind === 'status'
-            ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item]
-            : current.statuses,
-      }))
-    },
-    onOptionChange: (columnId, option, deleted) => {
-      patchCachedTable(queryClient, tableId, (current) => ({
-        ...current,
-        columns: current.columns?.map((item) =>
-          item.id === columnId ? mergeColumnOption(item, option, deleted) : item,
-        ),
-      }))
-      if (deleted) void refresh()
-    },
-    cellWritable,
-    dataReadOnly,
-    invalidFor,
-    reorderRow,
-    setSort: () => setSort((current) => (current ? null : current)),
-    dragItem,
-    setDropTarget,
-    rowsRef,
-    pressOrigin,
-    pressTimer,
-  }
 
   if (tableQuery.isLoading || rowsQuery.isLoading)
     return (
@@ -1701,7 +1687,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         editingColumnId ? (targetRows.data?.rows ?? EMPTY_ROWS) : EMPTY_ROWS
                       }
                       tableId={tableId}
-                      handlers={rowHandlers}
+                      handlers={gridRowHandlers}
                       remoteKey={rowRemoteKey(people, tableId, row.id)}
                       peers={people}
                     />

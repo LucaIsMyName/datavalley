@@ -116,10 +116,18 @@ describe('crm api', () => {
     })
     expect(saved.statusCode).toBe(200)
     expect(saved.json().row.cells[columnId]).toBe(7)
-    const later = await session.inject({
+    const stale = await session.inject({
       method: 'PATCH',
       url: `/api/v1/rows/${rowId}`,
       payload: { version: 1, cells: { [columnId]: 8 } },
+    })
+    expect(stale.statusCode).toBe(409)
+    expect(stale.json().error.code).toBe('version_conflict')
+    expect(stale.json().error.details.row.cells[columnId]).toBe(7)
+    const later = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${rowId}`,
+      payload: { version: saved.json().row.version, cells: { [columnId]: 8 } },
     })
     expect(later.statusCode).toBe(200)
     expect(later.json().row.cells[columnId]).toBe(8)

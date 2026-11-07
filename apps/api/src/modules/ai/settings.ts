@@ -10,6 +10,7 @@ import { organizationAiSettings } from '../../database/schema.js'
 import { AppError, badRequest } from '../../errors.js'
 import { decryptString, encryptString } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
+import { assertAiProviderBaseUrl } from './provider-url.js'
 
 export type AiSettingsRow = typeof organizationAiSettings.$inferSelect
 
@@ -72,6 +73,12 @@ function cleanBaseUrl(provider: AiProviderId, raw: string | undefined) {
   return value
 }
 
+async function validatedBaseUrl(provider: AiProviderId, raw: string | undefined) {
+  const baseUrl = cleanBaseUrl(provider, raw)
+  await assertAiProviderBaseUrl(provider, baseUrl)
+  return baseUrl
+}
+
 export async function saveAiSettings(
   db: AppDatabase,
   env: Env,
@@ -90,7 +97,7 @@ export async function saveAiSettings(
   if (input.enabled && aiProviderDefaults[input.provider].apiKeyRequired && !apiKeyEncrypted) {
     throw badRequest('An API key is required for this provider')
   }
-  const baseUrl = cleanBaseUrl(input.provider, input.baseUrl)
+  const baseUrl = await validatedBaseUrl(input.provider, input.baseUrl)
   const now = new Date()
   await db
     .insert(organizationAiSettings)

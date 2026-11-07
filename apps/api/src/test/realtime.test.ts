@@ -91,7 +91,7 @@ describe('live project events', () => {
     const second = await owner.inject({
       method: 'PATCH',
       url: `/api/v1/rows/${rowId}`,
-      payload: { version, cells: { [secretId]: 'hidden' } },
+      payload: { version: first.json().row.version, cells: { [secretId]: 'hidden' } },
     })
     expect(second.statusCode).toBe(200)
     expect(second.json().row.cells[nameId]).toBe('Ada')
@@ -99,7 +99,7 @@ describe('live project events', () => {
     const third = await owner.inject({
       method: 'PATCH',
       url: `/api/v1/rows/${rowId}`,
-      payload: { version, cells: { [secretId]: 'later' } },
+      payload: { version: second.json().row.version, cells: { [secretId]: 'later' } },
     })
     expect(third.statusCode).toBe(200)
     expect(third.json().row.cells[nameId]).toBe('Ada')
@@ -137,7 +137,7 @@ describe('live project events', () => {
     const patched = await owner.inject({
       method: 'PATCH',
       url: `/api/v1/rows/${rowId}`,
-      payload: { version, cells: { [nameId]: 'Grace', [secretId]: 'still-secret' } },
+      payload: { version: third.json().row.version, cells: { [nameId]: 'Grace', [secretId]: 'still-secret' } },
     })
     expect(patched.statusCode).toBe(200)
     const events = await pending

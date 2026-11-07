@@ -22,6 +22,10 @@ export function conflict(message: string, details?: unknown) {
   return new AppError(409, 'conflict', message, details)
 }
 
+export function versionConflict(message = 'Row was updated elsewhere', details?: unknown) {
+  return new AppError(409, 'version_conflict', message, details)
+}
+
 export function unauthorized(message = 'Authentication required') {
   return new AppError(401, 'unauthorized', message)
 }

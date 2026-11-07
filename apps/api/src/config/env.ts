@@ -29,6 +29,7 @@ export type Env = {
   RATE_LIMIT_MAX: number
   RATE_LIMIT_WINDOW: string
   LOGIN_RATE_LIMIT_MAX: number
+  AI_CHAT_RATE_LIMIT_MAX: number
   SMTP_HOST: string
   SMTP_PORT: number
   SMTP_USER: string
@@ -82,6 +83,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     RATE_LIMIT_MAX: numberValue(source, 'RATE_LIMIT_MAX', 300),
     RATE_LIMIT_WINDOW: source.RATE_LIMIT_WINDOW?.trim() || '1 minute',
     LOGIN_RATE_LIMIT_MAX: numberValue(source, 'LOGIN_RATE_LIMIT_MAX', 30),
+    AI_CHAT_RATE_LIMIT_MAX: numberValue(source, 'AI_CHAT_RATE_LIMIT_MAX', 30),
     SMTP_HOST: source.SMTP_HOST?.trim() || '',
     SMTP_PORT: numberValue(source, 'SMTP_PORT', 587),
     SMTP_USER: source.SMTP_USER?.trim() || '',
@@ -102,6 +104,7 @@ export function testEnv(overrides: Partial<Env> = {}): Env {
       WEB_ORIGIN: 'http://localhost:5173',
       RATE_LIMIT_MAX: '10000',
       LOGIN_RATE_LIMIT_MAX: '1000',
+      AI_CHAT_RATE_LIMIT_MAX: '1000',
       IMPORT_SYNC_LIMIT: '5000',
       EXPORT_SYNC_LIMIT: '5000',
     }),

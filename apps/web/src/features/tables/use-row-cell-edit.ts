@@ -5,7 +5,8 @@ import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
-import { invalidateFooter, invalidateOtherRowQueries, mapCachedRows, readCachedRow } from './cache'
+import { invalidateFooter, invalidateOtherRowQueries, mapCachedRows, readCachedRow, replaceCachedRows } from './cache'
+import { rowFromVersionConflict } from './version-conflict'
 import { columnFeedsFooter } from './grid-edit'
 import { cellFormatError } from './cell-format'
 import { editFailureMessage } from './edit-error'
@@ -127,6 +128,11 @@ export function useRowCellEdit({
               body: JSON.stringify({ version: current.version, cells: { [columnId]: draft } }),
             })
           } catch (error) {
+            const fresh = rowFromVersionConflict(error)
+            if (fresh) {
+              replaceCachedRows(queryClient, tableId, [fresh])
+              throw Object.assign(new Error('version_conflict'), { fresh })
+            }
             if (error instanceof ApiClientError && error.status === 400)
               serverReject.current.set(key, error.message)
             throw error
@@ -162,10 +168,14 @@ export function useRowCellEdit({
             item.id === row.id ? { ...item, cells: { ...item.cells, [columnId]: previous } } : item,
           )
         },
-        rollback: () => {
+        rollback: (reason?: unknown) => {
           const message = serverReject.current.get(key)
           serverReject.current.delete(key)
           cellBaseline.current.delete(key)
+          if (reason instanceof Error && reason.message === 'version_conflict') {
+            showEditError(t('versionConflict'))
+            return
+          }
           if (message) {
             setInvalidCells((current) => ({
               ...current,
@@ -208,10 +218,20 @@ export function useRowCellEdit({
       }
 
       const previous = row.cells[columnId] ?? null
-      const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ version: row.version, cells: { [columnId]: value } }),
-      })
+      let result: { row: RowRecord }
+      try {
+        result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ version: row.version, cells: { [columnId]: value } }),
+        })
+      } catch (error) {
+        const fresh = rowFromVersionConflict(error)
+        if (fresh) {
+          replaceCachedRows(queryClient, tableId, [fresh])
+          showEditError(t('versionConflict'))
+        }
+        throw error
+      }
 
       mapCachedRows(queryClient, tableId, (item) =>
         item.id === row.id

@@ -64,6 +64,7 @@
   "name": "Name",
   "loading": "Loading",
   "error": "Something went wrong",
+  "versionConflict": "Someone else saved this row. Your edit was not applied.",
   "tryAgain": "Try again",
   "lastEdited": "Edited {{date}}",
   "projectTableCount": "{{count}} tables",
