@@ -63,6 +63,7 @@ export function useCrumbs(): Crumb[] {
     '/settings/users': 'users',
     '/settings/api-keys': 'apiKeys',
     '/settings/audit': 'audit',
+    '/settings/ai': 'ai',
   }
   if (settings[pathname]) {
     return [

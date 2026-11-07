@@ -22,6 +22,7 @@ const modules: { path: string; names: string[] }[] = [
   { path: './integrations/integrations-page', names: ['IntegrationsPage'] },
   { path: './settings/profile-page', names: ['ProfilePage'] },
   { path: './settings/admin-pages', names: ['UsersPage', 'ApiKeysPage', 'AuditPage'] },
+  { path: './settings/ai-page', names: ['AiPage'] },
   { path: './tables/grid', names: ['TableScreen'] },
 ]
 

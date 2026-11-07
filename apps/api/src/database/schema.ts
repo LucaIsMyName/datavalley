@@ -478,3 +478,14 @@ export const mediaFiles = pgTable('media_files', {
   createdBy: uuid('created_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const organizationAiSettings = pgTable('organization_ai_settings', {
+  organizationId: uuid('organization_id').primaryKey().references(() => organizations.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  baseUrl: text('base_url'),
+  enabled: boolean('enabled').notNull().default(false),
+  apiKeyEncrypted: text('api_key_encrypted'),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+})

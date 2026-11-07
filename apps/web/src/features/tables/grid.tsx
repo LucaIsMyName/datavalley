@@ -44,6 +44,8 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
+import { AiChat } from '../ai/chat'
+import { aiColumnKey, useAiHighlight } from '../ai/highlight-store'
 import { useContextMenu } from '../../components/context-menu'
 import { QuietInput } from '../../components/quiet-input'
 import { Badge } from '../../components/ui/badge'
@@ -168,6 +170,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [checked, setChecked] = useState<string[]>([])
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [spotlight, setSpotlight] = useState<{ rowId: string; columnId: string } | null>(null)
+  const aiMarks = useAiHighlight()
   const [columnAnchor, setColumnAnchor] = useState<string | null>(null)
   const [selected, setSelected] = useState({ row: 0, column: 0 })
   const [fill, setFill] = useState<{ columnId: string; from: number; to: number } | null>(null)
@@ -1295,7 +1298,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       <th
                         key={column.id}
                         data-column-id={column.id}
-                        className={`group relative h-10 overflow-visible px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''}`}
+                        className={`group relative h-10 overflow-visible px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''} ${aiMarks.tableId === tableId && aiMarks.columnIds.includes(column.id) && !(spotlight?.columnId === column.id && !spotlight.rowId) ? 'ring-2 ring-inset ring-primary' : ''}`}
                         style={{ width: widths[column.id] ?? column.width }}
                         onDragOver={(event: DragEvent) => {
                           const from = dragItem.current
@@ -1613,6 +1616,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       fillColumnId={inFill && fill ? fill.columnId : null}
                       spotlightColumnId={columnSpotlight ? spotlight?.columnId ?? null : null}
                       spotlightRow={Boolean(spotlight?.rowId === row.id && !spotlight.columnId)}
+                      aiRow={aiMarks.tableId === tableId && aiMarks.rowIds.includes(row.id)}
+                      aiColumnKey={aiColumnKey(aiMarks, tableId, row.id)}
                       invalidSignature={invalidSignatureFor(row.id, invalidCells)}
                       dropColumnId={dropTarget?.kind === 'column' ? dropTarget.id : null}
                       dropRow={dropTarget?.kind === 'row' && dropTarget.id === row.id}
@@ -1988,6 +1993,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             })
         }}
       />
+      <AiChat context={{ projectId, tableId }} />
     </section>
   )
 }

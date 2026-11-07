@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/button'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import { useFormulaWindow, type FormulaCell } from '../../stores/formula-window'
+import { AiFormulaSuggest } from '../ai/formula-suggest'
 import { FormulaEditor, type FormulaEditorHandle } from './formula-editor'
 import { formatFormulaValue } from './formula-help'
 import { cellReference, columnReference, relationReference, thisRowReference } from './formula-insert'
@@ -292,6 +293,14 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
             </div>
           )}
         </div>
+        {draft !== null ? (
+          <AiFormulaSuggest
+            tableId={cell.tableId}
+            columnId={cell.columnId}
+            rowId={cell.rowId}
+            onUse={(expression) => editorRef.current?.setValue(expression)}
+          />
+        ) : null}
         {error ? (
           <p className="min-h-5 break-words font-mono text-sm text-danger" role="alert">
             {error}

@@ -78,6 +78,8 @@ type GridBodyRowProps = {
   fillColumnId: string | null
   spotlightColumnId: string | null
   spotlightRow: boolean
+  aiRow: boolean
+  aiColumnKey: string
   invalidSignature: string
   dropColumnId: string | null
   dropRow: boolean
@@ -103,6 +105,8 @@ function GridBodyRowView({
   fillColumnId,
   spotlightColumnId,
   spotlightRow,
+  aiRow,
+  aiColumnKey,
   dropColumnId,
   dropRow,
   mediaUploadingColumnId,
@@ -123,7 +127,7 @@ function GridBodyRowView({
 
   return (
     <tr
-      className={`group ${spotlightRow && !spotlightColumnId ? 'bg-accent' : ''}`}
+      className={`group ${spotlightRow && !spotlightColumnId ? 'bg-accent' : ''} ${aiRow && !(spotlightRow && !spotlightColumnId) ? 'bg-accent' : ''}`}
       onDragOver={(event) => {
         const from = api.dragItem.current
         if (!from || from.kind !== 'row') return
@@ -151,7 +155,7 @@ function GridBodyRowView({
         api.reorderRow(payload.slice(4), row.id)
       }}
     >
-      <td className={`relative sticky left-0 z-10 overflow-hidden ${TABLE_GRID_DIVIDER} p-0 ${spotlightRow && !spotlightColumnId ? 'bg-accent' : 'bg-card'}`}>
+      <td className={`relative sticky left-0 z-10 overflow-hidden ${TABLE_GRID_DIVIDER} p-0 ${spotlightRow && !spotlightColumnId ? 'bg-accent' : aiRow ? 'bg-accent' : 'bg-card'}`}>
         {dropRow ? (
           <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary" />
         ) : null}
@@ -254,6 +258,7 @@ function GridBodyRowView({
           column.type === 'formula' ||
           column.type === 'lookup'
         const lit = spotlightColumnId === column.id
+        const aiMarked = aiColumnKey.split(',').includes(column.id)
         const inFill = fillColumnId === column.id
         const dateEditing = active && isDateColumnType(column.type)
         return (
@@ -268,7 +273,7 @@ function GridBodyRowView({
               <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary" />
             ) : null}
             <div
-              className={`relative flex h-9 min-w-0 items-center px-2 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
+              className={`relative flex h-9 min-w-0 items-center px-2 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${mono ? 'font-mono' : ''} ${picked || lit ? 'ring-2 ring-inset ring-primary' : ''} ${aiMarked && !(picked || lit) ? 'ring-2 ring-inset ring-primary' : ''} ${inFill && !picked ? 'bg-accent' : ''}`}
               style={{
                 color: paintSwatch(ruleStyle.color, 'text'),
                 background: inFill && !picked ? undefined : painted,
@@ -312,11 +317,11 @@ function GridBodyRowView({
                 <button
                   type="button"
                   aria-label={api.t('fillHandle')}
-                  className="absolute bottom-0 right-0 z-10 flex size-6 cursor-crosshair items-center justify-center border border-primary bg-card text-primary"
+                  className="absolute bottom-0 right-0 z-10 flex size-2 cursor-crosshair items-center justify-center border border-primary bg-primary text-primary"
                   onPointerDown={(event) => api.beginFill(event, rowIndex, column)}
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <Plus className="size-2.5" />
+                  
                 </button>
               ) : null}
             </div>
@@ -344,6 +349,8 @@ function sameRow(prev: GridBodyRowProps, next: GridBodyRowProps) {
     prev.fillColumnId === next.fillColumnId &&
     prev.spotlightColumnId === next.spotlightColumnId &&
     prev.spotlightRow === next.spotlightRow &&
+    prev.aiRow === next.aiRow &&
+    prev.aiColumnKey === next.aiColumnKey &&
     prev.invalidSignature === next.invalidSignature &&
     prev.dropColumnId === next.dropColumnId &&
     prev.dropRow === next.dropRow &&

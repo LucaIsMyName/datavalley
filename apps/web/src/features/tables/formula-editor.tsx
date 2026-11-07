@@ -27,6 +27,7 @@ import {
 
 export type FormulaEditorHandle = {
   replace: (from: number, to: number, text: string) => void
+  setValue: (text: string) => void
 }
 
 type FormulaEditorProps = {
@@ -290,6 +291,14 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
       view.dispatch({
         changes: { from, to, insert: text },
         selection: { anchor: from + text.length },
+      })
+    },
+    setValue(text: string) {
+      const view = viewRef.current
+      if (!view) return
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: text },
+        selection: { anchor: text.length },
       })
     },
   }), [])

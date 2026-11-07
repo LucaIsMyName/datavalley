@@ -14,6 +14,7 @@ import { AppError } from './errors.js'
 import { loadGrants } from './security/access.js'
 import { bindRequestGrants } from './security/request-context.js'
 import { createRateLimiter } from './security/rate-limit.js'
+import { registerAiRoutes } from './modules/ai/routes.js'
 import { passwordChangeGate, registerAuthRoutes, sessionCookie } from './modules/auth/routes.js'
 import { registerDataRoutes } from './modules/data/routes.js'
 import { subjectFromSession } from './modules/auth/service.js'
@@ -116,6 +117,7 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       registerProjectConnectorRoutes(api, db, env)
       registerConnectorRoutes(api, db, env)
       registerSearchRoutes(api, db)
+      registerAiRoutes(api, db, env)
       registerDataRoutes(api, db, env)
     },
     { prefix: '/api/v1' },

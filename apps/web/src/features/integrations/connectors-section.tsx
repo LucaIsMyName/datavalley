@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '../../componen
 import { api } from '../../lib/api'
 import type { Project } from '@datavalley/api-client'
 import { ResourceIcon } from '../../components/resource-icon'
+import { AiConnectorDraft } from '../ai/connector-draft'
 
 export type ConnectorRecord = {
   id: string
@@ -415,6 +416,24 @@ function ConnectorEditorDialog(props: {
                 autoComplete="off"
               />
               </div>
+              <AiConnectorDraft
+                url={baseUrl}
+                onUse={(draft) => {
+                  setName(draft.name)
+                  setFormat(draft.format)
+                  setRecordsPath(draft.recordsPath ?? '')
+                  setExternalIdPath(draft.externalIdPath ?? '')
+                  setFields(
+                    draft.fields.length
+                      ? draft.fields.map((field) => ({
+                          sourceKey: field.sourceKey,
+                          targetFieldKey: field.targetFieldKey,
+                          targetLabel: field.targetLabel ?? field.targetFieldKey,
+                        }))
+                      : [emptyDraft()],
+                  )
+                }}
+              />
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label>{t('connectorFormat')}</Label>

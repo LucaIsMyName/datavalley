@@ -26,6 +26,7 @@ import type { SavedHit } from '../home/pages'
 import { ProjectDescription } from './projects-page'
 import { ProjectMembersDialog } from './project-members-dialog'
 import { CreateTableDialog } from './create-table-dialog'
+import { AiChat } from '../ai/chat'
 
 function rememberTableName(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -547,6 +548,7 @@ export function ProjectPage() {
               .finally(() => setRemovePending(false))
           }}
         />
+        <AiChat context={{ projectId }} active={!tableId} />
       </section>
     </TableToolbarProvider>
   )

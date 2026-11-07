@@ -12,6 +12,7 @@ function SettingsNav({ className }: { className?: string }) {
           { to: '/settings/users', key: 'users' },
           { to: '/settings/api-keys', key: 'apiKeys' },
           { to: '/settings/audit', key: 'audit' },
+          { to: '/settings/ai', key: 'ai' },
         ]
       : []),
   ]
