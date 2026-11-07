@@ -504,5 +504,9 @@
   "aiDraft": "Mit KI entwerfen",
   "aiNeedUrl": "Zuerst eine URL eingeben",
   "aiOtherTables": "Auch gefunden in",
-  "aiFormulaResult": "Vorgeschlagene Formel"
+  "aiFormulaResult": "Vorgeschlagene Formel",
+  "aiNewChat": "Neu",
+  "aiChats": "Chats",
+  "aiDeleteChat": "Chat löschen",
+  "aiNoChats": "Keine gespeicherten Chats"
 }

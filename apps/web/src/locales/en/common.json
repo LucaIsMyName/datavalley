@@ -504,5 +504,9 @@
   "aiDraft": "Draft with AI",
   "aiNeedUrl": "Enter a URL first",
   "aiOtherTables": "Also found in",
-  "aiFormulaResult": "Suggested formula"
+  "aiFormulaResult": "Suggested formula",
+  "aiNewChat": "New",
+  "aiChats": "Chats",
+  "aiDeleteChat": "Delete chat",
+  "aiNoChats": "No saved chats"
 }
