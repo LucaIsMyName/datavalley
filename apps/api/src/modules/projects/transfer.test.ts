@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ProjectTransferDocument } from '@datavalley/shared'
 import { ApiSession, createHarness, createUser, login, userByName } from '../../test/harness.js'
 import { bindRequestGrants } from '../../security/request-context.js'
+import { invalidateGrantsCache, writeGrantsCache } from '../../security/grants-cache.js'
 import { importProject } from './transfer.js'
 
 const password = 'correct horse battery'
@@ -107,5 +108,65 @@ describe('project transfer', () => {
     expect(again.project.name).toBe('Imported again')
 
     await harness.close()
+  })
+
+  it('imports when NODE_ENV is development and a stale grants TTL cache is populated', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const harness = await createHarness()
+    try {
+      await createUser(harness.db, harness.env, harness.organizationId, {
+        username: 'cache',
+        email: 'cache@example.com',
+        password,
+        role: 'admin',
+      })
+      const session = await new ApiSession(harness.app).prepare()
+      expect((await login(session, 'cache', password)).statusCode).toBe(200)
+
+      const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Cache' } })
+      const projectId = project.json().project.id as string
+
+      const table = await session.inject({
+        method: 'POST',
+        url: `/api/v1/projects/${projectId}/tables`,
+        payload: { name: 'Nums' },
+      })
+      const tableId = table.json().table.id as string
+      const column = await session.inject({
+        method: 'POST',
+        url: `/api/v1/tables/${tableId}/columns`,
+        payload: { name: 'Total', type: 'formula' },
+      })
+      const columnId = column.json().column.id as string
+      await session.inject({
+        method: 'POST',
+        url: `/api/v1/tables/${tableId}/rows`,
+        payload: { cells: {} },
+      })
+      await session.inject({
+        method: 'POST',
+        url: `/api/v1/columns/${columnId}/formula`,
+        payload: { expression: '1 + 1' },
+      })
+
+      const exported = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/export` })
+      const document = exported.json() as ProjectTransferDocument
+
+      const user = await userByName(harness.db, 'cache')
+      writeGrantsCache({ kind: 'user', id: user!.id }, [])
+
+      const imported = await session.inject({
+        method: 'POST',
+        url: '/api/v1/projects/import',
+        payload: { name: 'Cached import', document },
+      })
+      expect(imported.statusCode).toBe(200)
+      expect(imported.json().project.name).toBe('Cached import')
+
+      invalidateGrantsCache({ kind: 'user', id: user!.id })
+    } finally {
+      vi.unstubAllEnvs()
+      await harness.close()
+    }
   })
 })

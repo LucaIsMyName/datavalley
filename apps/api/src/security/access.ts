@@ -36,7 +36,7 @@ export function allows(subject: Subject, grants: Grant[], action: Action, resour
 export async function resolveGrants(db: AppDatabase, subject: Subject): Promise<Grant[]> {
   const cached = cachedGrants()
   if (cached !== undefined) return cached
-  return loadGrants(db, subject)
+  return queryGrantsFromDb(db, subject)
 }
 
 /** Replace this request's grant snapshot after new grants are written, so later checks see them. */
@@ -45,6 +45,7 @@ export async function refreshRequestGrants(db: AppDatabase, subject: Subject) {
   const current = cachedGrants()
   if (current) {
     current.splice(0, current.length, ...fresh)
+    bindRequestGrants(current)
     return
   }
   bindRequestGrants(fresh)
