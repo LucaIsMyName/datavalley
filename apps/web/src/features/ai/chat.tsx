@@ -1,12 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import type { AiCellProposal, AiChatResponse, AiFormulaProposal, AiHighlight, AiProposal } from '@datavalley/shared'
 import { Button } from '../../components/ui/button'
 import { api } from '../../lib/api'
 import { useAiHighlight } from './highlight-store'
+import { highlightsForDestination, safeAppPath } from './navigate'
 import { cellWritePlan } from './proposals'
 import { useAiEnabled } from './status'
 
@@ -33,6 +34,7 @@ export function AiChat({ context, active = true }: { context: ChatContext; activ
 
 function AiChatPanel({ context }: { context: ChatContext }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const setMarks = useAiHighlight((state) => state.setMarks)
   const clearMarks = useAiHighlight((state) => state.clear)
@@ -64,15 +66,10 @@ function AiChatPanel({ context }: { context: ChatContext }) {
           context,
         }),
       })
-      const mine = result.highlights.filter((item) => item.tableId === context.tableId)
-      if (mine.length > 0) {
-        setMarks({
-          tableId: context.tableId ?? mine[0].tableId,
-          cells: mine.flatMap((item) => item.cells),
-          rowIds: mine.flatMap((item) => item.rowIds),
-          columnIds: mine.flatMap((item) => item.columnIds),
-        })
-      }
+      const path = safeAppPath(result.navigation?.path)
+      const marks = highlightsForDestination(result.highlights, path, context.tableId)
+      if (marks) setMarks(marks)
+      if (path) navigate(path)
       setLines((current) => [...current, { role: 'assistant', content: result.message, proposals: result.proposals, highlights: result.highlights }])
     } catch (error) {
       setLines((current) => [...current, { role: 'assistant', content: error instanceof Error ? error.message : t('error') }])

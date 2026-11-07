@@ -2,7 +2,7 @@ import { Bell, BookOpen, FolderKanban, Hexagon, LayoutDashboard, LogOut, Menu, P
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { applyTheme, useSession } from '../stores/session'
 import { Breadcrumbs } from '../components/breadcrumbs'
@@ -21,6 +21,7 @@ import {
   SidebarTrigger,
 } from '../components/ui/sidebar'
 import { Toaster } from '../components/ui/sonner'
+import { AiChat } from '../features/ai/chat'
 import { FormulaWindow } from '../features/tables/formula-window'
 import { readSidebarOpen, writeSidebarOpen } from './sidebar-state'
 
@@ -160,6 +161,8 @@ function NotificationsBell({
 export function AppShell() {
   const { t, i18n } = useTranslation()
   const user = useSession((state) => state.user)
+  const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
+  const projectMatch = useMatch('/projects/:projectId')
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [nav, setNav] = useState(false)
@@ -227,6 +230,12 @@ export function AppShell() {
       </SidebarProvider>
       <Toaster />
       <FormulaWindow />
+      <AiChat
+        context={{
+          projectId: tableMatch?.params.projectId ?? projectMatch?.params.projectId,
+          tableId: tableMatch?.params.tableId,
+        }}
+      />
     </ContextMenuProvider>
   )
 }

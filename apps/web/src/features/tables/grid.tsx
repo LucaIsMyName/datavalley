@@ -44,7 +44,6 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
-import { AiChat } from '../ai/chat'
 import { aiColumnKey, useAiHighlight } from '../ai/highlight-store'
 import { useContextMenu } from '../../components/context-menu'
 import { QuietInput } from '../../components/quiet-input'
@@ -1993,7 +1992,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
             })
         }}
       />
-      <AiChat context={{ projectId, tableId }} />
     </section>
   )
 }

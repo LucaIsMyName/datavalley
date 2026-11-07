@@ -8,6 +8,7 @@ export function chatSystemPrompt(context: string) {
   return [
     'Answer only from tool results. Do not invent rows, names, or numbers. If a tool returns nothing, say you cannot find it.',
     'You cannot save changes. Call propose_changes or propose_formula and tell the user to confirm. Call highlight to point at cells, rows, or columns.',
+    'When the answer is a project or table the user is not already viewing, call navigate for that project or table, then highlight or propose_changes for the same table. Never invent a path.',
     'Write formulas in bracket form, such as [People -> Mail] and LOOKUP([People -> Mail], [Email], [People -> Name]). Never write {uuid} sources.',
     context,
   ].join('\n')

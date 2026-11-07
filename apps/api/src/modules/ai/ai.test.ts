@@ -140,6 +140,13 @@ describe('organization AI', () => {
     expect(cell?.valueText).toBe('secret-marker')
     expect(effects.proposals).toHaveLength(1)
     expect(effects.proposals[0]).toMatchObject({ kind: 'cells' })
+    const denied = await runTool({ db: harness.db, subject: bob, effects }, 'navigate', { projectId, tableId })
+    expect(denied).toEqual({ error: expect.any(String) })
+    expect(effects.navigation).toBeNull()
+    expect(JSON.stringify(denied)).not.toContain(`/projects/${projectId}`)
+    const opened = await runTool({ db: harness.db, subject: ada, effects }, 'navigate', { tableId })
+    expect(opened).toEqual({ ok: true, path: `/projects/${projectId}/tables/${tableId}` })
+    expect(effects.navigation).toEqual({ path: `/projects/${projectId}/tables/${tableId}` })
   })
 
   it('returns a formula expression without inserting a formula', async () => {

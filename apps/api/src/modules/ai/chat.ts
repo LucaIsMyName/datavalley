@@ -40,7 +40,12 @@ export async function answerChat(
     messages,
     run: (name, args) => runTool({ db, subject, effects }, name, args),
   })
-  return { message: result.message, highlights: effects.highlights, proposals: effects.proposals }
+  return {
+    message: result.message,
+    highlights: effects.highlights,
+    proposals: effects.proposals,
+    ...(effects.navigation ? { navigation: effects.navigation } : {}),
+  }
 }
 
 async function contextLine(db: AppDatabase, subject: Subject, context?: { projectId?: string; tableId?: string }) {

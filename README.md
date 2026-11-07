@@ -11,7 +11,7 @@ Self-hosted CRM: projects, dynamic tables, formulas, media, permissions, and int
 - **Integrations** — Built-in plugins (CSV, optional Google Sheets) plus user-defined HTTP data connectors (JSON/CSV/XML/HTML). Background worker runs sync jobs and schedules when Redis is configured. See [docs/connectors.md](docs/connectors.md).
 - **Collapsible sidebar** — Desktop nav collapses to icons; hover previews labels; the pinned open/closed state is stored in `localStorage`.
 - **Table editing** — Click a cell to select it. Enter, F2, or typing starts an edit. Tab moves across the row. Row and column deletes ask for confirmation. Saved views keep the grid, chart, or timeline you were using.
-- **AI assistant** — An admin turns a provider on at Settings → AI. Signed-in users can then ask about data they can already view. Suggestions for cells, formulas, and connectors stay drafts until the user confirms them with the existing save actions.
+- **AI assistant** — An admin turns a provider on at Settings → AI. Signed-in users can then ask from any page about data they can already view. The assistant can open the project or table it is describing. Suggestions for cells, formulas, and connectors stay drafts until the user confirms them with the existing save actions.
 
 ## Repository layout
 

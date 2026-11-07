@@ -1,6 +1,7 @@
 import { AppError } from '../../../errors.js'
 import { describeTableTool } from './describe-table.js'
 import { highlightTool } from './highlight.js'
+import { navigateTool } from './navigate.js'
 import { listProjectsTool } from './list-projects.js'
 import { listTablesTool } from './list-tables.js'
 import { proposeChangesTool } from './propose-changes.js'
@@ -18,6 +19,7 @@ export const aiTools: AiTool[] = [
   searchTool,
   sampleRowsTool,
   highlightTool,
+  navigateTool,
   proposeChangesTool,
   proposeFormulaTool,
 ]

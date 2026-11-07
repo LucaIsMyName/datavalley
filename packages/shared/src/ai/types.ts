@@ -56,4 +56,5 @@ export type AiChatResponse = {
   message: string
   highlights: AiHighlight[]
   proposals: AiProposal[]
+  navigation?: { path: string }
 }

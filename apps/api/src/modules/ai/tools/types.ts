@@ -5,6 +5,7 @@ import type { Subject } from '../../../security/subject.js'
 export type ToolEffects = {
   highlights: AiHighlight[]
   proposals: Array<AiCellProposal | AiFormulaProposal>
+  navigation: { path: string } | null
 }
 
 export type ToolHost = {
@@ -21,7 +22,7 @@ export type AiTool = {
 }
 
 export function emptyEffects(): ToolEffects {
-  return { highlights: [], proposals: [] }
+  return { highlights: [], proposals: [], navigation: null }
 }
 
 export function asRecord(value: unknown): Record<string, unknown> {
