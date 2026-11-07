@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
@@ -64,6 +65,9 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
   const panelRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<FormulaEditorHandle>(null)
   const [draft, setDraft] = useState<string | null>(null)
+  const baseline = useRef<string | null>(null)
+  const saveRef = useRef<() => void>(() => {})
+  const [confirmClose, setConfirmClose] = useState(false)
   const [catalog, setCatalog] = useState<FormulaCatalog>({ tableId: cell.tableId, columns: [], relations: [] })
   const [preview, setPreview] = useState('')
   const [error, setError] = useState('')
@@ -75,9 +79,14 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
   useEffect(() => {
     let cancelled = false
     void api.request<{ source: string }>(`/rows/${cell.rowId}/columns/${cell.columnId}/formula`).then((result) => {
-      if (!cancelled) setDraft(result.source ?? '')
+      if (!cancelled) {
+        const source = result.source ?? ''
+        baseline.current = source
+        setDraft(source)
+      }
     }).catch((caught: unknown) => {
       if (!cancelled) {
+        baseline.current = ''
         setDraft('')
         setError(caught instanceof ApiClientError ? caught.message : t('error'))
       }
@@ -198,11 +207,37 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
       })
       await queryClient.invalidateQueries({ queryKey: ['rows', cell.tableId] })
       await queryClient.invalidateQueries({ queryKey: ['table', cell.tableId] })
+      baseline.current = draft
+      useFormulaWindow.getState().close()
     } catch (caught) {
       setError(caught instanceof ApiClientError ? caught.message : t('error'))
     } finally {
       setSaving(false)
     }
+  }
+
+  saveRef.current = () => {
+    void save()
+  }
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's') return
+      const target = event.target
+      if (target instanceof Node && panelRef.current && !panelRef.current.contains(target)) return
+      event.preventDefault()
+      saveRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  function requestClose() {
+    if (draft !== null && baseline.current !== null && draft !== baseline.current) {
+      setConfirmClose(true)
+      return
+    }
+    useFormulaWindow.getState().close()
   }
 
   return (
@@ -229,7 +264,7 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
             </>
           ) : null}
         </h2>
-        <Button type="button" variant="ghost" className="h-7 px-2" aria-label={t('close')} onClick={() => useFormulaWindow.getState().close()}>
+        <Button type="button" variant="ghost" className="h-7 px-2" aria-label={t('close')} onClick={requestClose}>
           <X className="size-4" />
         </Button>
       </div>
@@ -258,11 +293,11 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
           )}
         </div>
         {error ? (
-          <p className="min-h-5 truncate font-mono text-sm text-danger" role="alert" title={error}>
+          <p className="min-h-5 break-words font-mono text-sm text-danger" role="alert">
             {error}
           </p>
         ) : (
-          <p className="min-h-5 truncate font-mono text-sm text-muted-foreground" role="status" aria-live="polite" title={preview}>
+          <p className="min-h-5 break-words font-mono text-sm text-muted-foreground" role="status" aria-live="polite">
             {preview}
           </p>
         )}
@@ -271,6 +306,18 @@ function FormulaPanel({ cell, x, y, width, height }: { cell: FormulaCell; x: num
           <Button type="button" onClick={() => void save()} disabled={saving || draft === null}>{t('save')}</Button>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmClose}
+        title={t('close')}
+        body={t('discardFormula')}
+        confirmLabel={t('close')}
+        cancelLabel={t('cancel')}
+        onClose={() => setConfirmClose(false)}
+        onConfirm={() => {
+          setConfirmClose(false)
+          useFormulaWindow.getState().close()
+        }}
+      />
       <button
         type="button"
         aria-label={t('formulaResize')}

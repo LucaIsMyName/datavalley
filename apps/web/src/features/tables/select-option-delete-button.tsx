@@ -36,7 +36,7 @@ export function SelectOptionDeleteButton({
         <Button
           type="button"
           variant="ghost"
-          className="h-7 w-7 shrink-0 px-0 text-destructive hover:text-destructive"
+          className="h-7 w-7 shrink-0 px-0 text-danger hover:text-danger"
           disabled={disabled || busy || pending}
           aria-label={t('deleteSelectOption', { label: option.label })}
           title={t('deleteSelectOptionConfirm', { label: option.label })}

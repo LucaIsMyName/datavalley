@@ -95,10 +95,12 @@ function blockClassName(block: NoteBlock): string {
 
 function BlockTag({
   block,
+  number,
   readOnly,
   onToggleTodo,
 }: {
   block: NoteBlock
+  number?: number
   readOnly: boolean
   onToggleTodo?: () => void
 }) {
@@ -107,7 +109,7 @@ function BlockTag({
     return <span className="mt-0.5 w-4 shrink-0 text-muted-foreground">•</span>
   }
   if (block.type === 'numbered') {
-    return <span className="mt-0.5 w-4 shrink-0 text-muted-foreground">1.</span>
+    return <span className="mt-0.5 w-6 shrink-0 text-muted-foreground">{number ?? 1}.</span>
   }
   if (block.type === 'todo') {
     return (
@@ -347,7 +349,7 @@ function NotesBlockEditor({
               <button
                 type="button"
                 aria-label={t('notesInsertBlock')}
-                className="absolute left-0 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:bg-accent group-hover/insert:opacity-100"
+                className="absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:opacity-0 md:group-hover/insert:opacity-100 md:focus-visible:opacity-100"
                 onClick={() => insertAt(index)}
               >
                 <Plus className="size-3.5" />
@@ -361,7 +363,7 @@ function NotesBlockEditor({
                   <button
                     type="button"
                     aria-label={t('notesBlockMenu')}
-                    className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground opacity-0 hover:bg-accent group-hover/row:opacity-100"
+                    className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100"
                   >
                     <MoreHorizontal className="size-3.5" />
                   </button>
@@ -389,6 +391,7 @@ function NotesBlockEditor({
             )}
             <BlockTag
               block={block}
+              number={blocks.slice(0, index + 1).filter((item) => item.type === 'numbered').length}
               readOnly={readOnly}
               onToggleTodo={() => {
                 commit(
@@ -535,7 +538,15 @@ export function NotesDrawer({
       }}
     >
       <Dialog.Portal>
-        <div className="fixed inset-0 z-40 bg-black/20" />
+        <button
+          type="button"
+          aria-label={t('close')}
+          className="fixed inset-0 z-40 bg-black/20"
+          onClick={() => {
+            if (row) flushRowEdits(row.id)
+            onClose()
+          }}
+        />
         <Dialog.Content
           data-notes-drawer=""
           className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col gap-3 border-l border-border bg-card p-4 shadow-lg"

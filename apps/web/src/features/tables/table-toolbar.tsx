@@ -7,7 +7,10 @@ import { Button } from '../../components/ui/button'
 export type TableToolbarView = {
   id: string
   name: string
+  active?: boolean
   apply: () => void
+  rename?: () => void
+  remove?: () => void
 }
 
 export type TableToolbarActions = {
@@ -138,14 +141,45 @@ export function TableToolbarRow() {
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="z-50 min-w-44 border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
-            {actions.views.length === 0 ? null : (
+            {actions.views.length === 0 ? (
+              <p className="px-2 py-1.5 text-sm text-muted-foreground">{t('noViews')}</p>
+            ) : (
               actions.views.map((view) => (
                 <DropdownMenu.Item
                   key={view.id}
-                  className="flex min-h-9 cursor-pointer items-center px-2 text-sm outline-none data-[highlighted]:bg-accent"
+                  className="flex min-h-9 cursor-pointer items-center gap-2 px-2 text-sm outline-none data-[highlighted]:bg-accent"
                   onSelect={() => view.apply()}
                 >
-                  {view.name}
+                  <span className="min-w-0 flex-1 truncate">{view.name}</span>
+                  {view.active ? <Check className="size-3.5 shrink-0" aria-hidden /> : null}
+                  {view.rename ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs underline"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        view.rename?.()
+                      }}
+                    >
+                      {t('rename')}
+                    </button>
+                  ) : null}
+                  {view.remove ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-xs text-danger underline"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        view.remove?.()
+                      }}
+                    >
+                      {t('delete')}
+                    </button>
+                  ) : null}
                 </DropdownMenu.Item>
               ))
             )}

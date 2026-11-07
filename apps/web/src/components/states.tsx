@@ -28,17 +28,18 @@ export function Page({ title, actions, children }: { title: ReactNode; actions?:
 export function LoadingBlock() {
   const { t } = useTranslation()
   return (
-    <div className="h-40 animate-pulse bg-muted" role="status" aria-live="polite">
+    <div className="h-40 animate-pulse bg-muted motion-reduce:animate-none" role="status" aria-live="polite">
       <span className="sr-only">{t('loading')}</span>
     </div>
   )
 }
 
-export function EmptyState({ title, body }: { title: string; body: string }) {
+export function EmptyState({ title, body, actions }: { title: string; body: string; actions?: ReactNode }) {
   return (
-    <div className="flex h-40 flex-col items-center justify-center border border-dashed border-border text-center">
+    <div className="flex min-h-40 flex-col items-center justify-center border border-dashed border-border px-4 py-6 text-center">
       <p className="font-medium">{title}</p>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">{body}</p>
+      {actions ? <div className="mt-3 flex flex-wrap items-center justify-center gap-2">{actions}</div> : null}
     </div>
   )
 }
@@ -46,8 +47,8 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
 export function ErrorState({ message }: { message: string }) {
   const { t } = useTranslation()
   return (
-    <div className="flex h-40 items-center justify-center border border-danger/40 bg-card px-4 text-sm text-danger">
-      {t('error')}: {message}
+    <div role="alert" className="flex h-40 items-center justify-center border border-danger/40 bg-card px-4 text-center text-sm text-danger">
+      {message || t('error')}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Input } from './ui/input'
+import { Label } from './ui/label'
 import { SelectField } from './ui/select'
 
 export type CsvDelimiterValue =
@@ -32,6 +33,7 @@ export function CsvDelimiterField({ value, onChange }: CsvDelimiterFieldProps) {
 
   return (
     <div className="flex flex-col gap-1.5">
+      <Label>{t('csvDelimiter')}</Label>
       <SelectField
         label={t('csvDelimiter')}
         value={preset}

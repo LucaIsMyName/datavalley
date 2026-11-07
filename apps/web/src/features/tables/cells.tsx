@@ -16,8 +16,6 @@ import { Badge } from '../../components/ui/badge'
 import { Checkbox } from '../../components/ui/checkbox'
 import { cellSelectTriggerClassName, selectDropdownPanelClassName, SelectField } from '../../components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
-import { Input } from '../../components/ui/input'
-import { Button } from '../../components/ui/button'
 import { createColumnOption, SelectCellOptionsPanel } from './select-cell-options-panel'
 import { formatSelectCellSummary, sortOptionsByPosition } from './select-options-utils'
 import { api } from '../../lib/api'
@@ -184,7 +182,8 @@ export function CellEditor({
           type="button"
           className="h-9 min-w-0 flex-1 truncate text-left font-mono leading-9"
           aria-label={editLabel}
-          onClick={(event) => {
+          onClick={onOpen}
+          onDoubleClick={(event) => {
             event.preventDefault()
             onActivate()
           }}
@@ -215,24 +214,14 @@ export function CellEditor({
       : column.type === 'number' || column.type === 'currency' || isDateColumnType(column.type)
             ? formatCell(column, row.cells[column.id], i18n.language)
             : text
-    const openDate = isDateColumnType(column.type)
     return (
       <div className="flex h-full min-w-0 flex-1 items-center gap-1">
         <button
           type="button"
           className="h-9 min-w-0 flex-1 truncate text-left leading-9"
           aria-label={editLabel}
-          onClick={(event) => {
-            if (openDate) {
-              event.preventDefault()
-              event.stopPropagation()
-              onActivate()
-              return
-            }
-            onOpen()
-          }}
+          onClick={onOpen}
           onDoubleClick={(event) => {
-            if (openDate) return
             event.preventDefault()
             onActivate()
           }}
@@ -408,17 +397,33 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
   const [draft, setDraft] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ tagId: string; anchor: ViewportAnchor } | null>(null)
+  const [picker, setPicker] = useState<ViewportAnchor | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const pending = useRef(false)
   const skipBlur = useRef(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const wasActive = useRef(false)
   useEffect(() => {
-    if (!menu) return
+    if (active && !wasActive.current && rootRef.current) {
+      const rect = rootRef.current.getBoundingClientRect()
+      setPicker({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+    }
+    if (!active) setPicker(null)
+    wasActive.current = active
+  }, [active])
+  useEffect(() => {
+    if (!menu && !picker) return
     const close = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null
-      if (target?.closest('[data-tag-menu]') || target?.closest('[data-tag-chevron]')) return
+      if (target?.closest('[data-tag-menu]') || target?.closest('[data-tag-chevron]') || target?.closest('[data-tag-picker]')) return
       setMenu(null)
+      setPicker(null)
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenu(null)
+      if (event.key === 'Escape') {
+        setMenu(null)
+        setPicker(null)
+      }
     }
     window.addEventListener('pointerdown', close)
     window.addEventListener('keydown', onKey)
@@ -426,10 +431,23 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
       window.removeEventListener('pointerdown', close)
       window.removeEventListener('keydown', onKey)
     }
-  }, [menu])
+  }, [menu, picker])
   function choose(next: string[]) {
     onEdit(next, 0)
     onFlush()
+  }
+  async function createTag() {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    try {
+      const result = await api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags`, { method: 'POST', body: JSON.stringify({ name: trimmed }) })
+      onCreated('tag', { ...result.tag, tableId })
+      choose(selected.includes(result.tag.id) ? selected : [...selected, result.tag.id])
+      setName('')
+      setCreateError(null)
+    } catch (error) {
+      setCreateError(error instanceof ApiClientError ? error.message : t('error'))
+    }
   }
   async function saveName(tag: CatalogItem) {
     if (pending.current) return
@@ -454,6 +472,7 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
   const menuTag = menu ? names([menu.tagId], tags)[0] : null
   return (
     <div
+      ref={rootRef}
       className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden"
       onClick={onOpen}
       onDoubleClick={(event) => {
@@ -494,19 +513,7 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
               }}
             />
           ) : (
-            <button
-              type="button"
-              className="truncate"
-              onClick={(event) => {
-                event.stopPropagation()
-                pending.current = false
-                setRenameError(null)
-                setDraft(tag.name)
-                setRenamingId(tag.id)
-              }}
-            >
-              {tag.name}
-            </button>
+            <span className="truncate">{tag.name}</span>
           )}
           <button
             type="button"
@@ -527,37 +534,79 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
           </button>
         </Badge>
       ))}
-      {active ? (
-        <input
-          autoFocus={renamingId == null}
-          aria-label={t('editColumn', { name: column.name })}
-          className="h-7 min-w-16 flex-1 bg-transparent outline-none"
-          value={name}
-          placeholder={t('newTag')}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return
-            event.preventDefault()
-            const trimmed = name.trim()
-            if (!trimmed) return
-            void api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags`, { method: 'POST', body: JSON.stringify({ name: trimmed }) }).then((result) => {
-              onCreated('tag', { ...result.tag, tableId })
-              choose(selected.includes(result.tag.id) ? selected : [...selected, result.tag.id])
-              setName('')
-            })
-          }}
-        />
-      ) : null}
+      <button
+        type="button"
+        aria-label={t('chooseTag')}
+        data-tag-chevron=""
+        className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground"
+        onClick={(event) => {
+          event.stopPropagation()
+          if (picker) {
+            setPicker(null)
+            return
+          }
+          onActivate()
+          const rect = event.currentTarget.getBoundingClientRect()
+          setPicker({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+        }}
+      >
+        <ChevronDown className="size-3.5" />
+      </button>
       {renameError ? <FormatHint message={renameError} /> : null}
+      {picker ? (
+        <AnchoredLayer anchor={picker} prefer="below" align="start" tagMenu zIndex={100} className="w-56 border border-border bg-card p-2 shadow-md">
+          <div data-tag-picker="">
+            <ul className="max-h-40 overflow-auto">
+              {tags.length === 0 ? <li className="px-2 py-1 text-sm text-muted-foreground">{t('searchEmpty')}</li> : null}
+              {tags.map((tag) => {
+                const on = selected.includes(tag.id)
+                return (
+                  <li key={tag.id}>
+                    <button
+                      type="button"
+                      className={`block min-h-9 w-full truncate px-2 text-left text-sm hover:bg-accent ${on ? 'font-medium' : ''}`}
+                      onClick={() => choose(on ? selected.filter((id) => id !== tag.id) : [...selected, tag.id])}
+                    >
+                      {tag.name}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            <input
+              aria-label={t('newTag')}
+              className="mt-2 h-8 w-full border border-border bg-transparent px-2 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              value={name}
+              placeholder={t('newTag')}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                void createTag()
+              }}
+            />
+            {createError ? <p role="alert" className="mt-1 text-xs text-danger">{createError}</p> : null}
+          </div>
+        </AnchoredLayer>
+      ) : null}
       {menu && menuTag ? (
         <TagColorMenu
           tag={menuTag}
           anchor={menu.anchor}
+          onRename={() => {
+            pending.current = false
+            setRenameError(null)
+            setDraft(menuTag.name)
+            setRenamingId(menuTag.id)
+            setMenu(null)
+          }}
           onColor={(color) => {
             void api.request<{ tag: CatalogItem }>(`/tables/${tableId}/tags/${menuTag.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
               onCreated('tag', { ...result.tag, tableId })
               setMenu(null)
+            }).catch((error: unknown) => {
+              setCreateError(error instanceof ApiClientError ? error.message : t('error'))
             })
           }}
           onRemove={() => {
@@ -570,7 +619,7 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
   )
 }
 
-function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; anchor: ViewportAnchor; onColor: (color: string) => void; onRemove: () => void }) {
+function TagColorMenu({ tag, anchor, onColor, onRemove, onRename }: { tag: CatalogItem; anchor: ViewportAnchor; onColor: (color: string) => void; onRemove: () => void; onRename: () => void }) {
   const { t } = useTranslation()
   const current = palette.includes(tag.color) ? tag.color : 'slate'
   return (
@@ -587,7 +636,8 @@ function TagColorMenu({ tag, anchor, onColor, onRemove }: { tag: CatalogItem; an
           />
         ))}
       </div>
-      <button type="button" className="mt-2 w-full text-left text-sm" onClick={onRemove}>{t('removeTag')}</button>
+      <button type="button" className="mt-2 w-full text-left text-sm" onClick={onRename}>{t('rename')}</button>
+      <button type="button" className="mt-1 w-full text-left text-sm" onClick={onRemove}>{t('removeTag')}</button>
     </AnchoredLayer>
   )
 }
@@ -600,8 +650,19 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
   const [draft, setDraft] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
   const [menu, setMenu] = useState<ViewportAnchor | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const pending = useRef(false)
   const skipBlur = useRef(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const wasActive = useRef(false)
+  useEffect(() => {
+    if (active && !wasActive.current && rootRef.current) {
+      const rect = rootRef.current.getBoundingClientRect()
+      setMenu({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+    }
+    if (!active) setMenu(null)
+    wasActive.current = active
+  }, [active])
   useEffect(() => {
     if (!menu) return
     const close = (event: PointerEvent) => {
@@ -623,6 +684,19 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
     onEdit(next, 0)
     onFlush()
     setMenu(null)
+  }
+  async function createStatus() {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    try {
+      const result = await api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses`, { method: 'POST', body: JSON.stringify({ name: trimmed }) })
+      onCreated('status', { ...result.status, tableId })
+      choose(result.status.id)
+      setName('')
+      setCreateError(null)
+    } catch (error) {
+      setCreateError(error instanceof ApiClientError ? error.message : t('error'))
+    }
   }
   async function saveName() {
     if (!current || pending.current) return
@@ -646,6 +720,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
   const currentColor = current && palette.includes(current.color) ? current.color : 'slate'
   return (
     <div
+      ref={rootRef}
       className="flex h-full w-full min-w-0 items-center gap-1 overflow-hidden"
       onClick={onOpen}
       onDoubleClick={(event) => {
@@ -677,36 +752,35 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
             <ChevronDown className="size-3" />
           </button>
         </Badge>
-      ) : null}
-      {active ? (
-        <input
-          autoFocus
-          aria-label={t('newStatus')}
-          className="h-7 min-w-16 flex-1 bg-transparent outline-none"
-          value={name}
-          placeholder={t('newStatus')}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || !name.trim()) return
-            event.preventDefault()
-            void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses`, { method: 'POST', body: JSON.stringify({ name: name.trim() }) }).then((result) => {
-              onCreated('status', { ...result.status, tableId })
-              choose(result.status.id)
-              setName('')
-            })
+      ) : (
+        <button
+          type="button"
+          aria-label={t('chooseStatus')}
+          data-tag-chevron=""
+          className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (menu) {
+              setMenu(null)
+              return
+            }
+            onActivate()
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMenu({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
           }}
-        />
-      ) : null}
+        >
+          <ChevronDown className="size-3.5" />
+        </button>
+      )}
       {renameError ? <FormatHint message={renameError} /> : null}
-      {menu && current ? (
+      {menu ? (
         <AnchoredLayer anchor={menu} prefer="below" align="start" tagMenu zIndex={100} className="w-[min(12rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-md">
           <ul className="max-h-40 overflow-auto">
             {statuses.map((status) => (
               <li key={status.id}>
                 <button
                   type="button"
-                  className={`block min-h-9 w-full truncate px-2 text-left text-sm hover:bg-accent ${status.id === current.id ? 'font-medium' : ''}`}
+                  className={`block min-h-9 w-full truncate px-2 text-left text-sm hover:bg-accent ${status.id === current?.id ? 'font-medium' : ''}`}
                   onClick={() => choose(status.id)}
                 >
                   {status.name}
@@ -714,6 +788,8 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
               </li>
             ))}
           </ul>
+          {current ? (
+          <>
           <input
             autoFocus
             aria-label={t('rename')}
@@ -757,12 +833,30 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
                   void api.request<{ status: CatalogItem }>(`/tables/${tableId}/statuses/${current.id}`, { method: 'PATCH', body: JSON.stringify({ color }) }).then((result) => {
                     onCreated('status', { ...result.status, tableId })
                     setMenu(null)
+                  }).catch((error: unknown) => {
+                    setCreateError(error instanceof ApiClientError ? error.message : t('error'))
                   })
                 }}
               />
             ))}
           </div>
           <button type="button" className="mt-2 w-full text-left text-sm" onClick={() => choose('')}>{t('clearCell')}</button>
+          </>
+          ) : null}
+          <input
+            aria-label={t('newStatus')}
+            className="mt-2 h-8 w-full border border-border bg-transparent px-2 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            value={name}
+            placeholder={t('newStatus')}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              void createStatus()
+            }}
+          />
+          {createError ? <p role="alert" className="mt-1 text-xs text-danger">{createError}</p> : null}
         </AnchoredLayer>
       ) : null}
     </div>

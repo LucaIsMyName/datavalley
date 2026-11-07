@@ -10,7 +10,7 @@ const tokenClass: Record<ExampleTokenType, string> = {
 
 export function ApiExample({ code }: { code: string }) {
   return (
-    <pre className="border mt-1 overflow-x-auto bg-muted-background p-3 font-mono text-xs">
+    <pre className="mt-1 overflow-x-auto border border-border bg-muted p-3 font-mono text-xs">
       {tokenizeExample(code).map((token, index) => (
         <span key={index} className={tokenClass[token.type] || undefined}>
           {token.text}

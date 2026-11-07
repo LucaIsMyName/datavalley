@@ -4,10 +4,13 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router'
+import { toast } from 'sonner'
 import type { Project } from '@datavalley/api-client'
 import { ResourceIcon } from '../../components/resource-icon'
 import { useContextMenu } from '../../components/context-menu'
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Card } from '../../components/ui/card'
 import { ConfirmDialog, PromptDialog } from '../../components/confirm-dialog'
@@ -27,6 +30,8 @@ export function ProjectsPage() {
   const [rename, setRename] = useState<Project | null>(null)
   const [remove, setRemove] = useState<Project | null>(null)
   const [creating, setCreating] = useState(false)
+  const [renamePending, setRenamePending] = useState(false)
+  const [removePending, setRemovePending] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [customers, setCustomers] = useState(false)
   const [createError, setCreateError] = useState('')
@@ -65,7 +70,7 @@ export function ProjectsPage() {
           <Button
             type="button"
             onClick={() => {
-              setProjectName(t('name'))
+              setProjectName('')
               setCustomers(false)
               setCreating(true)
             }}
@@ -78,7 +83,10 @@ export function ProjectsPage() {
       {projects.isLoading && !projects.data ? <LoadingBlock /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
       {projects.data && projects.data.projects.length === 0 ? (
-        <EmptyState title={t('emptyProjects')} body={t('emptyProjectsBody')} />
+        <EmptyState
+          title={t('emptyProjects')}
+          body={user?.role === 'admin' ? t('emptyProjectsBody') : t('emptyProjectsBodyViewer')}
+        />
       ) : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {projects.data?.projects.map((project) => {
@@ -160,11 +168,11 @@ export function ProjectsPage() {
                 create.mutate({ name, template: customers ? 'customers' : undefined })
               }}
             >
-              <input
+              <Label htmlFor="new-project-name">{t('name')}</Label>
+              <Input
+                id="new-project-name"
                 ref={nameInput}
                 autoFocus
-                aria-label={t('name')}
-                className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
               />
@@ -189,7 +197,7 @@ export function ProjectsPage() {
                   {t('cancel')}
                 </Button>
                 <Button type="submit" disabled={create.isPending}>
-                  {t('confirm')}
+                  {t('create')}
                 </Button>
               </div>
             </form>
@@ -203,31 +211,45 @@ export function ProjectsPage() {
         value={rename?.name ?? ''}
         confirmLabel={t('save')}
         cancelLabel={t('cancel')}
+        pending={renamePending}
         onClose={() => setRename(null)}
         onSubmit={(next) => {
-          if (!rename) return
+          if (!rename || renamePending) return
+          const project = rename
+          setRenamePending(true)
           void api
-            .request(`/projects/${rename.id}`, {
+            .request(`/projects/${project.id}`, {
               method: 'PATCH',
               body: JSON.stringify({ name: next }),
             })
             .then(() => queryClient.invalidateQueries({ queryKey: ['projects'] }))
-          setRename(null)
+            .then(() => setRename(null))
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : t('error'))
+            })
+            .finally(() => setRenamePending(false))
         }}
       />
       <ConfirmDialog
         open={Boolean(remove)}
         title={t('deleteProjectTitle')}
         body={t('deleteProjectWarning', { name: remove?.name ?? '' })}
-        confirmLabel={t('confirm')}
+        confirmLabel={t('delete')}
         cancelLabel={t('cancel')}
+        pending={removePending}
         onClose={() => setRemove(null)}
         onConfirm={() => {
-          if (!remove) return
+          if (!remove || removePending) return
+          const project = remove
+          setRemovePending(true)
           void api
-            .request(`/projects/${remove.id}`, { method: 'DELETE' })
+            .request(`/projects/${project.id}`, { method: 'DELETE' })
             .then(() => queryClient.invalidateQueries({ queryKey: ['projects'] }))
-          setRemove(null)
+            .then(() => setRemove(null))
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : t('error'))
+            })
+            .finally(() => setRemovePending(false))
         }}
       />
     </Page>

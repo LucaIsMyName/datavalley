@@ -195,6 +195,14 @@ describe('grid helpers', () => {
       row: 0,
       column: 1,
     })
+    expect(moveSelection({ row: 0, column: 1 }, 'Tab', { rows: 2, columns: 2 })).toEqual({
+      row: 0,
+      column: 1,
+    })
+    expect(moveSelection({ row: 0, column: 1 }, 'Shift+Tab', { rows: 2, columns: 2 })).toEqual({
+      row: 0,
+      column: 0,
+    })
   })
 
   it('caps the undo stack at 50 commands', () => {

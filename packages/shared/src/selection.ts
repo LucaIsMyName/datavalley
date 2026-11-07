@@ -11,6 +11,7 @@ export function moveSelection(
   if (key === 'ArrowLeft') next.column -= 1
   if (key === 'ArrowRight') next.column += 1
   if (key === 'Tab') next.column += 1
+  if (key === 'Shift+Tab') next.column -= 1
   if (key === 'Enter') next.row += 1
   next.row = Math.max(0, Math.min(bounds.rows - 1, next.row))
   next.column = Math.max(0, Math.min(bounds.columns - 1, next.column))

@@ -5,6 +5,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from 'react-router'
+import { toast } from 'sonner'
 import type { Project, TableRecord } from '@datavalley/api-client'
 import { IconButton } from '../../components/icon-button'
 import { QuietInput } from '../../components/quiet-input'
@@ -61,6 +62,7 @@ export function ProjectPage() {
   const [membersOpen, setMembersOpen] = useState(false)
   const [descriptionOpen, setDescriptionOpen] = useState(false)
   const [remove, setRemove] = useState<TableRecord | null>(null)
+  const [removePending, setRemovePending] = useState(false)
   const [creatingTable, setCreatingTable] = useState(false)
   const project = useQuery({
     queryKey: ['project', projectId],
@@ -523,20 +525,26 @@ export function ProjectPage() {
           body={t('deleteTableWarning', { name: remove?.name ?? '' })}
           confirmLabel={t('confirm')}
           cancelLabel={t('cancel')}
+          pending={removePending}
           onClose={() => setRemove(null)}
           onConfirm={() => {
-            if (!remove) return
-            const deletedId = remove.id
-            setRemove(null)
+            if (!remove || removePending) return
+            const deleted = remove
+            setRemovePending(true)
             void deleteTableInProject({
               projectId,
-              tableId: deletedId,
+              tableId: deleted.id,
               tables: tableRows,
               activeTableId: tableId,
               queryClient,
               navigate,
               api,
             })
+              .then(() => setRemove(null))
+              .catch((error: unknown) => {
+                toast.error(error instanceof Error ? error.message : t('error'))
+              })
+              .finally(() => setRemovePending(false))
           }}
         />
       </section>

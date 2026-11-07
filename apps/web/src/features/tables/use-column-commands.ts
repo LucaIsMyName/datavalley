@@ -209,6 +209,8 @@ export function useColumnCommands(scope: Scope) {
       setConfirm({
         title: t('typeChangeTitle'),
         body: t('typeChangeWarning', { count: preview.cleared }),
+        confirmLabel: t('confirm'),
+        tone: 'default',
         run,
       })
       return
@@ -247,6 +249,8 @@ export function useColumnCommands(scope: Scope) {
       setConfirm({
         title: t('typeChangeTitle'),
         body: t('typeChangeWarning', { count: preview.cleared }),
+        confirmLabel: t('confirm'),
+        tone: 'default',
         run,
       })
       return
@@ -450,6 +454,8 @@ export function useColumnCommands(scope: Scope) {
       setConfirm({
         title: t('selectModeSingleTitle'),
         body: t('selectModeSingleBody', { count: affected }),
+        confirmLabel: t('confirm'),
+        tone: 'default',
         run,
       })
       return

@@ -48,20 +48,17 @@ export function DashboardPage() {
     queryKey: ['favorites'],
     queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites'),
   })
-  if (projects.isError)
-    return (
-      <Page title={t('dashboard')}>
-        <ErrorState message={(projects.error as Error).message} />
-      </Page>
-    )
   const projectRows = projects.data?.projects ?? []
   return (
     <Page title={t('dashboard')}>
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="flex min-h-40 flex-col p-4">
           <h2 className="font-medium">{t('projects')}</h2>
-          {projects.isLoading ? <LoadingBlock /> : null}
-          {projectRows.length === 0 ? (
+          {projects.isLoading ? (
+            <LoadingBlock />
+          ) : projects.isError ? (
+            <ErrorState message={(projects.error as Error).message} />
+          ) : projectRows.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">{t('emptyProjects')}</p>
           ) : (
             <div className="mt-2 max-h-80 overflow-auto">
@@ -127,7 +124,7 @@ export function RecentPage() {
     <Page title={t('recent')}>
       {recents.isLoading ? <LoadingBlock /> : null}
       {recents.isError ? <ErrorState message={(recents.error as Error).message} /> : null}
-      {(recents.data?.recents.length ?? 0) === 0 && !recents.isLoading ? (
+      {!recents.isLoading && !recents.isError && (recents.data?.recents.length ?? 0) === 0 ? (
         <EmptyState title={t('recentEmpty')} body={t('recentEmptyBody')} />
       ) : null}
       <ul className="flex flex-col gap-2">
@@ -156,16 +153,16 @@ export function FavoritesPage() {
     <Page title={t('favorites')}>
       {favorites.isLoading ? <LoadingBlock /> : null}
       {favorites.isError ? <ErrorState message={(favorites.error as Error).message} /> : null}
-      {(favorites.data?.favorites.length ?? 0) === 0 && !favorites.isLoading ? (
+      {!favorites.isLoading && !favorites.isError && (favorites.data?.favorites.length ?? 0) === 0 ? (
         <EmptyState title={t('favoritesEmpty')} body={t('favoritesEmptyBody')} />
       ) : null}
       <ul className="flex flex-col gap-2">
         {favorites.data?.favorites.map((item) => (
           <li key={`${item.resourceType}:${item.resourceId}`}>
             <Link to={item.href}>
-              <Card className="flex min-h-11 items-center gap-2 p-3 text-sm">
+              <Card className="flex min-h-11 min-w-0 items-center gap-2 p-3 text-sm">
                 <ResourceIcon name={item.icon} />
-                <span className="truncate">{item.title}</span>
+                <SavedRowTitle hit={item} />
               </Card>
             </Link>
           </li>

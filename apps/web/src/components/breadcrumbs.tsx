@@ -11,10 +11,24 @@ import { projectRouteParams } from './project-route'
 
 export type Crumb = { label: string; to?: string }
 
-const TOP_LEVEL_PATHS = new Set(['/', '/projects', '/recent', '/favorites', '/integrations'])
+const TOP_LEVEL_PATHS = new Set(['/', '/projects', '/recent', '/favorites', '/media', '/integrations'])
+
+const TOP_LEVEL_CRUMBS: Record<string, string> = {
+  '/': 'dashboard',
+  '/projects': 'projects',
+  '/recent': 'recent',
+  '/favorites': 'favorites',
+  '/media': 'media',
+  '/doc': 'docs',
+  '/integrations': 'integrations',
+}
 
 export function breadcrumbHidden(pathname: string) {
   return TOP_LEVEL_PATHS.has(pathname)
+}
+
+export function topLevelCrumbKey(pathname: string) {
+  return TOP_LEVEL_CRUMBS[pathname] ?? 'dashboard'
 }
 
 export function useCrumbs(): Crumb[] {
@@ -69,15 +83,7 @@ export function useCrumbs(): Crumb[] {
     ]
   }
 
-  const singles: Record<string, string> = {
-    '/': 'dashboard',
-    '/projects': 'projects',
-    '/recent': 'recent',
-    '/favorites': 'favorites',
-    '/doc': 'docs',
-    '/integrations': 'integrations',
-  }
-  return [{ label: t(singles[pathname] ?? 'dashboard') }]
+  return [{ label: t(topLevelCrumbKey(pathname)) }]
 }
 
 function CrumbRow({ crumbs, measure = false }: { crumbs: Crumb[]; measure?: boolean }) {

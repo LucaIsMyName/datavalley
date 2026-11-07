@@ -299,7 +299,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
               <button
                 type="button"
                 aria-label={t('fillHandle')}
-                className="absolute bottom-0.5 right-0.5 z-10 flex size-3.5 cursor-crosshair items-center justify-center border border-primary bg-card text-primary"
+                className="absolute bottom-0 right-0 z-10 flex size-6 cursor-crosshair items-center justify-center border border-primary bg-card text-primary"
                 onPointerDown={(event) => beginFillRef.current(event, row.index, column)}
                 onClick={(event) => event.stopPropagation()}
               >

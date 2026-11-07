@@ -1,6 +1,9 @@
-import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import { AppDialog } from './ui/app-dialog'
 import { Button } from './ui/button'
+import { Input } from './ui/input'
+import { Label } from './ui/label'
 
 export function ConfirmDialog({
   open,
@@ -8,6 +11,8 @@ export function ConfirmDialog({
   body,
   confirmLabel,
   cancelLabel,
+  pending = false,
+  tone = 'danger',
   onConfirm,
   onClose,
 }: {
@@ -16,23 +21,35 @@ export function ConfirmDialog({
   body: string
   confirmLabel: string
   cancelLabel: string
+  pending?: boolean
+  tone?: 'danger' | 'default'
   onConfirm: () => void
   onClose: () => void
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
-          <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-muted-foreground">{body}</Dialog.Description>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>{cancelLabel}</Button>
-            <Button type="button" variant="danger" onClick={onConfirm}>{confirmLabel}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <AppDialog
+      open={open}
+      title={title}
+      description={body}
+      onOpenChange={(next) => {
+        if (!next && !pending) onClose()
+      }}
+    >
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
+          {cancelLabel}
+        </Button>
+        <Button
+          type="button"
+          variant={tone === 'default' ? 'default' : 'danger'}
+          disabled={pending}
+          aria-busy={pending}
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </AppDialog>
   )
 }
 
@@ -44,8 +61,9 @@ export function PromptDialog({
   onSubmit,
   onClose,
   children,
-  confirmLabel = 'Save',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
+  pending = false,
 }: {
   open: boolean
   title: string
@@ -56,35 +74,51 @@ export function PromptDialog({
   children?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
+  pending?: boolean
 }) {
+  const { t } = useTranslation()
   const [draft, setDraft] = useState(value)
   useEffect(() => {
     if (open) setDraft(value)
   }, [open, value])
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2  border border-border bg-card p-4 shadow-md">
-          <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
-          <Dialog.Description className="sr-only">{label}</Dialog.Description>
-          <input
-            autoFocus
-            aria-label={label}
-            className="mt-3 h-9 w-full border border-border bg-card px-2 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && draft.trim()) onSubmit(draft.trim())
-            }}
-          />
-          {children}
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>{cancelLabel}</Button>
-            <Button type="button" onClick={() => { if (draft.trim()) onSubmit(draft.trim()) }}>{confirmLabel}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <AppDialog
+      open={open}
+      title={title}
+      onOpenChange={(next) => {
+        if (!next && !pending) onClose()
+      }}
+    >
+      <Label htmlFor="prompt-dialog-value" className="mt-3">
+        {label}
+      </Label>
+      <Input
+        id="prompt-dialog-value"
+        autoFocus
+        disabled={pending}
+        className="mt-1.5"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && draft.trim() && !pending) onSubmit(draft.trim())
+        }}
+      />
+      {children}
+      <div className="mt-4 flex justify-end gap-2">
+        <Button type="button" variant="outline" disabled={pending} onClick={onClose}>
+          {cancelLabel ?? t('cancel')}
+        </Button>
+        <Button
+          type="button"
+          disabled={pending || !draft.trim()}
+          aria-busy={pending}
+          onClick={() => {
+            if (draft.trim()) onSubmit(draft.trim())
+          }}
+        >
+          {confirmLabel ?? t('save')}
+        </Button>
+      </div>
+    </AppDialog>
   )
 }

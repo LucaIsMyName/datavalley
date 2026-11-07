@@ -30,6 +30,7 @@ import { sync } from '../../lib/sync'
 import { buildColumnHeaderMenu } from './column-menu'
 import { displayCellValue } from './cell-display'
 import { deleteTableInProject } from './table-delete'
+import { displayFromSavedView, savedViewDefinition } from './view-definition'
 
 type SavedView = {
   id: string
@@ -39,6 +40,7 @@ type SavedView = {
     sort?: string | { columnId: string; direction?: string } | null
     direction?: string
     formatting?: FormatRule[]
+    display?: unknown
   }
 }
 
@@ -65,6 +67,9 @@ type Scope = Record<string, any> & {
   viewName: any
   setViewName: any
   sharedView: any
+  display: any
+  setDisplay: any
+  setActiveViewId: any
   setDrawerRowId: any
   filter: any
   table: any
@@ -110,6 +115,9 @@ export function useTableMenus(scope: Scope) {
     viewName,
     setViewName,
     sharedView,
+    display,
+    setDisplay,
+    setActiveViewId,
     setDrawerRowId,
     filter,
     table,
@@ -259,7 +267,14 @@ export function useTableMenus(scope: Scope) {
         void hideColumn(col, true)
         return
       }
-      if (id === 'delete') void deleteColumns([col.id])
+      if (id === 'delete') {
+        setConfirm({
+          title: t('deleteColumns'),
+          body: t('deleteColumnsWarning', { count: 1 }),
+          confirmLabel: t('delete'),
+          run: () => deleteColumns([col.id]),
+        })
+      }
     }
 
     openMenu(event, entriesFor(column, expandCurrency))
@@ -335,7 +350,13 @@ export function useTableMenus(scope: Scope) {
               label: t('delete'),
               icon: Trash2,
               danger: true,
-              onSelect: () => void deleteRows([row.id]),
+              onSelect: () =>
+                setConfirm({
+                  title: t('deleteRows'),
+                  body: t('deleteRowsWarning', { count: 1 }),
+                  confirmLabel: t('delete'),
+                  run: () => deleteRows([row.id]),
+                }),
             },
           ],
     )
@@ -488,6 +509,12 @@ export function useTableMenus(scope: Scope) {
     const next = filtersFrom(definition.filter)
     setFilters(next)
     setFilterInput(next)
+    const nextDisplay = displayFromSavedView(
+      definition,
+      columns.map((column: { id: string; type: string }) => ({ id: column.id, type: column.type })),
+    )
+    if (nextDisplay) setDisplay(nextDisplay)
+    setActiveViewId(view.id)
   }
 
   async function exportCsv() {
@@ -565,16 +592,31 @@ export function useTableMenus(scope: Scope) {
 
   async function saveView() {
     if (!viewName.trim()) return
-    await api.request(`/tables/${tableId}/views`, {
+    const result = await api.request<{ view: { id: string } }>(`/tables/${tableId}/views`, {
       method: 'POST',
       body: JSON.stringify({
         name: viewName.trim(),
         shared: sharedView,
-        definition: { filter, sort, formatting: rules },
+        definition: savedViewDefinition({ filter, sort, formatting: rules, display }),
       }),
     })
+    setActiveViewId(result.view.id)
     setViewName('')
     setPopover(null)
+    await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
+  }
+
+  async function renameSavedView(viewId: string, name: string) {
+    await api.request(`/tables/${tableId}/views/${viewId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    })
+    await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
+  }
+
+  async function deleteSavedView(viewId: string) {
+    await api.request(`/tables/${tableId}/views/${viewId}`, { method: 'DELETE' })
+    setActiveViewId((current: string | null) => (current === viewId ? null : current))
     await queryClient.invalidateQueries({ queryKey: ['views', tableId] })
   }
   return {
@@ -588,5 +630,7 @@ export function useTableMenus(scope: Scope) {
     toggleTableLock,
     duplicateThisTable,
     saveView,
+    renameSavedView,
+    deleteSavedView,
   }
 }

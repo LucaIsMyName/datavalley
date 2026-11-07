@@ -455,4 +455,30 @@ describe('table interactions', () => {
     expect(rows.json().rows[0].cells[nameId]).toBe('Diakonie Österreich')
     expect(rows.json().rows[0].cells[idCol]).toBe('1')
   })
+
+  it('renames and deletes a saved view', async () => {
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Views' } })
+    const projectId = project.json().project.id as string
+    const table = await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Sheet' } })
+    const tableId = table.json().table.id as string
+    const created = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/views`,
+      payload: { name: 'Board', definition: { display: { mode: 'chart' } } },
+    })
+    expect(created.statusCode).toBe(200)
+    const viewId = created.json().view.id as string
+    const renamed = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${tableId}/views/${viewId}`,
+      payload: { name: 'Chart' },
+    })
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json().view.name).toBe('Chart')
+    expect(renamed.json().view.definition.display.mode).toBe('chart')
+    const removed = await session.inject({ method: 'DELETE', url: `/api/v1/tables/${tableId}/views/${viewId}` })
+    expect(removed.statusCode).toBe(200)
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/views` })
+    expect(listed.json().views).toEqual([])
+  })
 })

@@ -4,7 +4,6 @@ import { matchesCondition } from '@datavalley/formula-engine'
 import {
   conditionalStyle,
   isDateColumnType,
-  isSelectFamilyType,
   paintSwatch,
   type FormatRule,
 } from '@datavalley/shared'
@@ -182,7 +181,7 @@ function GridBodyRowView({
           <button
             type="button"
             aria-label={api.t('insertRow')}
-            className="hidden text-muted-foreground md:inline-flex"
+            className="inline-flex size-6 items-center justify-center text-muted-foreground"
             onClick={(event) => {
               event.stopPropagation()
               const next = api.rowsRef.current?.[rowIndex + 1]?.id
@@ -281,10 +280,6 @@ function GridBodyRowView({
                 const target = event.target
                 if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return
                 api.focusCell(rowIndex, columnIndex)
-                if (isSelectFamilyType(column.type) && api.cellWritable(column) && !readOnly) {
-                  api.activateCell(row, column)
-                  return
-                }
                 if (event.detail >= 2) api.activateCell(row, column)
               }}
             >
@@ -317,7 +312,7 @@ function GridBodyRowView({
                 <button
                   type="button"
                   aria-label={api.t('fillHandle')}
-                  className="absolute bottom-0.5 right-0.5 z-10 flex size-3.5 cursor-crosshair items-center justify-center border border-primary bg-card text-primary"
+                  className="absolute bottom-0 right-0 z-10 flex size-6 cursor-crosshair items-center justify-center border border-primary bg-card text-primary"
                   onPointerDown={(event) => api.beginFill(event, rowIndex, column)}
                   onClick={(event) => event.stopPropagation()}
                 >

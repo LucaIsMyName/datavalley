@@ -253,6 +253,9 @@ export function GridPopovers(input: Record<string, any>) {
             />
             {t('shared')}
           </label>
+          <Button type="button" disabled={!viewName.trim()} onClick={() => void saveView()}>
+            {t('save')}
+          </Button>
         </div>
       ) : null}
     </AnchoredLayer>

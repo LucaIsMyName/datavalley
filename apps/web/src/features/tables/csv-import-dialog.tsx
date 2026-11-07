@@ -10,11 +10,13 @@ import { Label } from '../../components/ui/label'
 export function CsvImportDialog({
   open,
   busy,
+  errors = [],
   onClose,
   onImport,
 }: {
   open: boolean
   busy?: boolean
+  errors?: string[]
   onClose: () => void
   onImport: (input: { file: File; delimiter: string; headerRow: boolean }) => void | Promise<void>
 }) {
@@ -55,6 +57,16 @@ export function CsvImportDialog({
             />
             {t('csvHasHeader')}
           </label>
+          {errors.length > 0 ? (
+            <div role="alert" className="max-h-40 overflow-auto border border-danger/40 bg-card p-2 text-sm text-danger">
+              <p className="font-medium">{t('importErrors')}</p>
+              <ul className="mt-1 list-disc pl-4">
+                {errors.map((error, index) => (
+                  <li key={`${index}-${error}`}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
               {t('cancel')}

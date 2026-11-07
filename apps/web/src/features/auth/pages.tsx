@@ -1,29 +1,48 @@
 import { ApiClientError, type User } from '@datavalley/api-client'
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { DocumentTitle } from '../../components/document-title'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
+import { LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
+import { safeNextPath } from '../../lib/safe-next'
 import { useSession } from '../../stores/session'
 
 export function LoginPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const next = safeNextPath(params.get('next'))
+  const user = useSession((state) => state.user)
+  const ready = useSession((state) => state.ready)
   const setUser = useSession((state) => state.setUser)
   const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
   const [totp, setTotp] = useState(false)
   const [useRecovery, setUseRecovery] = useState(false)
 
+  useEffect(() => {
+    if (!ready || !user) return
+    if (user.mustChangePassword) {
+      navigate('/change-password', { replace: true })
+      return
+    }
+    navigate(next ?? '/', { replace: true })
+  }, [ready, user, next, navigate])
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (pending) return
     const data = new FormData(event.currentTarget)
     const totpCode = useRecovery ? undefined : (data.get('totp') as string) || undefined
     const recoveryCode = useRecovery ? (data.get('recovery') as string) || undefined : undefined
+    setPending(true)
+    setError('')
     try {
       await api.ensureCsrf()
       const result = await api.request<{ user: User; mustChangePassword: boolean }>('/auth/login', {
@@ -37,13 +56,15 @@ export function LoginPage() {
       })
       setUser(result.user)
       await i18n.changeLanguage(result.user.locale)
-      navigate(result.mustChangePassword ? '/change-password' : '/')
+      navigate(result.mustChangePassword ? '/change-password' : (next ?? '/'), { replace: true })
     } catch (caught) {
       if (caught instanceof ApiClientError && caught.code === 'totp_required') {
         setTotp(true)
         return
       }
       setError(caught instanceof Error ? caught.message : t('error'))
+    } finally {
+      setPending(false)
     }
   }
 
@@ -54,7 +75,7 @@ export function LoginPage() {
         <Card className="w-full max-w-sm p-6">
           <h1 className="text-xl font-semibold">{t('login')}</h1>
           <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
-            <Label htmlFor="login">{t('username')}</Label>
+            <Label htmlFor="login">{t('usernameOrEmail')}</Label>
             <Input id="login" name="login" autoComplete="username" required />
             <Label htmlFor="password">{t('password')}</Label>
             <Input
@@ -73,6 +94,7 @@ export function LoginPage() {
                   </>
                 ) : (
                   <>
+                    <p className="text-sm text-muted-foreground">{t('totpPrompt')}</p>
                     <Label htmlFor="totp">{t('confirmCode')}</Label>
                     <Input
                       id="totp"
@@ -102,7 +124,7 @@ export function LoginPage() {
             ) : (
               <p className="min-h-5" />
             )}
-            <Button type="submit">{t('login')}</Button>
+            <Button type="submit" disabled={pending} aria-busy={pending}>{t('login')}</Button>
             <Link to="/forgot-password" className="text-sm underline">
               {t('forgotPassword')}
             </Link>
@@ -116,18 +138,35 @@ export function LoginPage() {
 export function ChangePasswordPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const user = useSession((state) => state.user)
+  const ready = useSession((state) => state.ready)
   const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
+  if (!ready) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-background">
+        <LoadingBlock />
+      </main>
+    )
+  }
+  if (!user) return <Navigate to="/login" replace />
   return (
     <>
       <DocumentTitle segments={[t('changePassword')]} />
       <main className="grid min-h-screen place-items-center p-4 md:p-6">
         <Card className="w-full max-w-sm p-6">
           <h1 className="text-xl font-semibold">{t('changePassword')}</h1>
+          {user.mustChangePassword ? (
+            <p className="mt-2 text-sm text-muted-foreground">{t('mustChangePasswordBody')}</p>
+          ) : null}
           <form
             className="mt-4 flex flex-col gap-3"
             onSubmit={async (event) => {
               event.preventDefault()
+              if (pending) return
               const data = new FormData(event.currentTarget)
+              setPending(true)
+              setError('')
               try {
                 await api.request('/auth/change-password', {
                   method: 'POST',
@@ -141,13 +180,15 @@ export function ChangePasswordPage() {
                 navigate('/')
               } catch (caught) {
                 setError(caught instanceof Error ? caught.message : t('error'))
+              } finally {
+                setPending(false)
               }
             }}
           >
             <Label htmlFor="current">{t('currentPassword')}</Label>
-            <Input id="current" name="current" type="password" required />
+            <Input id="current" name="current" type="password" autoComplete="current-password" required />
             <Label htmlFor="next">{t('newPassword')}</Label>
-            <Input id="next" name="next" type="password" minLength={12} required />
+            <Input id="next" name="next" type="password" autoComplete="new-password" minLength={12} required />
             {error ? (
               <p role="alert" className="min-h-5 text-sm text-danger">
                 {error}
@@ -155,8 +196,24 @@ export function ChangePasswordPage() {
             ) : (
               <p className="min-h-5" />
             )}
-            <Button type="submit">{t('save')}</Button>
+            <Button type="submit" disabled={pending} aria-busy={pending}>{t('save')}</Button>
           </form>
+          <Button
+            type="button"
+            variant="ghost"
+            className="mt-2 w-full"
+            onClick={async () => {
+              try {
+                await api.request('/auth/logout', { method: 'POST' })
+              } catch {
+                // Clear the local session even when the server is unreachable.
+              }
+              useSession.getState().setUser(null)
+              navigate('/login')
+            }}
+          >
+            {t('logout')}
+          </Button>
         </Card>
       </main>
     </>
@@ -167,6 +224,7 @@ export function ForgotPasswordPage() {
   const { t } = useTranslation()
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
+  const [pending, setPending] = useState(false)
   return (
     <>
       <DocumentTitle segments={[t('forgotPassword')]} />
@@ -177,8 +235,10 @@ export function ForgotPasswordPage() {
             className="mt-4 flex flex-col gap-3"
             onSubmit={async (event) => {
               event.preventDefault()
+              if (pending) return
               const data = new FormData(event.currentTarget)
               setError('')
+              setPending(true)
               try {
                 await api.ensureCsrf()
                 await api.request('/auth/forgot-password', {
@@ -188,13 +248,15 @@ export function ForgotPasswordPage() {
                 setSent(true)
               } catch (caught) {
                 setError(caught instanceof Error ? caught.message : t('error'))
+              } finally {
+                setPending(false)
               }
             }}
           >
             <Label htmlFor="reset-email">{t('email')}</Label>
             <Input id="reset-email" name="email" type="email" autoComplete="email" required />
             {sent ? (
-              <p className="min-h-5 text-sm">{t('forgotPasswordSent')}</p>
+              <p role="status" className="min-h-5 text-sm">{t('forgotPasswordSent')}</p>
             ) : error ? (
               <p role="alert" className="min-h-5 text-sm text-danger">
                 {error}
@@ -202,7 +264,7 @@ export function ForgotPasswordPage() {
             ) : (
               <p className="min-h-5" />
             )}
-            <Button type="submit">{t('sendResetLink')}</Button>
+            <Button type="submit" disabled={pending} aria-busy={pending}>{t('sendResetLink')}</Button>
             <Link to="/login" className="text-sm underline">
               {t('login')}
             </Link>
@@ -219,6 +281,7 @@ export function ResetPasswordPage() {
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
   const [error, setError] = useState(token ? '' : t('invalidResetLink'))
+  const [pending, setPending] = useState(false)
   return (
     <>
       <DocumentTitle segments={[t('resetPassword')]} />
@@ -229,8 +292,10 @@ export function ResetPasswordPage() {
             className="mt-4 flex flex-col gap-3"
             onSubmit={async (event) => {
               event.preventDefault()
+              if (pending) return
               const data = new FormData(event.currentTarget)
               setError('')
+              setPending(true)
               try {
                 await api.ensureCsrf()
                 await api.request('/auth/reset-password', {
@@ -240,6 +305,8 @@ export function ResetPasswordPage() {
                 navigate('/login')
               } catch (caught) {
                 setError(caught instanceof Error ? caught.message : t('error'))
+              } finally {
+                setPending(false)
               }
             }}
           >
@@ -259,7 +326,7 @@ export function ResetPasswordPage() {
             ) : (
               <p className="min-h-5" />
             )}
-            <Button type="submit" disabled={!token}>
+            <Button type="submit" disabled={!token || pending} aria-busy={pending}>
               {t('save')}
             </Button>
           </form>

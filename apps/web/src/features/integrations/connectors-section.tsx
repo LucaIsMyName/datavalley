@@ -1,8 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { ConfirmDialog } from '../../components/confirm-dialog'
 import { IconButton } from '../../components/icon-button'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
@@ -45,6 +46,7 @@ export function DataConnectorsSection() {
   const queryClient = useQueryClient()
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<ConnectorRecord | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<ConnectorRecord | null>(null)
   const connectors = useQuery({
     queryKey: ['connectors'],
     queryFn: () => api.request<{ connectors: ConnectorRecord[] }>('/connectors'),
@@ -61,6 +63,7 @@ export function DataConnectorsSection() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['connectors'] })
+      setRemoveTarget(null)
       toast.success(t('connectorDeleted'))
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : t('error')),
@@ -127,9 +130,7 @@ export function DataConnectorsSection() {
                 type="button"
                 variant="outline"
                 disabled={remove.isPending}
-                onClick={() => {
-                  if (window.confirm(t('deleteConnectorConfirm'))) remove.mutate(connector.id)
-                }}
+                onClick={() => setRemoveTarget(connector)}
               >
                 {t('delete')}
               </Button>
@@ -137,6 +138,18 @@ export function DataConnectorsSection() {
           </Card>
         ))}
       </div>
+      <ConfirmDialog
+        open={Boolean(removeTarget)}
+        title={t('delete')}
+        body={t('deleteConnectorConfirm')}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        pending={remove.isPending}
+        onClose={() => setRemoveTarget(null)}
+        onConfirm={() => {
+          if (removeTarget) remove.mutate(removeTarget.id)
+        }}
+      />
       <ConnectorEditorDialog
         open={editorOpen}
         connector={editing}
@@ -184,9 +197,13 @@ function ConnectorEditorDialog(props: {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [draftConnectorId, setDraftConnectorId] = useState<string | null>(null)
+  const previewDraftId = useRef<string | null>(null)
+  const savedRef = useRef(false)
 
   useEffect(() => {
     if (!open) return
+    savedRef.current = false
+    previewDraftId.current = null
     setDraftConnectorId(connector?.id ?? null)
     setName(connector?.name ?? '')
     setIcon(connector?.icon ?? 'Globe')
@@ -260,6 +277,8 @@ function ConnectorEditorDialog(props: {
         const created = await api.request<{ connector: ConnectorRecord }>('/connectors', { method: 'POST', body: JSON.stringify(payload()) })
         setDraftConnectorId(created.connector.id)
       }
+      savedRef.current = true
+      previewDraftId.current = null
       onSaved()
       toast.success(t('connectorSaved'))
     } catch (err) {
@@ -278,6 +297,7 @@ function ConnectorEditorDialog(props: {
       if (!id) {
         const created = await api.request<{ connector: ConnectorRecord }>('/connectors', { method: 'POST', body: JSON.stringify(payload()) })
         id = created.connector.id
+        previewDraftId.current = id
         setDraftConnectorId(id)
       } else {
         await api.request(`/connectors/${id}`, { method: 'PATCH', body: JSON.stringify(payload()) })
@@ -305,8 +325,26 @@ function ConnectorEditorDialog(props: {
     }
   }
 
+  async function discardPreviewDraft() {
+    const id = previewDraftId.current
+    previewDraftId.current = null
+    if (!id || savedRef.current || connector) return
+    try {
+      await api.ensureCsrf()
+      await api.request(`/connectors/${id}`, { method: 'DELETE' })
+    } catch {
+      // The draft is unused if delete fails; the next open starts clean.
+    }
+  }
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) void discardPreviewDraft()
+        onOpenChange(next)
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(90vh,48rem)] w-[min(36rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col border border-border bg-card shadow-md">
@@ -353,14 +391,21 @@ function ConnectorEditorDialog(props: {
                   </div>
                 ) : null}
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="connector-base-url">{t('connectorBaseUrl')}</Label>
+                <input
+                  id="connector-base-url"
+                  aria-label={t('connectorBaseUrl')}
+                  className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder="https://example.com/data.json"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="connector-api-key">{t('connectorApiKey')}</Label>
               <input
-                aria-label={t('connectorBaseUrl')}
-                className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                value={baseUrl}
-                onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder="https://example.com/data.json"
-              />
-              <input
+                id="connector-api-key"
                 aria-label={t('connectorApiKey')}
                 className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 value={apiKey}
@@ -369,6 +414,7 @@ function ConnectorEditorDialog(props: {
                 type="password"
                 autoComplete="off"
               />
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label>{t('connectorFormat')}</Label>
@@ -396,13 +442,17 @@ function ConnectorEditorDialog(props: {
                 </div>
               </div>
               {format === 'json' || format === 'xml' || format === 'html' ? (
-                <input
-                  aria-label={t('connectorRecordsPath')}
-                  className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                  value={recordsPath}
-                  onChange={(event) => setRecordsPath(event.target.value)}
-                  placeholder={format === 'json' ? 'items' : format === 'xml' ? '/items/item' : '.item-row'}
-                />
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="connector-records-path">{t('connectorRecordsPath')}</Label>
+                  <input
+                    id="connector-records-path"
+                    aria-label={t('connectorRecordsPath')}
+                    className="h-9 w-full border border-border bg-card px-3 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    value={recordsPath}
+                    onChange={(event) => setRecordsPath(event.target.value)}
+                    placeholder={format === 'json' ? 'items' : format === 'xml' ? '/items/item' : '.item-row'}
+                  />
+                </div>
               ) : null}
               {format === 'csv' ? (
                 <>
@@ -482,10 +532,21 @@ function ConnectorEditorDialog(props: {
                   {previewKeys.length > 0 ? <p className="mt-1 text-muted-foreground">{previewKeys.join(', ')}</p> : null}
                 </div>
               ) : null}
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {error ? <p className="text-sm text-danger">{error}</p> : null}
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-2 border-t border-border p-4">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                void discardPreviewDraft()
+                onOpenChange(false)
+              }}
+            >
+              {t('cancel')}
+            </Button>
             <Button type="button" variant="outline" disabled={busy} onClick={() => void testFetch()}>
               {t('testFetch')}
             </Button>

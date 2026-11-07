@@ -111,13 +111,13 @@ export function Sidebar({
     >
       <div
         className={cn(
-          'relative h-screen w-[var(--sidebar-width)] bg-transparent transition-[width] duration-200 ease-linear',
+          'relative h-screen w-[var(--sidebar-width)] bg-transparent transition-[width] duration-200 ease-linear motion-reduce:transition-none',
           'group-data-[collapsible=icon]/sidebar:w-[var(--sidebar-width-icon)]',
         )}
       />
       <div
         className={cn(
-          'group/sidebar-panel fixed inset-y-0 z-40 hidden h-screen w-[var(--sidebar-width)] flex-col overflow-hidden border-r border-border bg-card p-3 transition-[width] duration-200 ease-linear md:flex',
+          'group/sidebar-panel fixed inset-y-0 z-40 hidden h-screen w-[var(--sidebar-width)] flex-col overflow-hidden border-r border-border bg-card p-3 transition-[width] duration-200 ease-linear motion-reduce:transition-none md:flex',
           side === 'left' ? 'left-0' : 'right-0',
           'group-data-[collapsible=icon]/sidebar:w-[var(--sidebar-width-icon)]',
           'group-data-[collapsible=icon]/sidebar:hover:w-[var(--sidebar-width)]',

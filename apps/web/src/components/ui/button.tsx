@@ -22,8 +22,9 @@ export function Button({
   className,
   variant,
   asChild,
+  type = 'button',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot : 'button'
-  return <Comp className={cn(buttonVariants({ variant }), className)} {...props} />
+  return <Comp className={cn(buttonVariants({ variant }), className)} type={asChild ? undefined : type} {...props} />
 }

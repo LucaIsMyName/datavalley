@@ -21,6 +21,12 @@ describe('grid keyboard', () => {
     expect(gridKeyCommand(key({ key: 'Delete' }), ready)).toBe('clear')
     expect(gridKeyCommand(key({ key: 'Backspace' }), ready)).toBe('clear')
     expect(gridKeyCommand(key({ key: 'Enter' }), ready)).toBe('activate')
+    expect(gridKeyCommand(key({ key: 'F2' }), ready)).toBe('activate')
+    expect(gridKeyCommand(key({ key: ' ' }), ready)).toBe('toggle')
+    expect(gridKeyCommand(key({ key: 'f', meta: true }), ready)).toBe('find')
+    expect(gridKeyCommand(key({ key: 'Tab' }), ready)).toEqual({ type: 'move', key: 'Tab' })
+    expect(gridKeyCommand(key({ key: 'Tab', shift: true }), ready)).toEqual({ type: 'move', key: 'Shift+Tab' })
+    expect(gridKeyCommand(key({ key: 'a' }), ready)).toEqual({ type: 'type', key: 'a' })
     expect(gridKeyCommand(key({ key: 'ArrowDown' }), ready)).toEqual({
       type: 'move',
       key: 'ArrowDown',
@@ -34,7 +40,7 @@ describe('grid keyboard', () => {
     ).toBeNull()
     expect(gridKeyCommand(key({ key: 'Enter' }), { typing: false, inGrid: false })).toBeNull()
     expect(gridKeyCommand(key({ key: 'ArrowLeft' }), { typing: false, inGrid: false })).toBeNull()
-    expect(gridKeyCommand(key({ key: 'a' }), ready)).toBeNull()
+    expect(gridKeyCommand(key({ key: 'Escape' }), ready)).toBeNull()
   })
 
   it('treats contenteditable notes as typing so undo stays in the note', () => {

@@ -141,6 +141,37 @@ export async function saveView(
   return { id: view.id, name: view.name, shared: view.shared, definition: view.definition }
 }
 
+async function ownedView(db: AppDatabase, subject: Subject, tableId: string, viewId: string) {
+  await requireTable(db, subject, tableId, 'view')
+  const [view] = await db
+    .select()
+    .from(tableViews)
+    .where(and(eq(tableViews.id, viewId), eq(tableViews.tableId, tableId)))
+  if (!view) throw notFound()
+  if (view.ownerId !== subject.id && subject.role !== 'admin') throw new AppError(403, 'forbidden', 'You cannot change this view')
+  return view
+}
+
+export async function renameView(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  viewId: string,
+  name: string,
+) {
+  const trimmed = name.trim()
+  if (!trimmed) throw badRequest('View name is required')
+  await ownedView(db, subject, tableId, viewId)
+  const [view] = await db.update(tableViews).set({ name: trimmed }).where(eq(tableViews.id, viewId)).returning()
+  return { id: view.id, name: view.name, shared: view.shared, definition: view.definition }
+}
+
+export async function deleteView(db: AppDatabase, subject: Subject, tableId: string, viewId: string) {
+  await ownedView(db, subject, tableId, viewId)
+  await db.delete(tableViews).where(eq(tableViews.id, viewId))
+  return { ok: true }
+}
+
 export async function ensurePlugins(db: AppDatabase) {
   await db
     .insert(plugins)

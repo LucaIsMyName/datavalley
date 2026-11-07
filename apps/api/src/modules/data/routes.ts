@@ -66,6 +66,8 @@ import {
   readState,
   recordSync,
   requirePlugin,
+  deleteView,
+  renameView,
   revokeApiKey,
   rotateApiKey,
   saveGoogleConnection,
@@ -331,6 +333,17 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/tables/:tableId/views', async (request) => {
     if (!request.subject) throw unauthorized()
     return { view: await saveView(db, request.subject, (request.params as { tableId: string }).tableId, request.body as never) }
+  })
+  app.patch('/tables/:tableId/views/:viewId', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const params = request.params as { tableId: string; viewId: string }
+    const body = request.body as { name?: string }
+    return { view: await renameView(db, request.subject, params.tableId, params.viewId, body.name ?? '') }
+  })
+  app.delete('/tables/:tableId/views/:viewId', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const params = request.params as { tableId: string; viewId: string }
+    return deleteView(db, request.subject, params.tableId, params.viewId)
   })
   app.post('/tables/:tableId/conditions/compile', async (request) => {
     if (!request.subject) throw unauthorized()

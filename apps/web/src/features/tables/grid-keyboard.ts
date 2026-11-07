@@ -1,5 +1,18 @@
 export type GridKeyCommand =
-  'undo' | 'redo' | 'copy' | 'paste' | 'clear' | 'activate' | { type: 'move'; key: string }
+  | 'undo'
+  | 'redo'
+  | 'copy'
+  | 'paste'
+  | 'clear'
+  | 'activate'
+  | 'toggle'
+  | 'find'
+  | { type: 'move'; key: string }
+  | { type: 'type'; key: string }
+
+function isPrintableTypeKey(event: { key: string; metaKey: boolean; ctrlKey: boolean; altKey?: boolean }) {
+  return event.key.length === 1 && event.key !== ' ' && !event.metaKey && !event.ctrlKey && !event.altKey
+}
 
 type TypingTarget = {
   tagName?: string
@@ -22,7 +35,7 @@ export function isGridTypingTarget(target: EventTarget | TypingTarget | null): b
 }
 
 export function gridKeyCommand(
-  event: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
+  event: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey?: boolean },
   state: { typing: boolean; inGrid: boolean },
 ): GridKeyCommand | null {
   const { typing, inGrid } = state
@@ -33,8 +46,14 @@ export function gridKeyCommand(
     return 'copy'
   if (!typing && inGrid && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v')
     return 'paste'
+  if (!typing && inGrid && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f')
+    return 'find'
   if (!typing && inGrid && (event.key === 'Delete' || event.key === 'Backspace')) return 'clear'
-  if (!typing && inGrid && event.key === 'Enter') return 'activate'
+  if (!typing && inGrid && (event.key === 'Enter' || event.key === 'F2')) return 'activate'
+  if (!typing && inGrid && event.key === ' ' && !event.metaKey && !event.ctrlKey) return 'toggle'
+  if (!typing && inGrid && event.key === 'Tab')
+    return { type: 'move', key: event.shiftKey ? 'Shift+Tab' : 'Tab' }
+  if (!typing && inGrid && isPrintableTypeKey(event)) return { type: 'type', key: event.key }
   if (
     !typing &&
     inGrid &&

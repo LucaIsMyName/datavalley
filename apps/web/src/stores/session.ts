@@ -15,8 +15,25 @@ export const useSession = create<SessionState>((set) => ({
   setReady: (ready) => set({ ready }),
 }))
 
+let systemThemeMedia: MediaQueryList | null = null
+let systemThemeListener: (() => void) | null = null
+
 export function applyTheme(theme: 'light' | 'dark' | 'system') {
-  const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', dark)
+  if (systemThemeMedia && systemThemeListener) {
+    systemThemeMedia.removeEventListener('change', systemThemeListener)
+    systemThemeMedia = null
+    systemThemeListener = null
+  }
+  const sync = () => {
+    const dark =
+      theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    document.documentElement.classList.toggle('dark', dark)
+  }
+  sync()
   localStorage.setItem('theme', theme)
+  if (theme === 'system') {
+    systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+    systemThemeListener = sync
+    systemThemeMedia.addEventListener('change', systemThemeListener)
+  }
 }

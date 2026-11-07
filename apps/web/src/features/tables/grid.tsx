@@ -11,6 +11,8 @@ import {
 import {
   defaultTableDisplay,
   displayRowCap,
+  isDateColumnType,
+  isSelectFamilyType,
   moveSelection,
   normalizeMediaCellValue,
   normalizeTableDisplay,
@@ -45,7 +47,8 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { useContextMenu } from '../../components/context-menu'
 import { QuietInput } from '../../components/quiet-input'
 import { Badge } from '../../components/ui/badge'
-import { ConfirmDialog } from '../../components/confirm-dialog'
+import { ConfirmDialog, PromptDialog } from '../../components/confirm-dialog'
+import { toast } from 'sonner'
 import { FileUpload, type FileUploadHandle } from '../../components/file-upload'
 import { Button } from '../../components/ui/button'
 import { EmptyState, ErrorState, LoadingBlock } from '../../components/states'
@@ -110,7 +113,13 @@ type PopoverState = {
   rowId?: string
 } & ViewportAnchor
 
-type ConfirmState = { title: string; body: string; run: () => Promise<void> }
+type ConfirmState = {
+  title: string
+  body: string
+  confirmLabel?: string
+  tone?: 'danger' | 'default'
+  run: () => Promise<void>
+}
 
 type SavedView = {
   id: string
@@ -120,6 +129,7 @@ type SavedView = {
     sort?: string | { columnId: string; direction?: string } | null
     direction?: string
     formatting?: FormatRule[]
+    display?: unknown
   }
 }
 
@@ -140,6 +150,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const mediaUploadRef = useRef<FileUploadHandle>(null)
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [csvImportBusy, setCsvImportBusy] = useState(false)
+  const [csvImportErrors, setCsvImportErrors] = useState<string[]>([])
   const mediaUploadTarget = useRef<{ rowId: string; columnId: string } | null>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
@@ -166,6 +177,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [renamingColumn, setRenamingColumn] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const [confirmPending, setConfirmPending] = useState(false)
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [renameView, setRenameView] = useState<SavedView | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [relationTarget, setRelationTarget] = useState('')
   const [relationCardinality, setRelationCardinality] = useState('many_to_one')
@@ -471,6 +485,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const copyCellRef = useRef<() => void>(() => {})
   const clearCellRef = useRef<() => void>(() => {})
   const pasteCellRef = useRef<(text: string) => void>(() => {})
+  const toggleRef = useRef<() => void>(() => {})
+  const findRef = useRef<() => void>(() => {})
+  const typeRef = useRef<(char: string) => void>(() => {})
   undoRef.current = undo
   boundsRef.current = { rows: rows.length, columns: visible.length }
   selectedRef.current = selected
@@ -481,6 +498,35 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const row = rows[selected.row]
     if (!column || !row || editing) return
     activateCell(row, column)
+  }
+  toggleRef.current = () => {
+    const column = visible[selected.column]
+    const row = rows[selected.row]
+    if (!column || !row || column.type !== 'checkbox' || !cellWritable(column)) return
+    const on = row.cells[column.id] === true || row.cells[column.id] === 'true'
+    scheduleCell(row, column, !on, 0)
+    void sync.flush(`cell:${row.id}:${column.id}`)
+  }
+  findRef.current = () => {
+    const el = parentRef.current
+    if (!el) return
+    setPopover({ kind: 'find', ...viewportAnchorFrom(el) })
+  }
+  typeRef.current = (char) => {
+    const column = visible[selected.column]
+    const row = rows[selected.row]
+    if (!column || !row || editing || !cellWritable(column)) return
+    if (
+      column.type === 'checkbox' ||
+      column.type === 'formula' ||
+      column.type === 'media' ||
+      isSelectFamilyType(column.type) ||
+      isDateColumnType(column.type)
+    ) {
+      return
+    }
+    scheduleCell(row, column, char, 0)
+    setEditing(`${row.id}:${column.id}`)
   }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -497,7 +543,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
         void navigator.clipboard.readText().then((text) => pasteCellRef.current(text))
       else if (command === 'clear') clearCellRef.current()
       else if (command === 'activate') activateRef.current()
-      else
+      else if (command === 'toggle') toggleRef.current()
+      else if (command === 'find') findRef.current()
+      else if (typeof command === 'object' && command.type === 'type') typeRef.current(command.key)
+      else if (typeof command === 'object' && command.type === 'move')
         setSelected((current) =>
           moveSelection(current, command.key, {
             rows: Math.max(boundsRef.current.rows, 1),
@@ -611,6 +660,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     cycleSort,
   })
   const rowCommands = useRowCommands({
+    setCsvImportErrors,
     t,
     i18n,
     navigate,
@@ -674,6 +724,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
     cycleSort,
   })
   const menuCommands = useTableMenus({
+    display,
+    setDisplay,
+    setActiveViewId,
     t,
     i18n,
     navigate,
@@ -773,6 +826,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     toggleTableLock,
     duplicateThisTable,
     saveView,
+    renameSavedView,
+    deleteSavedView,
   } = { ...columnCommands, ...rowCommands, ...menuCommands }
 
   copyCellRef.current = () => {
@@ -812,7 +867,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
       views: (views.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
+        active: view.id === activeViewId,
         apply: () => applyView(view),
+        rename: () => setRenameView(view),
+        remove: () =>
+          setConfirm({
+            title: t('deleteView'),
+            body: t('deleteViewWarning', { name: view.name }),
+            confirmLabel: t('delete'),
+            run: () => deleteSavedView(view.id),
+          }),
       })),
       saveView: (el: HTMLElement) => setPopover({ kind: 'view', ...viewportAnchorFrom(el) }),
       duplicateTable: () => void duplicateThisTable(),
@@ -827,7 +891,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       lockPending,
       onToggleLock: () => void toggleTableLock(),
     }
-  }, [display.mode, table, tableId, t, views.data?.views, lockPending])
+  }, [activeViewId, display.mode, table, tableId, t, views.data?.views, lockPending])
 
   useRegisterTableToolbar(toolbarActions)
 
@@ -1105,7 +1169,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
       <CsvImportDialog
         open={csvImportOpen}
         busy={csvImportBusy}
-        onClose={() => setCsvImportOpen(false)}
+        errors={csvImportErrors}
+        onClose={() => {
+          setCsvImportErrors([])
+          setCsvImportOpen(false)
+        }}
         onImport={runCsvImport}
       />
       <FileUpload
@@ -1439,7 +1507,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                             type="button"
                             data-header-control
                             aria-label={t('insertColumn')}
-                            className="absolute -right-1.5 -bottom-1.5 z-40 hidden h-3 w-3 items-center justify-center border border-border bg-card max-md:flex md:group-hover:flex"
+                            className="absolute -right-2 -bottom-2 z-40 flex size-6 items-center justify-center border border-border bg-card"
                             onClick={(event) => {
                               event.stopPropagation()
                               openNewColumn(
@@ -1472,7 +1540,22 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 {emptyGridKind(rows.length, Boolean(filter || search)) === 'empty' ? (
                   <tr>
                     <td colSpan={visible.length + 2} className="p-0">
-                      <EmptyState title={t('emptyRows')} body={t('emptyRowsBody')} />
+                      <EmptyState
+                        title={t('emptyRows')}
+                        body={t('emptyRowsBody')}
+                        actions={
+                          dataReadOnly ? null : (
+                            <>
+                              <Button type="button" onClick={() => void insertRow()}>
+                                {t('addRow')}
+                              </Button>
+                              <Button type="button" variant="outline" onClick={() => setCsvImportOpen(true)}>
+                                {t('import')}
+                              </Button>
+                            </>
+                          )
+                        }
+                      />
                     </td>
                   </tr>
                 ) : null}
@@ -1670,7 +1753,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     type="button"
                     variant="danger"
                     className="shrink-0 whitespace-nowrap"
-                    onClick={() => void deleteRows(checked)}
+                    onClick={() =>
+                      setConfirm({
+                        title: t('deleteRows'),
+                        body: t('deleteRowsWarning', { count: checked.length }),
+                        confirmLabel: t('delete'),
+                        run: () => deleteRows(checked),
+                      })
+                    }
                   >
                     {t('deleteRows')}
                   </Button>
@@ -1680,7 +1770,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     type="button"
                     variant="danger"
                     className="shrink-0 whitespace-nowrap"
-                    onClick={() => void deleteColumns(selectedColumns)}
+                    onClick={() =>
+                      setConfirm({
+                        title: t('deleteColumns'),
+                        body: t('deleteColumnsWarning', { count: selectedColumns.length }),
+                        confirmLabel: t('delete'),
+                        run: () => deleteColumns(selectedColumns),
+                      })
+                    }
                   >
                     {t('deleteColumns')}
                   </Button>
@@ -1856,13 +1953,39 @@ export function TableScreen({ tableId }: { tableId: string }) {
         open={Boolean(confirm)}
         title={confirm?.title ?? ''}
         body={confirm?.body ?? ''}
-        confirmLabel={t('confirm')}
+        confirmLabel={confirm?.confirmLabel ?? t('confirm')}
+        tone={confirm?.tone ?? 'danger'}
         cancelLabel={t('cancel')}
+        pending={confirmPending}
         onClose={() => setConfirm(null)}
         onConfirm={() => {
+          if (!confirm || confirmPending) return
           const pending = confirm
-          setConfirm(null)
-          if (pending) void pending.run()
+          setConfirmPending(true)
+          void Promise.resolve(pending.run())
+            .then(() => setConfirm(null))
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : t('error'))
+            })
+            .finally(() => setConfirmPending(false))
+        }}
+      />
+      <PromptDialog
+        open={Boolean(renameView)}
+        title={t('renameView')}
+        label={t('viewName')}
+        value={renameView?.name ?? ''}
+        confirmLabel={t('save')}
+        cancelLabel={t('cancel')}
+        onClose={() => setRenameView(null)}
+        onSubmit={(next) => {
+          if (!renameView) return
+          const view = renameView
+          void renameSavedView(view.id, next)
+            .then(() => setRenameView(null))
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : t('error'))
+            })
         }}
       />
     </section>

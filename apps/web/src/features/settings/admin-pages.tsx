@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { ApiClientError, type User } from '@datavalley/api-client'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
@@ -157,7 +158,10 @@ export function UsersPage() {
 export function ApiKeysPage() {
   const { t } = useTranslation()
   const [created, setCreated] = useState('')
+  const [createError, setCreateError] = useState('')
+  const [creating, setCreating] = useState(false)
   const [revoke, setRevoke] = useState<{ id: string; name: string } | null>(null)
+  const [revokePending, setRevokePending] = useState(false)
   const keys = useQuery({
     queryKey: ['api-keys'],
     queryFn: () =>
@@ -171,18 +175,33 @@ export function ApiKeysPage() {
         className="flex flex-col gap-2 sm:flex-row"
         onSubmit={async (event) => {
           event.preventDefault()
-          const data = new FormData(event.currentTarget)
-          const result = await api.request<{ apiKey: { key: string } }>('/api-keys', {
-            method: 'POST',
-            body: JSON.stringify({ name: data.get('name'), scopes: [] }),
-          })
-          setCreated(result.apiKey.key)
-          await keys.refetch()
+          if (creating) return
+          const form = event.currentTarget
+          const data = new FormData(form)
+          setCreateError('')
+          setCreating(true)
+          try {
+            const result = await api.request<{ apiKey: { key: string } }>('/api-keys', {
+              method: 'POST',
+              body: JSON.stringify({ name: data.get('name'), scopes: [] }),
+            })
+            setCreated(result.apiKey.key)
+            form.reset()
+            await keys.refetch()
+          } catch (error) {
+            const message = error instanceof Error ? error.message : t('error')
+            setCreateError(message)
+            toast.error(message)
+          } finally {
+            setCreating(false)
+          }
         }}
       >
-        <Input name="name" required placeholder={t('name')} className="max-w-xs" />
-        <Button type="submit">{t('createKey')}</Button>
+        <Label htmlFor="api-key-name">{t('name')}</Label>
+        <Input id="api-key-name" name="name" required placeholder={t('name')} aria-label={t('name')} className="max-w-xs" />
+        <Button type="submit" disabled={creating} aria-busy={creating}>{t('createKey')}</Button>
       </form>
+      {createError ? <p role="alert" className="text-sm text-danger">{createError}</p> : null}
       {created ? (
         <Card className="min-h-20 p-3 text-sm">
           {t('keyOnce')}
@@ -214,12 +233,20 @@ export function ApiKeysPage() {
         body={t('revokeKeyWarning', { name: revoke?.name ?? '' })}
         confirmLabel={t('revoke')}
         cancelLabel={t('cancel')}
+        pending={revokePending}
         onClose={() => setRevoke(null)}
         onConfirm={() => {
-          if (!revoke) return
+          if (!revoke || revokePending) return
           const id = revoke.id
-          setRevoke(null)
-          void api.request(`/api-keys/${id}`, { method: 'DELETE' }).then(() => keys.refetch())
+          setRevokePending(true)
+          void api
+            .request(`/api-keys/${id}`, { method: 'DELETE' })
+            .then(() => keys.refetch())
+            .then(() => setRevoke(null))
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : t('error'))
+            })
+            .finally(() => setRevokePending(false))
         }}
       />
     </Page>

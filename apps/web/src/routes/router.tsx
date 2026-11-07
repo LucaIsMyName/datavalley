@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { HelmetProvider } from 'react-helmet-async'
-import { Navigate, Outlet, createBrowserRouter } from 'react-router'
+import { Navigate, Outlet, createBrowserRouter, useLocation } from 'react-router'
 import { LoadingBlock } from '../components/states'
 import { api } from '../lib/api'
+import { loginPath } from '../lib/safe-next'
 import { useSession } from '../stores/session'
 import { lazyRoute } from './lazy-route'
 import { RouteErrorPage } from './route-error'
@@ -58,6 +59,7 @@ const ApiKeysPage = route(() => import('../features/settings/admin-pages'), 'Api
 const AuditPage = route(() => import('../features/settings/admin-pages'), 'AuditPage')
 
 function RequireAuth() {
+  const location = useLocation()
   const user = useSession((state) => state.user)
   const ready = useSession((state) => state.ready)
   if (!ready)
@@ -66,7 +68,7 @@ function RequireAuth() {
         <LoadingBlock />
       </div>
     )
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to={loginPath(`${location.pathname}${location.search}${location.hash}`)} replace />
   if (user.mustChangePassword) return <Navigate to="/change-password" replace />
   return <Outlet />
 }

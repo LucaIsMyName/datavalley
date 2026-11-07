@@ -18,6 +18,7 @@ type Scope = Record<string, any> & {
   mediaUploadRef: any
   setCsvImportOpen: any
   setCsvImportBusy: any
+  setCsvImportErrors: any
   mediaUploadTarget: any
   checked: any
   setChecked: any
@@ -48,6 +49,7 @@ export function useRowCommands(scope: Scope) {
     mediaUploadRef,
     setCsvImportOpen,
     setCsvImportBusy,
+    setCsvImportErrors,
     mediaUploadTarget,
     checked,
     setChecked,
@@ -106,13 +108,16 @@ export function useRowCommands(scope: Scope) {
         { method: 'POST', body },
       )
       const summary = t('imported', { count: result.created })
-      if (result.errors[0]?.error) {
-        toast.warning(`${summary} ${result.errors[0].error}`)
-      } else {
-        toast.success(summary)
-      }
-      setCsvImportOpen(false)
+      const errors = result.errors.map((item) => item.error).filter((item): item is string => Boolean(item))
       await refresh()
+      if (errors.length > 0) {
+        setCsvImportErrors(errors)
+        toast.warning(summary)
+        return
+      }
+      setCsvImportErrors([])
+      toast.success(summary)
+      setCsvImportOpen(false)
     } catch (caught) {
       showEditError(caught instanceof Error ? caught.message : t('error'))
     } finally {

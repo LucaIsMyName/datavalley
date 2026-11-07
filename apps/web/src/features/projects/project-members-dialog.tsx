@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { ApiClientError } from '@datavalley/api-client'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
@@ -23,6 +24,7 @@ export function ProjectMembersDialog({
   const [memberName, setMemberName] = useState('')
   const [memberError, setMemberError] = useState('')
   const [dropMember, setDropMember] = useState<{ userId: string; username: string } | null>(null)
+  const [dropPending, setDropPending] = useState(false)
   const members = useQuery({
     queryKey: ['members', projectId],
     enabled: open,
@@ -207,19 +209,24 @@ export function ProjectMembersDialog({
         body={t('removeMemberWarning', { name: dropMember?.username ?? '' })}
         confirmLabel={t('confirm')}
         cancelLabel={t('cancel')}
+        pending={dropPending}
         onClose={() => setDropMember(null)}
         onConfirm={() => {
-          if (!dropMember) return
+          if (!dropMember || dropPending) return
           const userId = dropMember.userId
-          setDropMember(null)
+          setDropPending(true)
           setMemberError('')
           void api
             .request(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
             .then(() => queryClient.invalidateQueries({ queryKey: ['members', projectId] }))
             .then(() => queryClient.invalidateQueries({ queryKey: ['directory', projectId] }))
-            .catch((error: unknown) =>
-              setMemberError(error instanceof ApiClientError ? error.message : t('error')),
-            )
+            .then(() => setDropMember(null))
+            .catch((error: unknown) => {
+              const message = error instanceof ApiClientError ? error.message : t('error')
+              setMemberError(message)
+              toast.error(message)
+            })
+            .finally(() => setDropPending(false))
         }}
       />
     </>

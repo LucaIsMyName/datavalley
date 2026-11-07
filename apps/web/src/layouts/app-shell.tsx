@@ -178,6 +178,12 @@ export function AppShell() {
   return (
     <ContextMenuProvider>
       <RouteDocumentTitle />
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:bg-card focus:px-3 focus:py-2 focus:outline focus:outline-2 focus:outline-primary"
+      >
+        {t('skipToContent')}
+      </a>
       <SidebarProvider
         open={sidebarOpen}
         onOpenChange={(next) => {
@@ -214,7 +220,7 @@ export function AppShell() {
               }}
             />
           </header>
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
+          <main id="main" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
             <Outlet />
           </main>
         </SidebarInset>
