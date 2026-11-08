@@ -1,5 +1,6 @@
 import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-client'
 import { useTranslation } from 'react-i18next'
+import { ResourceIcon } from '../../components/resource-icon'
 import { SelectField } from '../../components/ui/select'
 import { CellEditor } from './cells'
 import { DuplicateHint } from './duplicate-hint'
@@ -38,6 +39,7 @@ export function TableCellInput({
   onMediaCommit,
   onDateMode,
   showDuplicateHint = false,
+  relationIcon,
 }: {
   column: Column
   row: RowRecord
@@ -68,6 +70,7 @@ export function TableCellInput({
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
   onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void
   showDuplicateHint?: boolean
+  relationIcon?: string
 }) {
   const { t, i18n } = useTranslation()
   const value = row.cells[column.id]
@@ -83,29 +86,37 @@ export function TableCellInput({
     onDeactivate(editingKey, focusGrid)
   }
 
+  const icon = column.type === 'relation' && relationIcon ? (
+    <ResourceIcon name={relationIcon} className="size-3.5 shrink-0 text-muted-foreground" />
+  ) : null
+
   if (active && column.type === 'relation') {
     return (
-      <SelectField
-        label={t('editColumn', { name: column.name })}
-        className="h-9 border-0 bg-transparent px-0"
-        value={typeof value === 'string' ? value : ''}
-        onValueChange={(next) => {
-          onScheduleCell(row, column, next, 0)
-          void sync.flush(cellKey).finally(() => settle(true))
-        }}
-        options={[
-          { value: '', label: t('none') },
-          ...relationRows.map((target) => ({
-            value: target.id,
-            label: target.title?.trim() || target.id.slice(0, 8),
-          })),
-        ]}
-      />
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        {icon}
+        <SelectField
+          label={t('editColumn', { name: column.name })}
+          className="h-9 min-w-0 flex-1 border-0 bg-transparent px-0"
+          value={typeof value === 'string' ? value : ''}
+          onValueChange={(next) => {
+            onScheduleCell(row, column, next, 0)
+            void sync.flush(cellKey).finally(() => settle(true))
+          }}
+          options={[
+            { value: '', label: t('none') },
+            ...relationRows.map((target) => ({
+              value: target.id,
+              label: target.title?.trim() || target.id,
+            })),
+          ]}
+        />
+      </div>
     )
   }
 
   return (
-    <span className="relative flex min-w-0 flex-1 items-center">
+    <span className="relative flex min-w-0 flex-1 items-center gap-1">
+    {icon}
     <CellEditor
       column={column}
       row={row}

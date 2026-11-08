@@ -226,6 +226,8 @@
   "relation": "Verknüpfung",
   "targetTable": "Zieltabelle",
   "cardinality": "Kardinalität",
+  "mainColumn": "Hauptspalte",
+  "mainColumnClear": "Hauptspalte entfernen",
   "addRelation": "Verknüpfung hinzufügen",
   "newTable": "Neue Tabelle",
   "blankTable": "Leere Tabelle",

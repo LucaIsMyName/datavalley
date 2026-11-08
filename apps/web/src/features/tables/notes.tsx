@@ -445,6 +445,7 @@ export function NotesDrawer({
   onOptionChange,
   onOpenFormula,
   onClose,
+  tables = [],
 }: {
   tableId: string
   row: RowRecord | null
@@ -467,6 +468,7 @@ export function NotesDrawer({
   ) => void
   onOpenFormula: (rowId: string, columnId: string, columnName: string) => void
   onClose: () => void
+  tables?: { id: string; icon: string }[]
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -595,6 +597,7 @@ export function NotesDrawer({
                 onCreated={onCreated}
                 onOptionChange={onOptionChange}
                 onOpenFormula={onOpenFormula}
+                tables={tables}
               />
               <NotesBlockEditor
                 rowId={row.id}

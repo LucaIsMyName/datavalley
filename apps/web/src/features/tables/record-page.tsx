@@ -64,6 +64,11 @@ export function RecordPage() {
     queryKey: ['table', tableId],
     queryFn: () => api.request<{ table: TableRecord }>(`/tables/${tableId}`),
   })
+  const projectTables = useQuery({
+    queryKey: ['tables', projectId],
+    enabled: Boolean(projectId),
+    queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
+  })
   const membersQuery = useQuery({
     queryKey: ['members', projectId],
     queryFn: () =>
@@ -222,6 +227,7 @@ export function RecordPage() {
             columnName,
           })
         }
+        tables={projectTables.data?.tables ?? []}
       />
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">{t('linkedRecords')}</h2>

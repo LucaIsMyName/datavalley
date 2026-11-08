@@ -1,4 +1,5 @@
 import { nextLabel } from './grid-model'
+import { editFailureMessage } from './edit-error'
 import { showEditError } from './grid-edit'
 import { type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
 import { api } from '../../lib/api'
@@ -54,6 +55,7 @@ export function useColumnCommands(scope: Scope) {
     columns,
     rows,
     footerConfig,
+    table,
     tableId,
     refresh,
     fetchRows,
@@ -218,44 +220,94 @@ export function useColumnCommands(scope: Scope) {
     await run()
   }
 
-  async function saveRelation(column: Column, toTableId = relationTarget) {
+  async function saveRelation(column: Column, toTableId = relationTarget, cardinality = relationCardinality) {
     if (!toTableId) return
+    const existingTarget = String(column.config.toTableId ?? '')
+    const existingCardinality = String(column.config.cardinality ?? 'many_to_one')
+    const already = column.type === 'relation' && Boolean(column.config.relationId || existingTarget)
+    if (already && existingTarget === toTableId && existingCardinality === cardinality) {
+      setPopover(null)
+      return
+    }
     const current = await fetchRows()
-    const cells = current.map((row: any) => ({
-      rowId: row.id,
-      value: row.cells[column.id] ?? null,
-    }))
-    const preview = await api.request<{ cleared: number }>(`/columns/${column.id}/convert`, {
-      method: 'POST',
-      body: JSON.stringify({ type: 'relation', dryRun: true }),
+    const filled = current.filter((row: RowRecord) => {
+      const value = row.cells[column.id]
+      return value != null && value !== ''
     })
     const run = async () => {
-      await api.request(`/columns/${column.id}/relation`, {
-        method: 'POST',
-        body: JSON.stringify({ toTableId, cardinality: relationCardinality }),
-      })
-      pushCommand(tableId, {
-        kind: 'column-type',
-        columnId: column.id,
-        beforeType: column.type,
-        afterType: 'relation',
-        cells,
-      })
+      try {
+        await api.request(`/columns/${column.id}/relation`, {
+          method: 'POST',
+          body: JSON.stringify({ toTableId, cardinality }),
+        })
+      } catch (error) {
+        const message = editFailureMessage(error, t('error'))
+        if (message) showEditError(message)
+        return
+      }
+      if (!already) {
+        pushCommand(tableId, {
+          kind: 'column-type',
+          columnId: column.id,
+          beforeType: column.type,
+          afterType: 'relation',
+          cells: current.map((row: RowRecord) => ({
+            rowId: row.id,
+            value: row.cells[column.id] ?? null,
+          })),
+        })
+      }
       setPopover(null)
       await refresh()
     }
-    if (preview.cleared > 0) {
+    if (already && existingTarget !== toTableId && filled.length > 0) {
       setPopover(null)
       setConfirm({
         title: t('typeChangeTitle'),
-        body: t('typeChangeWarning', { count: preview.cleared }),
+        body: t('typeChangeWarning', { count: filled.length }),
         confirmLabel: t('confirm'),
         tone: 'default',
         run,
       })
       return
     }
+    if (!already) {
+      const preview = await api.request<{ cleared: number }>(`/columns/${column.id}/convert`, {
+        method: 'POST',
+        body: JSON.stringify({ type: 'relation', dryRun: true }),
+      })
+      if (preview.cleared > 0) {
+        setPopover(null)
+        setConfirm({
+          title: t('typeChangeTitle'),
+          body: t('typeChangeWarning', { count: preview.cleared }),
+          confirmLabel: t('confirm'),
+          tone: 'default',
+          run,
+        })
+        return
+      }
+    }
     await run()
+  }
+
+  async function setMainColumn(columnId: string | null) {
+    if (dataReadOnly || !table) return
+    const header = { ...((table.headerConfig as Record<string, unknown> | undefined) ?? {}) }
+    if (columnId) header.mainColumnId = columnId
+    else delete header.mainColumnId
+    patchCachedTable(queryClient, tableId, (current) => ({ ...current, headerConfig: header }))
+    try {
+      const result = await api.request<{ table: { headerConfig: Record<string, unknown> } }>(`/tables/${tableId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ headerConfig: header }),
+      })
+      patchCachedTable(queryClient, tableId, (current) => ({ ...current, headerConfig: result.table.headerConfig }))
+    } catch (error) {
+      const message = editFailureMessage(error, t('error'))
+      if (message) showEditError(message)
+      await refresh()
+    }
   }
 
   async function deleteColumns(ids: string[]) {
@@ -510,6 +562,7 @@ export function useColumnCommands(scope: Scope) {
     saveColumnRules,
     applyType,
     saveRelation,
+    setMainColumn,
     deleteColumns,
     duplicateSelectedColumns,
     reorderColumns,

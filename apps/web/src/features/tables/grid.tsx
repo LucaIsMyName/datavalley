@@ -29,6 +29,7 @@ import {
   GripVertical,
   Plus,
   Redo2,
+  Star,
   Undo2,
   X,
 } from 'lucide-react'
@@ -47,6 +48,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { aiColumnKey, useAiHighlight } from '../ai/highlight-store'
 import { useContextMenu } from '../../components/context-menu'
 import { QuietInput } from '../../components/quiet-input'
+import { ResourceIcon } from '../../components/resource-icon'
 import { Badge } from '../../components/ui/badge'
 import { ConfirmDialog, PromptDialog } from '../../components/confirm-dialog'
 import { toast } from 'sonner'
@@ -451,6 +453,16 @@ export function TableScreen({ tableId }: { tableId: string }) {
     enabled: Boolean(projectId),
     queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
   })
+  const relationIcons = useMemo(() => {
+    const tables = projectTables.data?.tables ?? []
+    const icons: Record<string, string> = {}
+    for (const column of columns) {
+      if (column.type !== 'relation') continue
+      const icon = tables.find((item) => item.id === String(column.config.toTableId ?? ''))?.icon
+      if (icon) icons[column.id] = icon
+    }
+    return icons
+  }, [columns, projectTables.data?.tables])
   const editingColumn = visible.find((column) => editing?.endsWith(`:${column.id}`))
   const targetTableId =
     editingColumn?.type === 'relation' ? String(editingColumn.config.toTableId ?? '') : ''
@@ -708,6 +720,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     views,
     projectTables,
     flags,
+    table,
     tableId,
     refresh,
     undo,
@@ -1661,6 +1674,35 @@ export function TableScreen({ tableId }: { tableId: string }) {
                               }}
                             />
                           )}
+                          {table?.headerConfig?.['mainColumnId'] === column.id ? (
+                            <Star aria-label={t('mainColumn')} className="size-3.5 shrink-0 fill-current" />
+                          ) : null}
+                          {column.type === 'relation' ? (
+                            <button
+                              type="button"
+                              aria-label={t('targetTable')}
+                              className="inline-flex min-w-0 max-w-[40%] shrink items-center gap-1 text-xs text-muted-foreground"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setRelationTarget(String(column.config.toTableId ?? ''))
+                                setRelationCardinality(String(column.config.cardinality ?? 'many_to_one'))
+                                setPopover({ kind: 'relation', columnId: column.id, ...anchor(event) })
+                              }}
+                            >
+                              <ResourceIcon
+                                name={
+                                  (projectTables.data?.tables ?? []).find(
+                                    (item) => item.id === column.config.toTableId,
+                                  )?.icon ?? 'Table'
+                                }
+                                className="size-3.5 shrink-0"
+                              />
+                              <span className="truncate">
+                                {(projectTables.data?.tables ?? []).find((item) => item.id === column.config.toTableId)
+                                  ?.name ?? t('targetTable')}
+                              </span>
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             data-header-control
@@ -1857,6 +1899,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       relationRows={
                         editingColumnId ? (targetRows.data?.rows ?? EMPTY_ROWS) : EMPTY_ROWS
                       }
+                      relationIcons={relationIcons}
                       tableId={tableId}
                       handlers={gridRowHandlers}
                       remoteKey={rowRemoteKey(people, tableId, row.id)}
@@ -2119,6 +2162,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           }
         }}
         onClose={() => setDrawerRowId(null)}
+        tables={projectTables.data?.tables ?? []}
       />
       <MediaLibraryDialog
         open={Boolean(mediaLibrary)}

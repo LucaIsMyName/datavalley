@@ -9,6 +9,7 @@ import {
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import {
+  columnOptions,
   formulas,
   projectMembers,
   relations,
@@ -48,6 +49,7 @@ import {
 } from '../tables/service.js'
 import { importDuplicateWarnings } from './duplicates.js'
 import { previousCellValues, recordCellHistory } from './history.js'
+import { rowDisplayTitle } from './titles.js'
 import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
@@ -116,6 +118,7 @@ function presentRows(
     rowNumber?: number | null
   }[],
   cells: (typeof tableCells.$inferSelect)[],
+  title: { mainColumnId?: string | null; labels?: Map<string, string> } = {},
 ) {
   const byKey = new Map(cells.map((cell) => [`${cell.rowId}:${cell.columnId}`, cell]))
   return page.map((row) => {
@@ -154,31 +157,73 @@ function presentRows(
       cells: values,
       backgrounds,
       formats,
-      title: presentedTitle(columns, values, row.rowNumber ?? 0),
+      title: rowDisplayTitle(columns, values, title.labels ?? new Map(), row.id, title.mainColumnId),
     }
   })
 }
 
-function presentedTitle(
-  columns: { id: string; type: string; name: string }[],
-  values: Record<string, unknown>,
-  rowNumber: number,
+function mainColumnIdOf(headerConfig: unknown) {
+  if (!headerConfig || typeof headerConfig !== 'object') return null
+  const id = (headerConfig as { mainColumnId?: unknown }).mainColumnId
+  return typeof id === 'string' && id ? id : null
+}
+
+async function titleContextFor(
+  db: AppDatabase,
+  tableId: string,
+  columns: LoadedColumn[],
+  cells: (typeof tableCells.$inferSelect)[],
 ) {
-  const titled = columns.filter((column) => column.type === 'text' || column.type === 'mail' || column.type === 'url')
-  const named = titled.find((column) => column.name.trim().toLowerCase() === 'name')
-  const textOf = (column: { id: string } | undefined) => {
-    if (!column) return ''
-    const value = values[column.id]
-    return typeof value === 'string' ? value.trim() : ''
+  const [table] = await db.select({ headerConfig: tables.headerConfig }).from(tables).where(eq(tables.id, tableId)).limit(1)
+  return {
+    mainColumnId: mainColumnIdOf(table?.headerConfig),
+    labels: await catalogLabels(db, columns, cells),
   }
-  const preferred = textOf(named)
-  if (preferred) return preferred
-  for (const column of titled) {
-    if (named && column.id === named.id) continue
-    const value = textOf(column)
-    if (value) return value
+}
+
+async function catalogLabels(
+  db: AppDatabase,
+  columns: { id: string; type: string }[],
+  cells: (typeof tableCells.$inferSelect)[],
+) {
+  const labels = new Map<string, string>()
+  const userIds = new Set<string>()
+  const statusIds = new Set<string>()
+  const tagIds = new Set<string>()
+  const byId = new Map(columns.map((column) => [column.id, column]))
+  for (const cell of cells) {
+    const column = byId.get(cell.columnId)
+    if (!column || (column.type !== 'user' && column.type !== 'status' && column.type !== 'tags')) continue
+    const value = readCell(column, cell)
+    const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+    for (const id of ids) {
+      if (column.type === 'user') userIds.add(id)
+      if (column.type === 'status') statusIds.add(id)
+      if (column.type === 'tags') tagIds.add(id)
+    }
   }
-  return rowNumber ? `#${rowNumber}` : ''
+  if (userIds.size > 0) {
+    const people = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(inArray(users.id, [...userIds]))
+    for (const person of people) labels.set(person.id, person.username)
+  }
+  if (statusIds.size > 0) {
+    const statuses = await db
+      .select({ id: tableStatuses.id, name: tableStatuses.name })
+      .from(tableStatuses)
+      .where(inArray(tableStatuses.id, [...statusIds]))
+    for (const status of statuses) labels.set(status.id, status.name)
+  }
+  if (tagIds.size > 0) {
+    const tags = await db
+      .select({ id: tableTags.id, name: tableTags.name })
+      .from(tableTags)
+      .where(inArray(tableTags.id, [...tagIds]))
+    for (const tag of tags) labels.set(tag.id, tag.name)
+  }
+  return labels
 }
 
 async function attachRelationLabels<T extends { cells: Record<string, unknown> }>(
@@ -229,7 +274,7 @@ async function presentRowRecord(
       subject,
       tableId,
       visible,
-      presentRows(visible, [fresh], stored),
+      presentRows(visible, [fresh], stored, await titleContextFor(db, tableId, visible, stored)),
     ),
   )
   return presented
@@ -248,23 +293,35 @@ async function recordTitles(db: AppDatabase, rowIds: string[]) {
   if (rowIds.length === 0) return titles
   const rows = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
   const tableIds = [...new Set(rows.map((row) => row.tableId))]
+  const storedTables = await db.select({ id: tables.id, headerConfig: tables.headerConfig }).from(tables).where(inArray(tables.id, tableIds))
+  const mainByTable = new Map(storedTables.map((table) => [table.id, mainColumnIdOf(table.headerConfig)]))
   const columns = await db.select().from(tableColumns).where(inArray(tableColumns.tableId, tableIds))
+  const options = columns.length
+    ? await db.select().from(columnOptions).where(inArray(columnOptions.columnId, columns.map((column) => column.id)))
+    : []
   const cells = await db.select().from(tableCells).where(inArray(tableCells.rowId, rowIds))
+  const shaped = columns.map((column) => ({
+    id: column.id,
+    tableId: column.tableId,
+    type: column.type,
+    name: column.name,
+    position: column.position,
+    options: options
+      .filter((option) => option.columnId === column.id)
+      .map((option) => ({ id: option.id, label: option.label })),
+  }))
+  const labels = await catalogLabels(db, shaped, cells)
   for (const row of rows) {
-    const textColumns = columns
-      .filter((column) => column.tableId === row.tableId && ['text', 'mail', 'url'].includes(column.type))
-      .sort((left, right) => (left.position < right.position ? -1 : 1))
-    const named = textColumns.find((column) => column.name.trim().toLowerCase() === 'name')
-    const textOf = (column: (typeof textColumns)[number] | undefined) =>
-      column
-        ? (cells.find((cell) => cell.rowId === row.id && cell.columnId === column.id)?.valueText?.trim() ?? '')
-        : ''
-    const preferred = textOf(named)
-    const title =
-      preferred ||
-      textColumns.map((column) => textOf(column)).find((value) => value) ||
-      `#${row.rowNumber}`
-    titles.set(row.id, title)
+    const rowColumns = shaped.filter((column) => column.tableId === row.tableId)
+    const values: Record<string, unknown> = {}
+    for (const column of rowColumns) {
+      const cell = cells.find((item) => item.rowId === row.id && item.columnId === column.id)
+      values[column.id] =
+        column.type === 'row_id'
+          ? row.rowNumber
+          : readCell(column, cell)
+    }
+    titles.set(row.id, rowDisplayTitle(rowColumns, values, labels, row.id, mainByTable.get(row.tableId)))
   }
   return titles
 }
@@ -459,7 +516,7 @@ export async function listRows(
       subject,
       physical.id,
       columns,
-      presentRows(columns, page.rows, cells),
+      presentRows(columns, page.rows, cells, await titleContextFor(db, physical.id, columns, cells)),
     ),
   )
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
@@ -896,7 +953,7 @@ export async function patchRow(
       subject,
       table.id,
       visible,
-      presentRows(visible, [fresh], stored),
+      presentRows(visible, [fresh], stored, await titleContextFor(db, table.id, visible, stored)),
     ),
   )
   publishRowUpdated(subject.id, table.projectId, table.id, presented)
@@ -1071,7 +1128,7 @@ export async function bulkPatch(
       subject,
       dataTableId,
       visible,
-      presentRows(visible, fresh, stored),
+      presentRows(visible, fresh, stored, await titleContextFor(db, dataTableId, visible, stored)),
     ),
   )
   for (const row of presented) publishRowUpdated(subject.id, table.projectId, table.id, row)
@@ -1313,7 +1370,7 @@ export async function exportCsv(
     db,
     all.map((row) => row.id),
   )
-  const rendered = presentRows(columns, all, cells)
+  const rendered = presentRows(columns, all, cells, await titleContextFor(db, physical.id, columns, cells))
   const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, physical.id))
   const statuses = await db
     .select()

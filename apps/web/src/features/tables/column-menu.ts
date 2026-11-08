@@ -20,6 +20,7 @@ import {
   Fingerprint,
   Hash,
   JapaneseYen,
+  Link2,
   ListOrdered,
   Minus,
   Palette,
@@ -27,7 +28,9 @@ import {
   Percent,
   PoundSterling,
   Sigma,
+  Star,
   SwissFranc,
+  Table,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
@@ -75,6 +78,24 @@ const STYLE_ICONS: Record<(typeof ROW_STYLES)[number], LucideIcon> = {
   sequence: ListOrdered,
   uuid: Fingerprint,
 }
+
+const MAIN_COLUMN_TYPES = new Set([
+  'text',
+  'long_text',
+  'mail',
+  'url',
+  'number',
+  'currency',
+  'date',
+  'datetime',
+  'checkbox',
+  'select',
+  'tags',
+  'status',
+  'user',
+])
+
+const CARDINALITIES = ['many_to_one', 'one_to_one', 'one_to_many'] as const
 
 const FOOTER_ICONS: Record<string, LucideIcon> = {
   count: Hash,
@@ -133,6 +154,9 @@ export function buildColumnHeaderMenu(input: {
   onSelect: (id: string) => void
   readOnly?: boolean
   expandCurrency?: boolean
+  mainColumn?: boolean
+  tables?: { id: string; name: string }[]
+  currentTableId?: string
 }): MenuEntry[] {
   const { column, label, onSelect } = input
   if (input.readOnly) {
@@ -229,8 +253,49 @@ export function buildColumnHeaderMenu(input: {
     )
   }
 
+  if (column.type === 'relation') {
+    entries.push({ kind: 'heading', id: 'relationOptions', label: label('relation') })
+    for (const cardinality of CARDINALITIES) {
+      entries.push(
+        action(onSelect, {
+          id: `cardinality-${cardinality}`,
+          label: label(`cardinality_${cardinality}`),
+          icon: Link2,
+          disabled: String(column.config.cardinality ?? 'many_to_one') === cardinality,
+        }),
+      )
+    }
+    const tables = (input.tables ?? []).filter((table) => table.id !== input.currentTableId)
+    if (tables.length > 0) {
+      entries.push({
+        kind: 'accordion',
+        id: 'relatedTable',
+        label: label('targetTable'),
+        icon: Table,
+        expanded: false,
+        items: tables.map((table) =>
+          action(onSelect, {
+            id: `target-${table.id}`,
+            label: table.name,
+            icon: Table,
+            disabled: String(column.config.toTableId ?? '') === table.id,
+          }),
+        ),
+      })
+    }
+  }
+
   entries.push(
     { kind: 'heading', id: 'actions', label: label('menuActions') },
+    ...(MAIN_COLUMN_TYPES.has(column.type)
+      ? [
+          action(onSelect, {
+            id: input.mainColumn ? 'main-column-off' : 'main-column-on',
+            label: label(input.mainColumn ? 'mainColumnClear' : 'mainColumn'),
+            icon: Star,
+          }),
+        ]
+      : []),
     action(onSelect, { id: 'rename', label: label('rename'), icon: Pencil }),
     action(onSelect, { id: 'hide', label: label('hideColumn'), icon: EyeOff }),
     action(onSelect, { id: 'sort', label: label('sort'), icon: ArrowUpDown }),

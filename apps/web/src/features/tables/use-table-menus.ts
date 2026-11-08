@@ -142,6 +142,8 @@ export function useTableMenus(scope: Scope) {
     duplicateSelectedColumns,
     fillDown,
     saveConfig,
+    saveRelation,
+    setMainColumn,
     applyDateMode,
     applySelectMode,
     setFooterCalc,
@@ -164,6 +166,12 @@ export function useTableMenus(scope: Scope) {
         readOnly: dataReadOnly,
         label: (key) => t(key),
         expandCurrency: expand,
+        mainColumn: table?.headerConfig?.['mainColumnId'] === col.id,
+        currentTableId: tableId,
+        tables: (projectTables.data?.tables ?? []).map((item: { id: string; name: string }) => ({
+          id: item.id,
+          name: item.name,
+        })),
         onSelect: (id) => onColumnMenuSelect(col, id),
       })
     }
@@ -171,6 +179,23 @@ export function useTableMenus(scope: Scope) {
     function onColumnMenuSelect(col: Column, id: string) {
       if (id === 'rename') {
         setRenamingColumn(col.id)
+        return
+      }
+      if (id === 'main-column-on') {
+        void setMainColumn(col.id)
+        return
+      }
+      if (id === 'main-column-off') {
+        void setMainColumn(null)
+        return
+      }
+      if (id.startsWith('cardinality-')) {
+        const toTableId = String(col.config.toTableId ?? '')
+        if (toTableId) void saveRelation(col, toTableId, id.slice('cardinality-'.length))
+        return
+      }
+      if (id.startsWith('target-')) {
+        void saveRelation(col, id.slice('target-'.length), String(col.config.cardinality ?? 'many_to_one'))
         return
       }
       if (id.startsWith('type-')) {

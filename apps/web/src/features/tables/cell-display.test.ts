@@ -8,5 +8,6 @@ describe('relation display', () => {
       'Ada Lovelace',
     )
     expect(relationDisplayLabel('', [], { rowId: 'row-1', title: 'Northwind' })).toBe('')
+    expect(relationDisplayLabel('row-3', [], undefined)).toBe('row-3')
   })
 })

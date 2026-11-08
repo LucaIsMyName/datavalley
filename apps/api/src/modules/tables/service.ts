@@ -13,6 +13,7 @@ import {
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
+  relationRecords,
   relations,
   tableCells,
   tableColumns,
@@ -47,6 +48,18 @@ import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } f
 import { seedDemoTable } from './template.js'
 import { publishRealtime, publishTableSignal } from '../realtime/publish.js'
 
+function relationConfig(
+  stored: unknown,
+  links: { id: string; toTableId: string; cardinality: string }[],
+) {
+  const config = { ...((stored ?? {}) as Record<string, unknown>) }
+  const chosen =
+    links.find((link) => link.id === config.relationId) ??
+    links[0]
+  if (!chosen) return config
+  return { ...config, relationId: chosen.id, toTableId: chosen.toTableId, cardinality: chosen.cardinality }
+}
+
 export type LoadedColumn = ColumnShape & {
   tableId: string
   description: string
@@ -72,12 +85,21 @@ export async function loadColumns(db: AppDatabase, tableId: string): Promise<Loa
         columns.map((column) => column.id),
       ),
     )
+  const links = await db
+    .select()
+    .from(relations)
+    .where(
+      inArray(
+        relations.fromColumnId,
+        columns.map((column) => column.id),
+      ),
+    )
   return columns.map((column) => ({
     id: column.id,
     tableId: column.tableId,
     name: column.name,
     type: column.type,
-    config: (column.config ?? {}) as Record<string, unknown>,
+    config: relationConfig(column.config, links.filter((link) => link.fromColumnId === column.id)),
     description: column.description,
     position: column.position,
     hidden: column.hidden,
@@ -768,6 +790,12 @@ export async function deleteColumn(db: AppDatabase, subject: Subject, columnId: 
     .limit(1)
   if (!column) throw notFound()
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
+  const [owner] = await db.select({ headerConfig: tables.headerConfig }).from(tables).where(eq(tables.id, column.tableId)).limit(1)
+  const header = { ...((owner?.headerConfig ?? {}) as Record<string, unknown>) }
+  if (header.mainColumnId === columnId) {
+    delete header.mainColumnId
+    await db.update(tables).set({ headerConfig: header, updatedAt: new Date() }).where(eq(tables.id, column.tableId))
+  }
   await db.delete(tableColumns).where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, {
     action: 'column.delete',
@@ -960,7 +988,39 @@ export async function attachRelation(
     id: input.toTableId,
     parents: { project: table.projectId },
   })
-  await convertColumn(db, subject, columnId, 'relation')
+  if (!['many_to_one', 'one_to_one', 'one_to_many'].includes(input.cardinality)) throw badRequest('Unknown cardinality')
+  const config = (column.config ?? {}) as Record<string, unknown>
+  const relationId = typeof config.relationId === 'string' ? config.relationId : ''
+  const [byId] = relationId ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1) : []
+  const [byColumn] = byId
+    ? []
+    : await db.select().from(relations).where(eq(relations.fromColumnId, column.id)).limit(1)
+  const existing = byId ?? byColumn
+  if (existing) {
+    if (input.toTableId !== existing.toTableId) {
+      await db.delete(relationRecords).where(eq(relationRecords.relationId, existing.id))
+      await db.delete(tableCells).where(eq(tableCells.columnId, column.id))
+      await db
+        .update(relations)
+        .set({ toTableId: input.toTableId, cardinality: input.cardinality })
+        .where(eq(relations.id, existing.id))
+      await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
+    } else if (input.cardinality !== existing.cardinality) {
+      if (input.cardinality === 'one_to_one' || input.cardinality === 'one_to_many') {
+        const records = await db.select().from(relationRecords).where(eq(relationRecords.relationId, existing.id))
+        const seen = new Set<string>()
+        for (const record of records) {
+          if (seen.has(record.toRowId)) throw conflict('That record is already linked')
+          seen.add(record.toRowId)
+        }
+      }
+      await db.update(relations).set({ cardinality: input.cardinality }).where(eq(relations.id, existing.id))
+    }
+    return updateColumn(db, subject, column.id, {
+      config: { ...config, relationId: existing.id, toTableId: input.toTableId },
+    })
+  }
+  if (column.type !== 'relation') await convertColumn(db, subject, columnId, 'relation')
   const [relation] = await db
     .insert(relations)
     .values({
@@ -972,7 +1032,11 @@ export async function attachRelation(
     })
     .returning()
   return updateColumn(db, subject, column.id, {
-    config: { relationId: relation.id, toTableId: input.toTableId },
+    config: {
+      ...((column.config ?? {}) as Record<string, unknown>),
+      relationId: relation.id,
+      toTableId: input.toTableId,
+    },
   })
 }
 

@@ -27,5 +27,5 @@ export function relationDisplayLabel(
   const match = relationRows.find((row) => row.id === id)
   if (match?.title) return match.title
   if (stored && stored.rowId === id && stored.title) return stored.title
-  return ''
+  return id
 }

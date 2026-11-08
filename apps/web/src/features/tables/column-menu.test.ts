@@ -7,11 +7,13 @@ function menuFor(
   column: { type: string; config?: Record<string, unknown> },
   checkedCount = 0,
   expandCurrency?: boolean,
+  mainColumn = false,
 ) {
   return buildColumnHeaderMenu({
     column: { type: column.type, config: column.config ?? {} },
     checkedCount,
     expandCurrency,
+    mainColumn,
     label: (key) => key,
     onSelect: () => undefined,
   })
@@ -57,6 +59,7 @@ describe('column header menu', () => {
   it('keeps column actions together and delete last', () => {
     const entries = menuFor({ type: 'text' }, 1)
     expect(idsBetween(entries, 'actions', 'footer')).toEqual([
+      'main-column-on',
       'rename',
       'hide',
       'sort',
@@ -158,6 +161,39 @@ describe('column header menu', () => {
       icon: Palette,
     })
     expect(items(menuFor({ type: 'row_id' })).find((entry) => entry.id === 'style-sequence')?.disabled).toBe(true)
+  })
+
+  it('marks and clears the main column', () => {
+    expect(items(menuFor({ type: 'text' })).find((entry) => entry.id === 'main-column-on')).toMatchObject({
+      label: 'mainColumn',
+    })
+    expect(items(menuFor({ type: 'text' }, 0, undefined, true)).find((entry) => entry.id === 'main-column-off')).toMatchObject({
+      label: 'mainColumnClear',
+    })
+    expect(items(menuFor({ type: 'relation' })).find((entry) => entry.id === 'main-column-on')).toBeUndefined()
+  })
+
+  it('lists link types and the other project tables for a relation column', () => {
+    const entries = buildColumnHeaderMenu({
+      column: { type: 'relation', config: { toTableId: 'companies', cardinality: 'many_to_one' } },
+      checkedCount: 0,
+      label: (key) => key,
+      onSelect: () => undefined,
+      currentTableId: 'deals',
+      tables: [
+        { id: 'deals', name: 'Deals' },
+        { id: 'companies', name: 'Companies' },
+        { id: 'people', name: 'People' },
+      ],
+    })
+    expect(headings(entries)).toContain('relationOptions')
+    expect(items(entries).find((entry) => entry.id === 'cardinality-many_to_one')?.disabled).toBe(true)
+    expect(items(entries).find((entry) => entry.id === 'cardinality-one_to_one')?.disabled).toBe(false)
+    const accordion = entries.find((entry) => isMenuAccordion(entry) && entry.id === 'relatedTable')
+    const targets = accordion && isMenuAccordion(accordion) ? accordion.items : []
+    expect(targets.map((item) => item.id)).toEqual(['target-companies', 'target-people'])
+    expect(targets.find((item) => item.id === 'target-companies')?.disabled).toBe(true)
+    expect(targets.find((item) => item.id === 'target-people')?.disabled).toBe(false)
   })
 
   it('gives every action an icon', () => {

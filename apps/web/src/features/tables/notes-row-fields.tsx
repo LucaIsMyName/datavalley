@@ -32,6 +32,7 @@ export function NotesRowFields({
   onCreated,
   onOptionChange,
   onOpenFormula,
+  tables = [],
 }: {
   tableId: string
   row: RowRecord
@@ -53,6 +54,7 @@ export function NotesRowFields({
     deleted?: boolean,
   ) => void
   onOpenFormula: (rowId: string, columnId: string, columnName: string) => void
+  tables?: { id: string; icon: string }[]
 }) {
   const queryClient = useQueryClient()
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
@@ -110,6 +112,11 @@ export function NotesRowFields({
                 statuses={statuses}
                 members={members}
                 relationRows={targetRows.data?.rows ?? []}
+                relationIcon={
+                  column.type === 'relation'
+                    ? tables.find((item) => item.id === String(column.config.toTableId ?? ''))?.icon
+                    : undefined
+                }
                 readOnly={readOnly}
                 invalid={invalid}
                 onScheduleCell={cellEdit.scheduleCell}

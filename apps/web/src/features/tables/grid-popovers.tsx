@@ -194,7 +194,11 @@ export function GridPopovers(input: Record<string, any>) {
           <SelectField
             label={t('cardinality')}
             value={relationCardinality}
-            onValueChange={setRelationCardinality}
+            onValueChange={(next) => {
+              setRelationCardinality(next)
+              const target = String(popoverColumn.config.toTableId ?? '')
+              if (popoverColumn.type === 'relation' && target) void saveRelation(popoverColumn, target, next)
+            }}
             options={[
               { value: 'many_to_one', label: t(cardinalityKey('many_to_one')) },
               { value: 'one_to_one', label: t(cardinalityKey('one_to_one')) },

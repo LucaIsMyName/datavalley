@@ -90,6 +90,7 @@ type GridBodyRowProps = {
   mediaUploadingColumnId: string | null
   readOnly: boolean
   relationRows: RowRecord[]
+  relationIcons: Record<string, string>
   tableId: string
   handlers: GridRowHandlers
   remoteKey: string
@@ -118,6 +119,7 @@ function GridBodyRowView({
   mediaUploadingColumnId,
   readOnly,
   relationRows,
+  relationIcons,
   tableId,
   handlers,
   peers,
@@ -308,6 +310,7 @@ function GridBodyRowView({
                 statuses={statuses}
                 members={members}
                 relationRows={relationRows}
+                relationIcon={relationIcons[column.id]}
                 readOnly={readOnly}
                 remoteDraft={remoteDraft ?? undefined}
                 invalid={api.invalidFor(row.id, column.id)}
@@ -369,6 +372,7 @@ function sameRow(prev: GridBodyRowProps, next: GridBodyRowProps) {
     prev.mediaUploadingColumnId === next.mediaUploadingColumnId &&
     prev.readOnly === next.readOnly &&
     prev.relationRows === next.relationRows &&
+    prev.relationIcons === next.relationIcons &&
     prev.tableId === next.tableId &&
     prev.handlers === next.handlers &&
     prev.remoteKey === next.remoteKey

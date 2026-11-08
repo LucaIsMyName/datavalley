@@ -226,6 +226,8 @@
   "relation": "Relation",
   "targetTable": "Target table",
   "cardinality": "Cardinality",
+  "mainColumn": "Main column",
+  "mainColumnClear": "Clear main column",
   "addRelation": "Add relation",
   "newTable": "New table",
   "blankTable": "Blank table",
