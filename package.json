@@ -11,7 +11,8 @@
     "database",
     "data",
     "warehouse",
-    "ai integration"
+    "ai-integration",
+    "automations"
   ],
   "workspaces": [
     "apps/*",
