@@ -45,7 +45,17 @@ describe('crm project template', () => {
     expect(columns.find((column) => column.name === 'Amount')?.config.currency).toBe('EUR')
     expect(columns.find((column) => column.name === 'Company')?.type).toBe('relation')
     const rows = await session.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}/rows` })
-    const rowId = rows.json().rows[0].id as string
+    const deal = rows.json().rows[0] as {
+      id: string
+      title: string
+      relationLabels: Record<string, { title: string }>
+    }
+    const companyId = (detail.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Company')?.id
+    const personId = (detail.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Person')?.id
+    expect(deal.title).toBe('Website')
+    expect(deal.relationLabels[companyId ?? ''].title).toBe('Northwind')
+    expect(deal.relationLabels[personId ?? ''].title).toBe('Ada Lovelace')
+    const rowId = deal.id
     const record = await session.inject({ method: 'GET', url: `/api/v1/rows/${rowId}/record` })
     expect(record.statusCode).toBe(200)
     const links = record.json().links as { title: string; columnName: string }[]

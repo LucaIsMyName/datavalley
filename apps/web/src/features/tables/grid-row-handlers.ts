@@ -14,6 +14,7 @@ export type CreateGridRowHandlersInput = {
   insertRow: GridRowHandlers['insertRow']
   setChecked: GridRowHandlers['setChecked']
   setDrawerRowId: GridRowHandlers['setDrawerRowId']
+  openRecord: GridRowHandlers['openRecord']
   focusCell: GridRowHandlers['focusCell']
   activateCell: GridRowHandlers['activateCell']
   scheduleCell: GridRowHandlers['scheduleCell']
@@ -50,6 +51,7 @@ export function createGridRowHandlers(input: CreateGridRowHandlersInput): GridRo
     insertRow,
     setChecked,
     setDrawerRowId,
+    openRecord,
     focusCell,
     activateCell,
     scheduleCell,
@@ -79,6 +81,7 @@ export function createGridRowHandlers(input: CreateGridRowHandlersInput): GridRo
     insertRow,
     setChecked,
     setDrawerRowId,
+    openRecord,
     focusCell,
     activateCell,
     scheduleCell,

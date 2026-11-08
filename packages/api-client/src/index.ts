@@ -169,4 +169,6 @@ export type RowRecord = {
   cells: Record<string, unknown>
   backgrounds: Record<string, string>
   formats?: Record<string, FormatRule[]>
+  title?: string
+  relationLabels?: Record<string, { rowId: string; title: string }>
 }

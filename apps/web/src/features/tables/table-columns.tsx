@@ -35,7 +35,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
     insertRow,
     dragItem,
     setDropTarget,
-    setDrawerRowId,
+    openRecord,
     columns,
     table,
     membersQuery,
@@ -165,11 +165,11 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
 
           <button
             type="button"
-            aria-label={t('notes')}
-            className={`inline-flex shrink-0 ${row.original.notes?.trim() ? 'text-foreground' : 'text-muted-foreground'}`}
+            aria-label={t('openRecord')}
+            className="inline-flex shrink-0 text-muted-foreground"
             onClick={(event) => {
               event.stopPropagation()
-              setDrawerRowId(row.original.id)
+              openRecord(row.original.id)
             }}
           >
             <ArrowUpRight className="size-3.5" />

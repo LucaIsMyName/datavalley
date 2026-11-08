@@ -1,31 +1,12 @@
-import type { Column } from '@datavalley/api-client'
 import { describe, expect, it } from 'vitest'
-import { cellWritable, fillableColumn } from './cell-display.js'
+import { relationDisplayLabel } from './cell-display'
 
-const column = (type: string): Column =>
-  ({
-    id: 'c1',
-    name: 'Field',
-    type,
-    width: 100,
-    position: 'a',
-    hidden: false,
-    config: {},
-    options: [],
-  }) as unknown as Column
-
-describe('cellWritable', () => {
-  it('allows text columns and blocks formulas', () => {
-    expect(cellWritable(column('text'))).toBe(true)
-    expect(cellWritable(column('formula'))).toBe(false)
-    expect(cellWritable(column('lookup'))).toBe(false)
-  })
-})
-
-describe('fillableColumn', () => {
-  it('blocks row_id and lookup', () => {
-    expect(fillableColumn(column('text'))).toBe(true)
-    expect(fillableColumn(column('lookup'))).toBe(false)
-    expect(fillableColumn(column('row_id'))).toBe(false)
+describe('relation display', () => {
+  it('shows the linked row name instead of its id', () => {
+    expect(relationDisplayLabel('row-1', [], { rowId: 'row-1', title: 'Northwind' })).toBe('Northwind')
+    expect(relationDisplayLabel('row-2', [{ id: 'row-2', title: 'Ada Lovelace' }], { rowId: 'row-1', title: 'Northwind' })).toBe(
+      'Ada Lovelace',
+    )
+    expect(relationDisplayLabel('', [], { rowId: 'row-1', title: 'Northwind' })).toBe('')
   })
 })

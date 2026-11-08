@@ -3,18 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { SelectField } from '../../components/ui/select'
 import { CellEditor } from './cells'
 import { DuplicateHint } from './duplicate-hint'
-import { displayCellValue } from './cell-display'
+import { displayCellValue, relationDisplayLabel } from './cell-display'
 import { editFailureMessage } from './edit-error'
-import { formatFormulaValue } from './formula-help'
 import { sync } from '../../lib/sync'
 import { toast } from 'sonner'
 
 function showEditError(message: string) {
   toast.error(message, { id: 'table-edit-error' })
-}
-
-function showCell(value: unknown) {
-  return formatFormulaValue(value)
 }
 
 export function TableCellInput({
@@ -76,7 +71,11 @@ export function TableCellInput({
 }) {
   const { t, i18n } = useTranslation()
   const value = row.cells[column.id]
-  const text = invalid?.text ?? (remoteDraft != null && !active ? remoteDraft : displayCellValue(column, value, i18n.language))
+  const shown =
+    column.type === 'relation'
+      ? relationDisplayLabel(value, relationRows, row.relationLabels?.[column.id])
+      : displayCellValue(column, value, i18n.language)
+  const text = invalid?.text ?? (remoteDraft != null && !active ? remoteDraft : shown)
   const writable = !readOnly && column.type !== 'formula' && column.type !== 'lookup'
   const cellKey = `cell:${row.id}:${column.id}`
   const editingKey = `${row.id}:${column.id}`
@@ -98,10 +97,7 @@ export function TableCellInput({
           { value: '', label: t('none') },
           ...relationRows.map((target) => ({
             value: target.id,
-            label: showCell(
-              Object.values(target.cells).find((item) => typeof item === 'string' && item) ??
-                target.id.slice(0, 8),
-            ),
+            label: target.title?.trim() || target.id.slice(0, 8),
           })),
         ]}
       />

@@ -923,6 +923,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
         insertRow,
         setChecked,
         setDrawerRowId,
+        openRecord: (rowId) => {
+          if (!projectId) return
+          navigate(`/projects/${projectId}/tables/${tableId}/rows/${rowId}`)
+        },
         focusCell,
         activateCell,
         scheduleCell,
@@ -966,6 +970,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       reorderRow,
       requestMediaUpload,
       scheduleCell,
+      navigate,
+      projectId,
       setChecked,
       setDrawerRowId,
       t,
@@ -1130,6 +1136,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
         dragItem,
         setDropTarget,
         setDrawerRowId,
+        openRecord: (rowId: string) => {
+          if (!projectId) return
+          navigate(`/projects/${projectId}/tables/${tableId}/rows/${rowId}`)
+        },
         columns,
         table,
         membersQuery,
@@ -1179,6 +1189,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
       t,
       targetSignature,
       dataReadOnly,
+      navigate,
+      projectId,
     ],
   )
   const grid = useReactTable({

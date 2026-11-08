@@ -29,6 +29,7 @@ export type GridRowHandlers = {
   insertRow: (beforeId?: string) => void
   setChecked: (update: string[] | ((current: string[]) => string[])) => void
   setDrawerRowId: (id: string) => void
+  openRecord: (rowId: string) => void
   focusCell: (rowIndex: number, columnIndex: number) => void
   activateCell: (row: RowRecord, column: Column) => void
   scheduleCell: (row: RowRecord, column: Column, value: unknown, delay?: number) => void
@@ -230,11 +231,11 @@ function GridBodyRowView({
           />
           <button
             type="button"
-            aria-label={api.t('notes')}
-            className={`inline-flex shrink-0 ${row.notes?.trim() ? 'text-foreground' : 'text-muted-foreground'}`}
+            aria-label={api.t('openRecord')}
+            className="inline-flex shrink-0 text-muted-foreground"
             onClick={(event) => {
               event.stopPropagation()
-              api.setDrawerRowId(row.id)
+              api.openRecord(row.id)
             }}
           >
             <ArrowUpRight className="size-3.5" />

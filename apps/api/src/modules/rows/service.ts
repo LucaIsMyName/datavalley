@@ -154,8 +154,59 @@ function presentRows(
       cells: values,
       backgrounds,
       formats,
+      title: presentedTitle(columns, values, row.rowNumber ?? 0),
     }
   })
+}
+
+function presentedTitle(
+  columns: { id: string; type: string; name: string }[],
+  values: Record<string, unknown>,
+  rowNumber: number,
+) {
+  const titled = columns.filter((column) => column.type === 'text' || column.type === 'mail' || column.type === 'url')
+  const named = titled.find((column) => column.name.trim().toLowerCase() === 'name')
+  const textOf = (column: { id: string } | undefined) => {
+    if (!column) return ''
+    const value = values[column.id]
+    return typeof value === 'string' ? value.trim() : ''
+  }
+  const preferred = textOf(named)
+  if (preferred) return preferred
+  for (const column of titled) {
+    if (named && column.id === named.id) continue
+    const value = textOf(column)
+    if (value) return value
+  }
+  return rowNumber ? `#${rowNumber}` : ''
+}
+
+async function attachRelationLabels<T extends { cells: Record<string, unknown> }>(
+  db: AppDatabase,
+  columns: { id: string; type: string }[],
+  rows: T[],
+) {
+  const ids: string[] = []
+  for (const row of rows) {
+    for (const column of columns) {
+      if (column.type !== 'relation') continue
+      const id = row.cells[column.id]
+      if (typeof id === 'string' && id) ids.push(id)
+    }
+  }
+  const titles = await recordTitles(db, [...new Set(ids)])
+  for (const row of rows) {
+    const labels: Record<string, { rowId: string; title: string }> = {}
+    for (const column of columns) {
+      if (column.type !== 'relation') continue
+      const id = row.cells[column.id]
+      if (typeof id !== 'string' || !id) continue
+      const title = titles.get(id)
+      if (title) labels[column.id] = { rowId: id, title }
+    }
+    ;(row as T & { relationLabels?: Record<string, { rowId: string; title: string }> }).relationLabels = labels
+  }
+  return rows
 }
 
 async function presentRowRecord(
@@ -170,12 +221,16 @@ async function presentRowRecord(
   const columns = await loadColumns(db, tableId)
   const stored = await cellsFor(db, [rowId])
   const visible = await visibleColumns(db, subject, tableId, projectId, columns)
-  const [presented] = await attachFormulaValues(
+  const [presented] = await attachRelationLabels(
     db,
-    subject,
-    tableId,
     visible,
-    presentRows(visible, [fresh], stored),
+    await attachFormulaValues(
+      db,
+      subject,
+      tableId,
+      visible,
+      presentRows(visible, [fresh], stored),
+    ),
   )
   return presented
 }
@@ -199,10 +254,17 @@ async function recordTitles(db: AppDatabase, rowIds: string[]) {
     const textColumns = columns
       .filter((column) => column.tableId === row.tableId && ['text', 'mail', 'url'].includes(column.type))
       .sort((left, right) => (left.position < right.position ? -1 : 1))
-    const title = textColumns
-      .map((column) => cells.find((cell) => cell.rowId === row.id && cell.columnId === column.id)?.valueText)
-      .find((value) => value)
-    titles.set(row.id, title || `#${row.rowNumber}`)
+    const named = textColumns.find((column) => column.name.trim().toLowerCase() === 'name')
+    const textOf = (column: (typeof textColumns)[number] | undefined) =>
+      column
+        ? (cells.find((cell) => cell.rowId === row.id && cell.columnId === column.id)?.valueText?.trim() ?? '')
+        : ''
+    const preferred = textOf(named)
+    const title =
+      preferred ||
+      textColumns.map((column) => textOf(column)).find((value) => value) ||
+      `#${row.rowNumber}`
+    titles.set(row.id, title)
   }
   return titles
 }
@@ -389,12 +451,16 @@ export async function listRows(
     db,
     page.rows.map((row) => row.id),
   )
-  const rows = await attachFormulaValues(
+  const rows = await attachRelationLabels(
     db,
-    subject,
-    physical.id,
     columns,
-    presentRows(columns, page.rows, cells),
+    await attachFormulaValues(
+      db,
+      subject,
+      physical.id,
+      columns,
+      presentRows(columns, page.rows, cells),
+    ),
   )
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
 }
@@ -822,12 +888,16 @@ export async function patchRow(
   const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, row.id))
   const stored = await cellsFor(db, [row.id])
   const visible = await visibleColumns(db, subject, table.id, table.projectId, columns)
-  const [presented] = await attachFormulaValues(
+  const [presented] = await attachRelationLabels(
     db,
-    subject,
-    table.id,
     visible,
-    presentRows(visible, [fresh], stored),
+    await attachFormulaValues(
+      db,
+      subject,
+      table.id,
+      visible,
+      presentRows(visible, [fresh], stored),
+    ),
   )
   publishRowUpdated(subject.id, table.projectId, table.id, presented)
   publishRealtime(table.projectId, {
@@ -993,12 +1063,16 @@ export async function bulkPatch(
   const fresh = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
   const stored = await cellsFor(db, rowIds)
   const visible = await visibleColumns(db, subject, dataTableId, table.projectId, columns)
-  const presented = await attachFormulaValues(
+  const presented = await attachRelationLabels(
     db,
-    subject,
-    dataTableId,
     visible,
-    presentRows(visible, fresh, stored),
+    await attachFormulaValues(
+      db,
+      subject,
+      dataTableId,
+      visible,
+      presentRows(visible, fresh, stored),
+    ),
   )
   for (const row of presented) publishRowUpdated(subject.id, table.projectId, table.id, row)
   publishRealtime(table.projectId, {

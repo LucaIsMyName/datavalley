@@ -16,3 +16,16 @@ export function displayCellValue(column: Column, value: unknown, language: strin
   }
   return formatFormulaValue(value)
 }
+
+export function relationDisplayLabel(
+  value: unknown,
+  relationRows: { id: string; title?: string }[],
+  stored?: { rowId: string; title: string },
+) {
+  const id = typeof value === 'string' ? value : ''
+  if (!id) return ''
+  const match = relationRows.find((row) => row.id === id)
+  if (match?.title) return match.title
+  if (stored && stored.rowId === id && stored.title) return stored.title
+  return ''
+}
