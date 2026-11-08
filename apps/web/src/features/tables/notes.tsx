@@ -3,14 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useQueryClient } from '@tanstack/react-query'
 import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-client'
 import { MoreHorizontal, Plus } from 'lucide-react'
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -21,7 +14,7 @@ import { applyStashedNotes } from '../realtime/apply'
 import { setNotesEditing, takeStashedNotes } from '../realtime/editing'
 import { PresenceChip } from '../realtime/presence-chip'
 import { reportPresence, usePresencePeople } from '../realtime/presence-store'
-import { isNotesDialogOutsideTarget } from './notes-dialog-outside'
+import { isNotesBlockMenuTarget, isNotesDialogOutsideTarget } from './notes-dialog-outside'
 import { NotesRowFields } from './notes-row-fields'
 import type { TableReadOnlyReason } from './table-read-only'
 import { useRowCellEdit } from './use-row-cell-edit'
@@ -129,10 +122,17 @@ function BlockTag({
   return null
 }
 
-function beginBlockEdit(event: ReactMouseEvent, readOnly: boolean, onActivate: () => void) {
+const gutterControlClass =
+  'inline-flex size-8 shrink-0 items-center justify-center text-muted-foreground opacity-0 pointer-events-none hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100'
+
+function activateBlock(readOnly: boolean, onActivate: () => void) {
   if (readOnly) return
-  event.preventDefault()
   onActivate()
+}
+
+function BlockText({ text }: { text: string }) {
+  if (!text) return <span className="text-muted-foreground">{'\u00a0'}</span>
+  return <InlineContent text={text} />
 }
 
 function EditableBlock({
@@ -148,87 +148,64 @@ function EditableBlock({
   active: boolean
   onActivate: () => void
   onTextChange: (text: string) => void
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const seeded = useRef(false)
+  const areaRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => {
-    if (!active) {
-      seeded.current = false
-      return
-    }
-    const node = ref.current
-    if (!node || seeded.current) return
-    node.textContent = block.text
-    seeded.current = true
-    requestAnimationFrame(() => {
-      node.focus()
-      const range = document.createRange()
-      range.selectNodeContents(node)
-      range.collapse(false)
-      const sel = window.getSelection()
-      sel?.removeAllRanges()
-      sel?.addRange(range)
-    })
+  useLayoutEffect(() => {
+    const node = areaRef.current
+    if (!active || !node) return
+    node.style.height = '0px'
+    node.style.height = `${node.scrollHeight}px`
   }, [active, block.id, block.text, block.type])
 
-  const surfaceKey = `${block.id}-${active ? 'edit' : 'view'}`
+  useLayoutEffect(() => {
+    if (!active) return
+    const node = areaRef.current
+    if (!node) return
+    node.focus()
+    const end = node.value.length
+    node.setSelectionRange(end, end)
+  }, [active, block.id])
 
   if (block.type === 'divider') {
     return <hr className="my-2 border-border" />
   }
 
+  const className = `${blockClassName(block)} min-h-6 min-w-0 flex-1`
+
   if (readOnly || !active) {
-    const className = `${blockClassName(block)} min-w-0 flex-1 outline-none`
     if (block.type === 'heading') {
       const level = Math.min(6, Math.max(1, block.level ?? 1)) - 1
       const Tag = HEADING_TAGS[level]
       return (
-        <Tag
-          key={surfaceKey}
-          className={className}
-          onMouseDown={(event) => beginBlockEdit(event, readOnly, onActivate)}
-        >
-          <InlineContent text={block.text} />
+        <Tag className={className} onClick={() => activateBlock(readOnly, onActivate)}>
+          <BlockText text={block.text} />
         </Tag>
       )
     }
     if (block.type === 'code') {
       return (
-        <pre
-          key={surfaceKey}
-          className={className}
-          onMouseDown={(event) => beginBlockEdit(event, readOnly, onActivate)}
-        >
-          <code>{block.text}</code>
+        <pre className={className} onClick={() => activateBlock(readOnly, onActivate)}>
+          <code>{block.text || '\u00a0'}</code>
         </pre>
       )
     }
     return (
-      <div
-        key={surfaceKey}
-        className={className}
-        onMouseDown={(event) => beginBlockEdit(event, readOnly, onActivate)}
-      >
-        <InlineContent text={block.text} />
+      <div className={className} onClick={() => activateBlock(readOnly, onActivate)}>
+        <BlockText text={block.text} />
       </div>
     )
   }
 
   return (
-    <div
-      key={surfaceKey}
-      ref={ref}
-      role="textbox"
-      contentEditable
-      suppressContentEditableWarning
-      className={`${blockClassName(block)} min-w-0 flex-1 outline-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]`}
-      data-placeholder=""
-      onInput={() => {
-        const next = ref.current?.textContent ?? ''
-        onTextChange(next)
-      }}
+    <textarea
+      ref={areaRef}
+      autoFocus
+      value={block.text}
+      rows={1}
+      className={`${className} resize-none overflow-hidden bg-transparent outline-none`}
+      onChange={(event) => onTextChange(event.target.value)}
       onKeyDown={onKeyDown}
     />
   )
@@ -269,18 +246,33 @@ function NotesBlockEditor({
   const blocksRef = useRef(blocks)
   blocksRef.current = blocks
   const editingRef = useRef(false)
+  const emittedRef = useRef(markdown)
+  const rowIdRef = useRef(rowId)
 
   useEffect(() => {
+    const rowChanged = rowIdRef.current !== rowId
+    rowIdRef.current = rowId
+    if (rowChanged) {
+      emittedRef.current = markdown
+      editingRef.current = false
+      setBlocks(parseNotes(markdown))
+      setActiveId(null)
+      return
+    }
+    if (markdown === emittedRef.current) return
     if (editingRef.current) return
+    emittedRef.current = markdown
     setBlocks(parseNotes(markdown))
     setActiveId(null)
   }, [rowId, markdown])
 
   const commit = useCallback(
     (nextBlocks: NoteBlock[]) => {
+      const serialized = serializeNotes(nextBlocks)
+      emittedRef.current = serialized
       blocksRef.current = nextBlocks
       setBlocks(nextBlocks)
-      onChange(serializeNotes(nextBlocks))
+      onChange(serialized)
     },
     [onChange],
   )
@@ -295,7 +287,7 @@ function NotesBlockEditor({
     commit(blocksRef.current.map((b) => (b.id === id ? nextBlock : b)))
   }
 
-  function handleKeyDown(id: string, event: KeyboardEvent<HTMLDivElement>) {
+  function handleKeyDown(id: string, event: KeyboardEvent<HTMLTextAreaElement>) {
     const index = blocksRef.current.findIndex((b) => b.id === id)
     const block = blocksRef.current[index]
     if (!block) return
@@ -310,7 +302,7 @@ function NotesBlockEditor({
       return
     }
 
-    if (event.key === 'Backspace' && (block.text === '' || (event.currentTarget.textContent ?? '') === '')) {
+    if (event.key === 'Backspace' && block.text === '') {
       event.preventDefault()
       if (blocksRef.current.length <= 1) return
       const prev = blocksRef.current[index - 1]
@@ -328,7 +320,9 @@ function NotesBlockEditor({
   function turnInto(id: string, target: TurnIntoType) {
     const block = blocksRef.current.find((b) => b.id === id)
     if (!block) return
-    commit(blocksRef.current.map((b) => (b.id === id ? turnBlockInto(b, target) : b)))
+    const next = turnBlockInto(block, target)
+    commit(blocksRef.current.map((b) => (b.id === id ? next : b)))
+    setActiveId(next.type === 'divider' ? null : next.id)
   }
 
   return (
@@ -339,41 +333,41 @@ function NotesBlockEditor({
         onFocusChange(true)
       }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          editingRef.current = false
-          setActiveId(null)
-          onFocusChange(false)
-        }
+        const related = event.relatedTarget
+        if (event.currentTarget.contains(related as Node | null)) return
+        if (isNotesBlockMenuTarget(related)) return
+        editingRef.current = false
+        setActiveId(null)
+        onFocusChange(false)
       }}
     >
       {blocks.map((block, index) => (
-        <div key={block.id}>
+        <div key={block.id} className="group/row flex items-start gap-0.5 py-0.5">
           {!readOnly ? (
-            <div className="group/insert relative h-5 shrink-0">
+            <>
               <button
                 type="button"
                 aria-label={t('notesInsertBlock')}
-                className="absolute left-0 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:opacity-0 md:group-hover/insert:opacity-100 md:focus-visible:opacity-100"
+                className={gutterControlClass}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => insertAt(index)}
               >
                 <Plus className="size-3.5" />
               </button>
-            </div>
-          ) : null}
-          <div className="group/row flex items-start gap-1 py-0.5">
-            {!readOnly ? (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button
                     type="button"
                     aria-label={t('notesBlockMenu')}
-                    className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100"
+                    className={gutterControlClass}
+                    onMouseDown={(event) => event.preventDefault()}
                   >
                     <MoreHorizontal className="size-3.5" />
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content
+                    data-notes-block-menu=""
                     className="z-[60] max-h-80 min-w-44 overflow-auto border border-border bg-card p-1 shadow-md"
                     align="start"
                     sideOffset={4}
@@ -390,9 +384,10 @@ function NotesBlockEditor({
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
-            ) : (
-              <span className="inline-flex size-6 shrink-0" aria-hidden />
-            )}
+            </>
+          ) : (
+            <span className="inline-flex size-6 shrink-0" aria-hidden />
+          )}
             <BlockTag
               block={block}
               number={blocks.slice(0, index + 1).filter((item) => item.type === 'numbered').length}
@@ -413,15 +408,15 @@ function NotesBlockEditor({
               onTextChange={(text) => handleTextChange(block.id, text)}
               onKeyDown={(event) => handleKeyDown(block.id, event)}
             />
-          </div>
         </div>
       ))}
       {!readOnly ? (
-        <div className="group/insert relative h-5 shrink-0">
+        <div className="group/row flex h-8 items-center">
           <button
             type="button"
             aria-label={t('notesInsertBlock')}
-            className="absolute left-0 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:bg-accent group-hover/insert:opacity-100"
+            className={gutterControlClass}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => insertAt(blocks.length)}
           >
             <Plus className="size-3.5" />
