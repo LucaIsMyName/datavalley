@@ -39,7 +39,7 @@ export function SelectTrigger({ className, children, ...props }: ComponentProps<
     <SelectPrimitive.Trigger
       type="button"
       className={cn(
-        'flex h-9 w-full items-center justify-between gap-2  border border-border bg-card px-2 text-left text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 md:text-sm',
+        'flex h-9 w-full items-center justify-between gap-2  border border-border bg-card px-2 text-left text-base outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 md:text-sm truncate',
         className,
       )}
       {...props}

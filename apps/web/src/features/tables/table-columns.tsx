@@ -71,7 +71,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
       id: 'select',
       header: () => (
         <div className="flex h-10 items-center gap-1 px-1">
-          <span className="inline-flex h-3.5 w-9.5 shrink-0" aria-hidden="true" />
+          <span className="inline-flex h-3.5 w-10.5 shrink-0" aria-hidden="true" />
           <Checkbox
             aria-label={selectingAll ? t('selectingAll') : t('selectAll')}
             disabled={selectingAll}
