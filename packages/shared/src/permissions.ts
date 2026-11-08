@@ -34,6 +34,27 @@ export const projectOwnerActions = [
 /** Grants written when someone is added to a project. Structure and access changes stay separate. */
 export const projectMemberActions = ['view', 'create', 'edit', 'delete', 'export', 'import'] as const satisfies readonly Action[]
 
+export const grantPresetIds = ['full', 'sales', 'view'] as const
+export type GrantPresetId = (typeof grantPresetIds)[number]
+
+/** full edits the project, sales edits rows, view is read-only. */
+export const grantPresets: Record<GrantPresetId, readonly Action[]> = {
+  full: projectOwnerActions,
+  sales: projectMemberActions,
+  view: ['view'],
+}
+
+export function isGrantPresetId(value: string): value is GrantPresetId {
+  return (grantPresetIds as readonly string[]).includes(value)
+}
+
+export function grantPresetId(actions: Iterable<string>): GrantPresetId {
+  const have = new Set(actions)
+  if (have.has('manage_structure')) return 'full'
+  if (have.has('edit')) return 'sales'
+  return 'view'
+}
+
 export type Effect = 'allow' | 'deny'
 
 export type Grant = {

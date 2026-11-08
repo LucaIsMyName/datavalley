@@ -31,7 +31,7 @@ import {
   type CellWrite,
 } from '../../column-types/index.js'
 import { assertMediaReadable, loadMediaFile } from '../platform/media-access.js'
-import { badRequest, conflict, notFound, versionConflict } from '../../errors.js'
+import { AppError, badRequest, conflict, notFound, versionConflict } from '../../errors.js'
 import { allows, assertCan, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
@@ -51,6 +51,7 @@ import { importDuplicateWarnings } from './duplicates.js'
 import { previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
 import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
+import { createStageFollowUps } from './stage-task.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 
@@ -974,18 +975,14 @@ export async function patchRow(
     previousAssignees,
     recordTitle(columns, stored, row.id),
   )
-  await recordCellHistory(
-    db,
-    subject.kind === 'user' ? subject.id : null,
-    table.id,
-    columns,
-    columnIds.map((columnId) => ({
-      rowId: row.id,
-      columnId,
-      before: previousValues.get(`${row.id}:${columnId}`) ?? null,
-      after: cells[columnId],
-    })),
-  )
+  const historyChanges = columnIds.map((columnId) => ({
+    rowId: row.id,
+    columnId,
+    before: previousValues.get(`${row.id}:${columnId}`) ?? null,
+    after: cells[columnId],
+  }))
+  await recordCellHistory(db, subject.kind === 'user' ? subject.id : null, table.id, columns, historyChanges)
+  await followStageChanges(db, subject, table, columns, historyChanges, env)
   return presented
 }
 
@@ -1151,21 +1148,35 @@ export async function bulkPatch(
       recordTitle(columns, stored, update.rowId),
     )
   }
-  await recordCellHistory(
-    db,
-    subject.kind === 'user' ? subject.id : null,
-    dataTableId,
-    columns,
-    updates.flatMap((update) =>
-      Object.keys(update.cells).map((columnId) => ({
-        rowId: update.rowId,
-        columnId,
-        before: previousValues.get(`${update.rowId}:${columnId}`) ?? null,
-        after: update.cells[columnId],
-      })),
-    ),
+  const historyChanges = updates.flatMap((update) =>
+    Object.keys(update.cells).map((columnId) => ({
+      rowId: update.rowId,
+      columnId,
+      before: previousValues.get(`${update.rowId}:${columnId}`) ?? null,
+      after: update.cells[columnId],
+    })),
   )
+  await recordCellHistory(db, subject.kind === 'user' ? subject.id : null, dataTableId, columns, historyChanges)
+  await followStageChanges(db, subject, { ...table, id: dataTableId }, columns, historyChanges, env)
   return presented
+}
+
+async function followStageChanges(
+  db: AppDatabase,
+  subject: Subject,
+  table: { id: string; name: string; projectId: string },
+  columns: LoadedColumn[],
+  changes: { rowId: string; columnId: string; before: unknown; after: unknown }[],
+  env?: Env,
+) {
+  try {
+    await createStageFollowUps(db, subject, table, columns, changes, (tableId, cells) =>
+      createRow(db, subject, tableId, cells, {}, true, env),
+    )
+  } catch (error) {
+    if (error instanceof AppError && error.status < 500) return
+    throw error
+  }
 }
 
 export async function bulkDelete(

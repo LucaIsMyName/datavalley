@@ -1,4 +1,4 @@
-import { actions } from '@datavalley/shared'
+import { actions, grantPresetIds } from '@datavalley/shared'
 import { Type } from '@sinclair/typebox'
 
 const uuid = Type.String({ minLength: 36, maxLength: 36 })
@@ -35,12 +35,21 @@ export const patchProjectBody = Type.Object({
   icon: Type.Optional(Type.String()),
 })
 
+const grantPresetSchema = Type.Union(grantPresetIds.map((preset) => Type.Literal(preset)))
+
 export const addMemberBody = Type.Object({
   username: Type.String({ minLength: 1 }),
+  preset: Type.Optional(grantPresetSchema),
+})
+
+export const inviteMemberBody = Type.Object({
+  email: Type.String({ minLength: 3, maxLength: 320 }),
+  preset: Type.Optional(grantPresetSchema),
 })
 
 export const setMemberDisabledBody = Type.Object({
-  disabled: Type.Boolean(),
+  disabled: Type.Optional(Type.Boolean()),
+  preset: Type.Optional(grantPresetSchema),
 })
 
 export const projectPermissionsBody = Type.Object({

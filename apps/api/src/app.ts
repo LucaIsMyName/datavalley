@@ -122,7 +122,7 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       })
       registerAuthRoutes(api, db, env)
       registerUserRoutes(api, db, env)
-      registerProjectRoutes(api, db)
+      registerProjectRoutes(api, db, env)
       registerRealtimeRoutes(api, db)
       registerProjectConnectorRoutes(api, db, env)
       registerConnectorRoutes(api, db, env)

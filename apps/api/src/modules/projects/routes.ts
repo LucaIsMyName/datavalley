@@ -1,10 +1,12 @@
-import type { Action } from '@datavalley/shared'
+import type { Action, GrantPresetId } from '@datavalley/shared'
 import type { FastifyInstance } from 'fastify'
+import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import { unauthorized } from '../../errors.js'
 import {
   addMember,
   createProject,
+  inviteMember,
   deleteProject,
   getProject,
   listDirectory,
@@ -18,6 +20,7 @@ import {
 } from './service.js'
 import {
   addMemberBody,
+  inviteMemberBody,
   createProjectBody,
   directoryQuery,
   importProjectBody,
@@ -30,7 +33,7 @@ import {
 } from './schema.js'
 import { exportProject, importProject } from './transfer.js'
 
-export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
+export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase, env: Env) {
   app.get('/projects', { schema: { querystring: listProjectsQuery } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const query = request.query as { includeArchived?: string }
@@ -99,15 +102,21 @@ export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase) {
 
   app.post('/projects/:id/members', { schema: { params: projectIdParams, body: addMemberBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    const body = request.body as { username: string }
-    return { member: await addMember(db, request.subject, (request.params as { id: string }).id, body.username) }
+    const body = request.body as { username: string; preset?: GrantPresetId }
+    return { member: await addMember(db, request.subject, (request.params as { id: string }).id, body.username, body.preset) }
+  })
+
+  app.post('/projects/:id/invites', { schema: { params: projectIdParams, body: inviteMemberBody } }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    const body = request.body as { email: string; preset?: GrantPresetId }
+    return inviteMember(db, env, request.subject, (request.params as { id: string }).id, body.email, body.preset)
   })
 
   app.patch('/projects/:id/members/:userId', { schema: { params: projectMemberParams, body: setMemberDisabledBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const params = request.params as { id: string; userId: string }
-    const body = request.body as { disabled: boolean }
-    return { member: await setMemberDisabled(db, request.subject, params.id, params.userId, body.disabled) }
+    const body = request.body as { disabled?: boolean; preset?: GrantPresetId }
+    return { member: await setMemberDisabled(db, request.subject, params.id, params.userId, body) }
   })
 
   app.delete('/projects/:id/members/:userId', { schema: { params: projectMemberParams } }, async (request) => {

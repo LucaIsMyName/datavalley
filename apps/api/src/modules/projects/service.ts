@@ -1,8 +1,21 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, max, notInArray, sql } from 'drizzle-orm'
-import { escapeLike, isResourceIcon, projectMemberActions, projectOwnerActions, type Action } from '@datavalley/shared'
+import {
+  escapeLike,
+  grantPresetId,
+  grantPresets,
+  isResourceIcon,
+  projectMemberActions,
+  projectOwnerActions,
+  type Action,
+  type GrantPresetId,
+} from '@datavalley/shared'
+import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { permissionGrants, projectMembers, projects, tables, users } from '../../database/schema.js'
-import { AppError, badRequest, notFound } from '../../errors.js'
+import { passwordResetTokens, permissionGrants, projectMembers, projects, tables, users } from '../../database/schema.js'
+import { sendMail } from '../../mail/smtp.js'
+import { sha256, randomToken } from '../../security/crypto.js'
+import { hashPassword } from '../../security/passwords.js'
+import { AppError, badRequest, conflict, notFound } from '../../errors.js'
 import { allows, assertCan, resolveGrants, replaceGrants } from '../../security/access.js'
 import { invalidateGrantsCache } from '../../security/grants-cache.js'
 import { writeAudit } from '../../security/audit.js'
@@ -183,14 +196,61 @@ async function projectRoster(db: AppDatabase, projectId: string) {
     .where(eq(projectMembers.projectId, projectId))
 }
 
-function presentMember(member: { userId: string; username: string; email: string; role: string; disabledAt: Date | null }) {
+function presentMember(
+  member: { userId: string; username: string; email: string; role: string; disabledAt: Date | null },
+  preset: GrantPresetId = 'view',
+) {
   return {
     userId: member.userId,
     username: member.username,
     email: member.email,
     role: member.role,
     disabled: Boolean(member.disabledAt),
+    preset,
   }
+}
+
+async function presetsFor(db: AppDatabase, projectId: string, userIds: string[]) {
+  const presets = new Map<string, GrantPresetId>()
+  if (userIds.length === 0) return presets
+  const grants = await db
+    .select({ subjectId: permissionGrants.subjectId, action: permissionGrants.action, effect: permissionGrants.effect })
+    .from(permissionGrants)
+    .where(
+      and(
+        eq(permissionGrants.subjectType, 'user'),
+        inArray(permissionGrants.subjectId, userIds),
+        eq(permissionGrants.resourceType, 'project'),
+        eq(permissionGrants.resourceId, projectId),
+        eq(permissionGrants.effect, 'allow'),
+      ),
+    )
+  const byUser = new Map<string, string[]>()
+  for (const grant of grants) {
+    const list = byUser.get(grant.subjectId) ?? []
+    list.push(grant.action)
+    byUser.set(grant.subjectId, list)
+  }
+  for (const userId of userIds) presets.set(userId, grantPresetId(byUser.get(userId) ?? []))
+  return presets
+}
+
+async function applyPreset(db: AppDatabase, projectId: string, userId: string, preset: GrantPresetId) {
+  if (preset !== 'full') {
+    const presets = await presetsFor(db, projectId, (await projectRoster(db, projectId)).map((member) => member.userId))
+    const managers = [...presets.entries()].filter(([, current]) => current === 'full')
+    if (presets.get(userId) === 'full' && managers.length <= 1) {
+      throw badRequest('A project must keep someone who can manage access')
+    }
+  }
+  await replaceGrants(
+    db,
+    { kind: 'user', id: userId },
+    'project',
+    projectId,
+    grantPresets[preset].map((action) => ({ action, effect: 'allow' as const })),
+  )
+  invalidateGrantsCache({ kind: 'user', id: userId })
 }
 
 async function assertKeepsAdmin(db: AppDatabase, projectId: string, userId: string, mode: 'remove' | 'suspend') {
@@ -209,7 +269,8 @@ export async function listMembers(db: AppDatabase, subject: Subject, projectId: 
   const grants = await resolveGrants(db, subject)
   const canManage = allows(subject, grants, 'manage_permissions', { type: 'project', id: projectId })
   const members = await projectRoster(db, projectId)
-  return { members: members.map(presentMember), canManage }
+  const presets = await presetsFor(db, projectId, members.map((member) => member.userId))
+  return { members: members.map((member) => presentMember(member, presets.get(member.userId))), canManage }
 }
 
 export async function listDirectory(db: AppDatabase, subject: Subject, projectId: string, query: string) {
@@ -238,39 +299,52 @@ export async function listDirectory(db: AppDatabase, subject: Subject, projectId
     .limit(q ? 20 : 8)
 }
 
-export async function addMember(db: AppDatabase, subject: Subject, projectId: string, username: string) {
+export async function addMember(
+  db: AppDatabase,
+  subject: Subject,
+  projectId: string,
+  username: string,
+  preset?: GrantPresetId,
+) {
   await assertCan(db, subject, 'manage_permissions', { type: 'project', id: projectId })
   const [user] = await db.select().from(users).where(eq(users.username, username.trim().toLowerCase())).limit(1)
   if (!user) throw notFound()
   await db.insert(projectMembers).values({ projectId, userId: user.id }).onConflictDoNothing()
-  const existing = await db
-    .select({ action: permissionGrants.action })
-    .from(permissionGrants)
-    .where(
-      and(
-        eq(permissionGrants.subjectType, 'user'),
-        eq(permissionGrants.subjectId, user.id),
-        eq(permissionGrants.resourceType, 'project'),
-        eq(permissionGrants.resourceId, projectId),
-      ),
-    )
-  const have = new Set(existing.map((grant) => grant.action))
-  const missing = projectMemberActions.filter((action) => !have.has(action))
-  if (missing.length) {
-    await db.insert(permissionGrants).values(
-      missing.map((action) => ({
-        subjectType: 'user' as const,
-        subjectId: user.id,
-        resourceType: 'project' as const,
-        resourceId: projectId,
-        action,
-        effect: 'allow' as const,
-      })),
-    )
+  if (preset) await applyPreset(db, projectId, user.id, preset)
+  else {
+    const existing = await db
+      .select({ action: permissionGrants.action })
+      .from(permissionGrants)
+      .where(
+        and(
+          eq(permissionGrants.subjectType, 'user'),
+          eq(permissionGrants.subjectId, user.id),
+          eq(permissionGrants.resourceType, 'project'),
+          eq(permissionGrants.resourceId, projectId),
+        ),
+      )
+    const have = new Set(existing.map((grant) => grant.action))
+    const missing = projectMemberActions.filter((action) => !have.has(action))
+    if (missing.length) {
+      await db.insert(permissionGrants).values(
+        missing.map((action) => ({
+          subjectType: 'user' as const,
+          subjectId: user.id,
+          resourceType: 'project' as const,
+          resourceId: projectId,
+          action,
+          effect: 'allow' as const,
+        })),
+      )
+    }
+    invalidateGrantsCache({ kind: 'user', id: user.id })
   }
-  invalidateGrantsCache({ kind: 'user', id: user.id })
-  await writeAudit(db, subject, { action: 'project.member.add', resourceType: 'project', resourceId: projectId, metadata: { userId: user.id } })
-  return { userId: user.id, username: user.username, email: user.email }
+  await writeAudit(db, subject, { action: 'project.member.add', resourceType: 'project', resourceId: projectId, metadata: { userId: user.id, preset: preset ?? 'sales' } })
+  const presets = await presetsFor(db, projectId, [user.id])
+  return presentMember(
+    { userId: user.id, username: user.username, email: user.email, role: user.role, disabledAt: null },
+    presets.get(user.id),
+  )
 }
 
 export async function removeMember(db: AppDatabase, subject: Subject, projectId: string, userId: string) {
@@ -283,28 +357,151 @@ export async function removeMember(db: AppDatabase, subject: Subject, projectId:
   await writeAudit(db, subject, { action: 'project.member.remove', resourceType: 'project', resourceId: projectId, metadata: { userId } })
 }
 
-export async function setMemberDisabled(db: AppDatabase, subject: Subject, projectId: string, userId: string, disabled: boolean) {
+export async function setMemberDisabled(
+  db: AppDatabase,
+  subject: Subject,
+  projectId: string,
+  userId: string,
+  input: { disabled?: boolean; preset?: GrantPresetId },
+) {
   await assertCan(db, subject, 'manage_permissions', { type: 'project', id: projectId })
-  if (disabled) await assertKeepsAdmin(db, projectId, userId, 'suspend')
-  else {
-    const roster = await projectRoster(db, projectId)
-    if (!roster.some((member) => member.userId === userId)) throw notFound()
+  if (input.disabled == null && !input.preset) throw badRequest('Choose a change')
+  const roster = await projectRoster(db, projectId)
+  if (!roster.some((member) => member.userId === userId)) throw notFound()
+  if (input.preset) await applyPreset(db, projectId, userId, input.preset)
+  let updatedAt = roster.find((member) => member.userId === userId)?.disabledAt ?? null
+  if (input.disabled != null) {
+    if (input.disabled) await assertKeepsAdmin(db, projectId, userId, 'suspend')
+    const [updated] = await db
+      .update(projectMembers)
+      .set({ disabledAt: input.disabled ? new Date() : null })
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+      .returning()
+    if (!updated) throw notFound()
+    updatedAt = updated.disabledAt
+    await writeAudit(db, subject, {
+      action: input.disabled ? 'project.member.disable' : 'project.member.enable',
+      resourceType: 'project',
+      resourceId: projectId,
+      metadata: { userId },
+    })
   }
-  const [updated] = await db
-    .update(projectMembers)
-    .set({ disabledAt: disabled ? new Date() : null })
-    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
-    .returning()
-  if (!updated) throw notFound()
+  if (input.preset) {
+    await writeAudit(db, subject, {
+      action: 'permission.change',
+      resourceType: 'project',
+      resourceId: projectId,
+      metadata: { userId, preset: input.preset },
+    })
+  }
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!user) throw notFound()
+  const presets = await presetsFor(db, projectId, [userId])
+  return presentMember(
+    { userId, username: user.username, email: user.email, role: user.role, disabledAt: updatedAt },
+    presets.get(userId),
+  )
+}
+
+const INVITE_MS = 7 * 24 * 60 * 60 * 1000
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function usernameFromEmail(email: string) {
+  const local = email.split('@')[0] ?? 'user'
+  const cleaned = local.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 28)
+  return (cleaned.length >= 3 ? cleaned : `user${cleaned}`).slice(0, 32)
+}
+
+export async function inviteMember(
+  db: AppDatabase,
+  env: Env,
+  subject: Subject,
+  projectId: string,
+  email: string,
+  preset: GrantPresetId = 'sales',
+) {
+  await assertCan(db, subject, 'manage_permissions', { type: 'project', id: projectId })
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+  if (!project) throw notFound()
+  const address = email.trim().toLowerCase()
+  if (!emailPattern.test(address)) throw badRequest('Enter an email address')
+  const [existing] = await db.select().from(users).where(eq(users.email, address)).limit(1)
+  let user = existing
+  let created = false
+  if (user && user.organizationId !== project.organizationId) throw conflict('Email is already in use')
+  if (!user) {
+    if (!subject.user) throw notFound()
+    let username = usernameFromEmail(address)
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const candidate = attempt === 0 ? username : `${username.slice(0, 28)}${attempt + 1}`
+      const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.username, candidate)).limit(1)
+      if (!taken) {
+        username = candidate
+        break
+      }
+    }
+    const [inserted] = await db
+      .insert(users)
+      .values({
+        organizationId: subject.user.organizationId,
+        username,
+        email: address,
+        passwordHash: await hashPassword(randomToken(18), env),
+        role: 'user',
+        mustChangePassword: true,
+      })
+      .returning()
+    user = inserted
+    created = true
+    await writeAudit(db, subject, { action: 'user.create', resourceType: 'user', resourceId: user.id, metadata: { username: user.username, invite: true } })
+  }
+  const roster = await projectRoster(db, projectId)
+  const already = roster.some((member) => member.userId === user.id)
+  if (already && !user.mustChangePassword) throw conflict('That person is already a member')
+  if (!already) await db.insert(projectMembers).values({ projectId, userId: user.id })
+  await applyPreset(db, projectId, user.id, preset)
+  let inviteUrl: string | undefined
+  const origin = env.WEB_ORIGIN.replace(/\/$/, '')
+  if (created || user.mustChangePassword) {
+    const token = randomToken(32)
+    await db.insert(passwordResetTokens).values({
+      userId: user.id,
+      tokenHash: sha256(token),
+      expiresAt: new Date(Date.now() + INVITE_MS),
+    })
+    inviteUrl = `${origin}/reset-password?token=${encodeURIComponent(token)}`
+    try {
+      await sendMail(env, {
+        to: user.email,
+        subject: `Invitation to ${project.name}`,
+        text: `You were invited to ${project.name} on Datavalley.\nSet your password:\n${inviteUrl}\n\nThis link expires in 7 days.`,
+      })
+    } catch {
+      // The account and grant are saved. Mail delivery stays best-effort.
+    }
+  } else {
+    try {
+      await sendMail(env, {
+        to: user.email,
+        subject: `Added to ${project.name}`,
+        text: `You were added to ${project.name} on Datavalley.\n${origin}/projects/${project.id}`,
+      })
+    } catch {
+      // Membership is saved. Mail delivery stays best-effort.
+    }
+  }
   await writeAudit(db, subject, {
-    action: disabled ? 'project.member.disable' : 'project.member.enable',
+    action: 'project.member.invite',
     resourceType: 'project',
     resourceId: projectId,
-    metadata: { userId },
+    metadata: { userId: user.id, preset },
   })
-  return presentMember({ ...updated, username: user.username, email: user.email, role: user.role })
+  const presets = await presetsFor(db, projectId, [user.id])
+  const member = presentMember(
+    { userId: user.id, username: user.username, email: user.email, role: user.role, disabledAt: null },
+    presets.get(user.id),
+  )
+  return env.NODE_ENV === 'test' ? { member, inviteUrl } : { member }
 }
 
 export async function setProjectGrants(

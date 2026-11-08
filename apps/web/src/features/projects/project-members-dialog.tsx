@@ -4,11 +4,38 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ApiClientError } from '@datavalley/api-client'
+import { grantPresetIds, type GrantPresetId } from '@datavalley/shared'
 import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
+
+export function PresetSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: GrantPresetId
+  onChange: (preset: GrantPresetId) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <select
+      aria-label={label}
+      className="h-9 shrink-0 border border-border bg-card px-2 text-sm"
+      value={value}
+      onChange={(event) => onChange(event.target.value as GrantPresetId)}
+    >
+      {grantPresetIds.map((preset) => (
+        <option key={preset} value={preset}>
+          {t(`grantPreset_${preset}`)}
+        </option>
+      ))}
+    </select>
+  )
+}
 
 export function ProjectMembersDialog({
   projectId,
@@ -22,6 +49,9 @@ export function ProjectMembersDialog({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [memberName, setMemberName] = useState('')
+  const [memberPreset, setMemberPreset] = useState<GrantPresetId>('sales')
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [invitePreset, setInvitePreset] = useState<GrantPresetId>('sales')
   const [memberError, setMemberError] = useState('')
   const [dropMember, setDropMember] = useState<{ userId: string; username: string } | null>(null)
   const [dropPending, setDropPending] = useState(false)
@@ -36,6 +66,7 @@ export function ProjectMembersDialog({
           email: string
           role: string
           disabled: boolean
+          preset: GrantPresetId
         }[]
         canManage: boolean
       }>(`/projects/${projectId}/members`),
@@ -57,6 +88,7 @@ export function ProjectMembersDialog({
           onOpenChange(next)
           if (!next) {
             setMemberName('')
+            setInviteEmail('')
             setMemberError('')
             setDropMember(null)
           }
@@ -99,6 +131,34 @@ export function ProjectMembersDialog({
                     <span className="shrink-0 text-muted-foreground">
                       {member.role === 'admin' ? t('roleAdmin') : t('roleUser')}
                     </span>
+                    {members.data?.canManage ? (
+                      <select
+                        aria-label={t('grantPreset')}
+                        className="h-9 shrink-0 border border-border bg-card px-2 text-sm"
+                        value={member.preset ?? 'sales'}
+                        onChange={(event) => {
+                          const preset = event.target.value as GrantPresetId
+                          setMemberError('')
+                          void api
+                            .request(`/projects/${projectId}/members/${member.userId}`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({ preset }),
+                            })
+                            .then(() => queryClient.invalidateQueries({ queryKey: ['members', projectId] }))
+                            .catch((error: unknown) =>
+                              setMemberError(error instanceof ApiClientError ? error.message : t('error')),
+                            )
+                        }}
+                      >
+                        {grantPresetIds.map((preset) => (
+                          <option key={preset} value={preset}>
+                            {t(`grantPreset_${preset}`)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="shrink-0 text-muted-foreground">{t(`grantPreset_${member.preset ?? 'view'}`)}</span>
+                    )}
                     {member.disabled ? (
                       <span className="shrink-0 text-muted-foreground">{t('disabled')}</span>
                     ) : null}
@@ -160,7 +220,7 @@ export function ProjectMembersDialog({
                 try {
                   await api.request(`/projects/${projectId}/members`, {
                     method: 'POST',
-                    body: JSON.stringify({ username }),
+                    body: JSON.stringify({ username, preset: memberPreset }),
                   })
                   setMemberName('')
                   await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
@@ -180,6 +240,7 @@ export function ProjectMembersDialog({
                   onChange={(event) => setMemberName(event.target.value)}
                   required
                 />
+                <PresetSelect label={t('grantPreset')} value={memberPreset} onChange={setMemberPreset} />
                 <Button type="submit" variant="outline" className="shrink-0 whitespace-nowrap">
                   {t('addMember')}
                 </Button>
@@ -199,6 +260,44 @@ export function ProjectMembersDialog({
                   </li>
                 ))}
               </ul>
+            </form>
+            <form
+              className="mt-3 border-t border-border pt-3"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                const email = inviteEmail.trim()
+                if (!email) return
+                setMemberError('')
+                try {
+                  await api.request(`/projects/${projectId}/invites`, {
+                    method: 'POST',
+                    body: JSON.stringify({ email, preset: invitePreset }),
+                  })
+                  setInviteEmail('')
+                  toast.success(t('inviteSent'))
+                  await queryClient.invalidateQueries({ queryKey: ['members', projectId] })
+                } catch (error) {
+                  setMemberError(error instanceof ApiClientError ? error.message : t('error'))
+                }
+              }}
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  name="email"
+                  type="email"
+                  value={inviteEmail}
+                  placeholder={t('inviteEmail')}
+                  aria-label={t('inviteEmail')}
+                  className="min-w-0 flex-1"
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  required
+                />
+                <PresetSelect label={t('grantPreset')} value={invitePreset} onChange={setInvitePreset} />
+                <Button type="submit" variant="outline" className="shrink-0 whitespace-nowrap">
+                  {t('inviteMember')}
+                </Button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">{t('presetHint')}</p>
             </form>
           </Dialog.Content>
         </Dialog.Portal>

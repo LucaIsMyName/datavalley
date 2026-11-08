@@ -696,6 +696,30 @@ const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a
 })
 ```
 
+### `POST /api/v1/projects/{id}/invites`
+
+Create an invite
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/invites", {
+  method: "POST",
+  body: JSON.stringify({
+    "email": "admin@example.com"
+  }),
+})
+```
+
 ### `PATCH /api/v1/projects/{id}/members/{userId}`
 
 Update a member
@@ -716,7 +740,8 @@ await api.ensureCsrf()
 const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/members/00000000-0000-4000-8000-0000ce2b2e46", {
   method: "PATCH",
   body: JSON.stringify({
-    "disabled": false
+    "disabled": false,
+    "preset": "full"
   }),
 })
 ```

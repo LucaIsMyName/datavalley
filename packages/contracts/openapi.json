@@ -1146,6 +1146,91 @@
                   "username": {
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "preset": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "full"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sales"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "view"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/projects/{id}/invites": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "minLength": 3,
+                    "maxLength": 320,
+                    "type": "string"
+                  },
+                  "preset": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "full"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sales"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "view"
+                        ]
+                      }
+                    ]
                   }
                 }
               }
@@ -1179,12 +1264,31 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "disabled"
-                ],
                 "properties": {
                   "disabled": {
                     "type": "boolean"
+                  },
+                  "preset": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "full"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sales"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "view"
+                        ]
+                      }
+                    ]
                   }
                 }
               }
