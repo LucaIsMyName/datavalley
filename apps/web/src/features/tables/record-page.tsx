@@ -3,6 +3,7 @@ import type { MediaFile, RowRecord, TableRecord } from '@datavalley/api-client'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
+import { ChevronRightIcon } from 'lucide-react'
 import { ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 import { uploadMedia } from '../../lib/media'
@@ -167,10 +168,11 @@ export function RecordPage() {
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-auto p-3 sm:p-4 md:p-6 border-t border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <Link to={`/projects/${projectId}/tables/${tableId}`} className="text-sm text-primary hover:underline">
+        <div className="min-w-0 flex items-center gap-1">
+          <Link to={`/projects/${projectId}/tables/${tableId}`} className="text-xl text-primary hover:underline max-w-48 truncate ">
             {table.name}
           </Link>
+          <ChevronRightIcon className="size-4" />
           <h1 className="truncate text-xl font-semibold">{title}</h1>
         </div>
       </div>

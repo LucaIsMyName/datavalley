@@ -275,7 +275,7 @@ function GridBodyRowView({
         return (
           <td
             key={column.id}
-            className={`relative ${dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0`}
+            className={`relative isolate ${dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0`}
           >
             {dropColumnId === column.id ? (
               <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />

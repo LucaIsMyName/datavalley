@@ -1737,7 +1737,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                         <div
                           role="separator"
                           aria-label={t('resize')}
-                          className="absolute -right-1 top-0 z-30 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
+                          className="absolute -right-1 top-0 z-10 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
                           onPointerDown={(event) => {
                             if (event.button !== 0) return
                             event.preventDefault()
@@ -1776,7 +1776,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                             type="button"
                             data-header-control
                             aria-label={t('insertColumn')}
-                            className="absolute -right-2 -bottom-2 z-40 flex size-4 items-center justify-center border border-border bg-card"
+                            className="absolute -right-2 bottom-0 z-10 flex size-4 items-center justify-center border border-border bg-card"
                             onClick={(event) => {
                               event.stopPropagation()
                               openNewColumn(
