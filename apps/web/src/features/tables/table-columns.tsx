@@ -17,7 +17,7 @@ import { presentFormatRow } from './format-values'
 import { mergeColumnOption } from './select-options-utils'
 import { TableCellInput } from './table-cell-input'
 
-export const GUTTER_WIDTH = 84
+export const GUTTER_WIDTH = 94
 
 export function createTableColumns(input: Record<string, any>): ColumnDef<RowRecord>[] {
   const {

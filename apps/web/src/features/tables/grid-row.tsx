@@ -234,13 +234,13 @@ function GridBodyRowView({
           <button
             type="button"
             aria-label={api.t('openRecord')}
-            className="inline-flex shrink-0 text-muted-foreground"
+            className="inline-flex shrink-0 text-muted-foreground bg-primary size-4 items-center justify-center"
             onClick={(event) => {
               event.stopPropagation()
               api.openRecord(row.id)
             }}
           >
-            <ArrowUpRight className="size-3.5" />
+            <ArrowUpRight className="size-3.5 text-background" />
           </button>
         </div>
       </td>

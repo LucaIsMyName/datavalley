@@ -1,3 +1,5 @@
+import { flowFromRule, flowsFromSettings, type AutomationFlow } from './automation-flow.js'
+
 export const STAGE_FOLLOW_UP_RULE_ID = 'stage-follow-up'
 export const MAX_AUTOMATION_RULES = 20
 export const MAX_AUTOMATION_CELLS = 20
@@ -101,4 +103,49 @@ export function rulesFromSettings(settings: unknown): AutomationRule[] | null {
 
 export function effectiveAutomationRules(settings: unknown): AutomationRule[] {
   return rulesFromSettings(settings) ?? [builtinStageRule(true)]
+}
+
+export {
+  MAX_AUTOMATION_FLOWS,
+  MAX_AUTOMATION_NODES,
+  SWITCH_COLUMN_TYPES,
+  columnWritable,
+  conditionMatches,
+  copyFits,
+  flowFromRule,
+  flowsFromSettings,
+  isChecked,
+  opNeedsValue,
+  operatorsFor,
+  parseAutomationFlow,
+  switchBranch,
+  validateFlow,
+  valueKindsFor,
+} from './automation-flow.js'
+export type {
+  AutomationCatalogColumn,
+  AutomationCatalogTable,
+  AutomationChoice,
+  AutomationFlow,
+  FieldValue,
+  FlowActionKind,
+  FlowActionNode,
+  FlowConditionNode,
+  FlowEdge,
+  FlowField,
+  FlowIssue,
+  FlowIssueCode,
+  FlowNode,
+  FlowSwitchCase,
+  FlowSwitchNode,
+  FlowTriggerEvent,
+  FlowTriggerNode,
+} from './automation-flow.js'
+
+export function effectiveFlows(settings: unknown): AutomationFlow[] {
+  const stored = flowsFromSettings(settings)
+  if (stored) return stored
+  const rules = rulesFromSettings(settings)
+  if (!rules) return []
+  return rules.filter((rule): rule is CustomAutomationRule => !rule.builtin).map(flowFromRule)
 }

@@ -36,6 +36,7 @@ const AppShell = route(() => import('../layouts/app-shell'), 'AppShell', screenF
 const DashboardPage = route(homePages, 'DashboardPage')
 const ProjectsPage = route(() => import('../features/projects/projects-page'), 'ProjectsPage')
 const ProjectPage = route(() => import('../features/projects/project-page'), 'ProjectPage')
+const AutomationsPage = route(() => import('../features/projects/automations-page'), 'AutomationsPage')
 const TablePage = route(() => import('../features/tables/page'), 'TablePage')
 const RecordPage = route(() => import('../features/tables/record-page'), 'RecordPage')
 const RecentPage = route(homePages, 'RecentPage')
@@ -118,6 +119,7 @@ export const router = createBrowserRouter([
                     path: '/projects/:projectId',
                     element: <ProjectPage />,
                     children: [
+                      { path: 'automations', element: <AutomationsPage /> },
                       { path: 'tables/:tableId', element: <TablePage /> },
                       { path: 'tables/:tableId/rows/:rowId', element: <RecordPage /> },
                     ],

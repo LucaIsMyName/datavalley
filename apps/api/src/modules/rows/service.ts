@@ -773,6 +773,7 @@ export async function createRow(
   placement: { beforeId?: string; afterId?: string } = {},
   notify = true,
   env?: Env,
+  runAutomations = true,
 ) {
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
@@ -832,6 +833,24 @@ export async function createRow(
     new Map(),
     titleFromInput(columns, cells),
   )
+  if (notify && runAutomations) {
+    const initial = Object.entries(cells).map((entry) => ({
+      rowId: row.id,
+      columnId: entry[0],
+      before: null,
+      after: entry[1],
+    }))
+    if (initial.length === 0) initial.push({ rowId: row.id, columnId: '', before: null, after: null })
+    await followStageChanges(
+      db,
+      subject,
+      { id: dataTableId, name: table.name, projectId: table.projectId },
+      columns,
+      initial,
+      env,
+      'row_created',
+    )
+  }
   return { id: row.id, position: row.position, version: row.version }
 }
 
@@ -1038,6 +1057,16 @@ export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string
     if (blocking.length)
       throw conflict('Other records still reference this row', { count: links.length })
   }
+  const columns = await loadColumns(db, table.id)
+  await followStageChanges(
+    db,
+    subject,
+    { id: table.id, name: table.name, projectId: table.projectId },
+    columns,
+    [{ rowId: row.id, columnId: '', before: null, after: null }],
+    undefined,
+    'row_deleted',
+  )
   await db.delete(tableRows).where(eq(tableRows.id, row.id))
   await writeAudit(db, subject, {
     action: 'row.delete',
@@ -1220,12 +1249,21 @@ async function followStageChanges(
   columns: LoadedColumn[],
   changes: { rowId: string; columnId: string; before: unknown; after: unknown }[],
   env?: Env,
+  event: 'row_created' | 'column_changed' | 'row_deleted' = 'column_changed',
 ) {
   try {
-    await runProjectAutomations(db, subject, table, columns, changes, {
-      create: (tableId, cells) => createRow(db, subject, tableId, cells, {}, true, env),
-      update: (tableId, rowId, cells) => writeAutomationCells(db, subject, tableId, rowId, cells),
-    })
+    await runProjectAutomations(
+      db,
+      subject,
+      table,
+      columns,
+      changes,
+      {
+        create: (tableId, cells) => createRow(db, subject, tableId, cells, {}, true, env, false),
+        update: (tableId, rowId, cells) => writeAutomationCells(db, subject, tableId, rowId, cells),
+      },
+      event,
+    )
   } catch (error) {
     if (error instanceof AppError && error.status < 500) return
     throw error

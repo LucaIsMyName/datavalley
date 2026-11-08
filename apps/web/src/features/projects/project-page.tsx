@@ -38,7 +38,6 @@ import { PresenceChip } from '../realtime/presence-chip'
 import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { useProjectEvents } from '../realtime/use-project-events'
 import type { SavedHit } from '../home/pages'
-import { AutomationsDialog } from './automations-dialog'
 import { ProjectDescription } from './projects-page'
 import { ProjectMembersDialog } from './project-members-dialog'
 import { CreateTableDialog } from './create-table-dialog'
@@ -89,7 +88,7 @@ export function ProjectPage() {
   const [tabOver, setTabOver] = useState<string | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
   const [descriptionOpen, setDescriptionOpen] = useState(false)
-  const [automationsOpen, setAutomationsOpen] = useState(false)
+  const automationsMatch = useMatch({ path: '/projects/:projectId/automations', end: true })
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const [removePending, setRemovePending] = useState(false)
   const [creatingTable, setCreatingTable] = useState(false)
@@ -138,7 +137,7 @@ export function ProjectPage() {
         <ErrorState message={(tables.error as Error).message} />
       </Page>
     )
-  if (!tableId && tableRows.length > 0)
+  if (!tableId && tableRows.length > 0 && !automationsMatch)
     return <Navigate to={`/projects/${projectId}/tables/${tableRows[0].id}`} replace />
 
   function scheduleProjectName(next: string) {
@@ -395,7 +394,7 @@ export function ProjectPage() {
                 type="button"
                 aria-label={t('automations')}
                 className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
-                onClick={() => setAutomationsOpen(true)}
+                onClick={() => navigate(`/projects/${projectId}/automations`)}
               >
                 <Zap className="size-4" />
               </button>
@@ -629,7 +628,6 @@ export function ProjectPage() {
             <Outlet />
           )}
         </div>
-        <AutomationsDialog projectId={projectId} open={automationsOpen} onOpenChange={setAutomationsOpen} />
         <Dialog.Root
           open={descriptionOpen}
           onOpenChange={(open) => {
