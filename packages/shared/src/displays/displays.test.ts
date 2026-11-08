@@ -141,6 +141,33 @@ describe('chart mark colors', () => {
     expect(chartMarkColor({ type: 'line', categoryIndex: 0, seriesIndex: 2 })).toEqual({ kind: 'primary-comparison' })
   })
 
+  it('counts deals and sums amount for each select stage', () => {
+    const chart = aggregateChart({
+      dimensions: [
+        {
+          id: 'stage',
+          type: 'select',
+          entries: [
+            { id: 'new', label: 'New', color: 'slate', position: 'a' },
+            { id: 'won', label: 'Won', color: 'green', position: 'b' },
+          ],
+        },
+      ],
+      values: [{ id: 'amount', name: 'Amount' }],
+      countName: 'Count',
+      emptyLabel: 'Empty',
+      rows: [
+        { cells: { stage: 'won', amount: 12000, owner: ['ada'] } },
+        { cells: { stage: 'new', amount: 1000, owner: ['bea'] } },
+        { cells: { stage: 'won', amount: 3000, owner: ['ada'] } },
+      ],
+    })
+    expect(chart.categories.map((category) => category.label)).toEqual(['New', 'Won'])
+    expect(chart.series.map((series) => series.name)).toEqual(['Count', 'Amount'])
+    expect(chart.series[0].values).toEqual([1, 2])
+    expect(chart.series[1].values).toEqual([1000, 15000])
+  })
+
   it('keeps a bar comparison series on the same category hue', () => {
     const solid = chartMarkColor({ type: 'bar', categoryIndex: 2, seriesIndex: 0 })
     const comparison = chartMarkColor({ type: 'bar', categoryIndex: 2, seriesIndex: 1 })
@@ -164,7 +191,15 @@ describe('display state', () => {
       ],
     )
     expect(display.mode).toBe('chart')
-    expect(display.chart).toEqual({ type: 'doughnut', dimensionIds: ['name'], valueIds: ['amount'], perRow: true })
+    expect(display.chart).toEqual({
+      type: 'doughnut',
+      dimensionIds: ['name'],
+      valueIds: ['amount'],
+      perRow: true,
+      count: false,
+      ownerColumnId: null,
+      ownerUserId: null,
+    })
     expect(display.timeline).toEqual({ dateColumnId: null, titleColumnIds: ['name'], zoom: 2 })
     expect(display.kanban).toEqual(defaultTableDisplay().kanban)
   })
@@ -203,6 +238,14 @@ describe('display state', () => {
       chart: { type: 'pie', dimensionIds: ['ok', '', 4, 'ok'], valueIds: 'amount' },
     })
     expect(display.mode).toBe('timeline')
-    expect(display.chart).toEqual({ type: 'bar', dimensionIds: ['ok'], valueIds: [], perRow: false })
+    expect(display.chart).toEqual({
+      type: 'bar',
+      dimensionIds: ['ok'],
+      valueIds: [],
+      perRow: false,
+      count: false,
+      ownerColumnId: null,
+      ownerUserId: null,
+    })
   })
 })

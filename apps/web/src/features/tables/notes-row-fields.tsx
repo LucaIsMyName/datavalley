@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import { activateTableCell } from './activate-table-cell'
 import { readCachedRow } from './cache'
 import { ColumnTitle } from './column-title'
+import { DuplicateHint } from './duplicate-hint'
 import { TableCellInput } from './table-cell-input'
 import type { useRowCellEdit } from './use-row-cell-edit'
 
@@ -84,7 +85,8 @@ export function NotesRowFields({
         }
 
         return (
-          <div key={column.id} className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[minmax(0,38%)_1fr] sm:gap-2">
+          <div key={column.id} className="flex min-w-0 flex-col">
+          <div className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[minmax(0,38%)_1fr] sm:gap-2">
             <dt className="min-w-0 truncate font-medium text-muted-foreground">
               <ColumnTitle
                 name={column.name}
@@ -129,6 +131,8 @@ export function NotesRowFields({
                 onDateMode={(patch) => onDateMode(column, patch)}
               />
             </dd>
+          </div>
+          <DuplicateHint tableId={tableId} column={column} rowId={row.id} value={liveRow.cells[column.id]} />
           </div>
         )
       })}

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { generateKeyBetween } from 'fractional-indexing'
 import type { AppDatabase } from '../../database/client.js'
-import { columnOptions, relationRecords, relations, tableCells, tableColumns, tableRows, tables } from '../../database/schema.js'
+import { columnOptions, relationRecords, relations, tableCells, tableColumns, tableRows, tableViews, tables } from '../../database/schema.js'
 import { defaultColumnIcon } from '../../column-types/index.js'
 
 async function nextPosition(db: AppDatabase, projectId: string) {
@@ -308,6 +308,30 @@ export async function seedCrm(db: AppDatabase, projectId: string, userId: string
     { relationId: taskDealRelation, fromRowId: followUp.row.id, toRowId: dealRow.row.id },
     { relationId: taskPersonRelation, fromRowId: followUp.row.id, toRowId: personRow.row.id },
   ])
+  await db.insert(tableViews).values({
+    tableId: deals.id,
+    name: 'Pipeline',
+    ownerId: userId,
+    shared: true,
+    definition: {
+      filter: null,
+      sort: null,
+      display: {
+        mode: 'chart',
+        chart: {
+          type: 'bar',
+          dimensionIds: [stage.column.id],
+          valueIds: [amount.column.id],
+          perRow: false,
+          count: true,
+          ownerColumnId: owner.column.id,
+          ownerUserId: null,
+        },
+        timeline: { dateColumnId: null, titleColumnIds: [], zoom: 1 },
+        kanban: { statusColumnId: null, cardColumnIds: [], statusOrder: [] },
+      },
+    },
+  })
   return { companies: companies.id, people: people.id, deals: deals.id, tasks: tasks.id }
 }
 

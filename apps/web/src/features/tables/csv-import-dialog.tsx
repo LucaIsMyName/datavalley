@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
 import { CsvDelimiterField, csvDelimiterWire, defaultCsvDelimiter } from '../../components/csv-delimiter-field'
 import { FileUpload } from '../../components/file-upload'
 import { Button } from '../../components/ui/button'
@@ -11,12 +12,14 @@ export function CsvImportDialog({
   open,
   busy,
   errors = [],
+  duplicates = [],
   onClose,
   onImport,
 }: {
   open: boolean
   busy?: boolean
   errors?: string[]
+  duplicates?: { columnName: string; value: string; rows: { rowId: string; title: string; href: string }[] }[]
   onClose: () => void
   onImport: (input: { file: File; delimiter: string; headerRow: boolean }) => void | Promise<void>
 }) {
@@ -57,6 +60,29 @@ export function CsvImportDialog({
             />
             {t('csvHasHeader')}
           </label>
+          {duplicates.length > 0 ? (
+            <div className="max-h-40 overflow-auto border border-border p-2 text-sm">
+              <p className="font-medium">{t('importDuplicates')}</p>
+              <ul className="mt-1 flex flex-col gap-1">
+                {duplicates.map((duplicate) => (
+                  <li key={`${duplicate.columnName}:${duplicate.value}`}>
+                    <span className="text-muted-foreground">
+                      {duplicate.columnName}: {duplicate.value}
+                    </span>
+                    {' · '}
+                    {duplicate.rows.map((row, index) => (
+                      <span key={row.rowId}>
+                        {index > 0 ? ', ' : ''}
+                        <Link to={row.href} className="text-primary hover:underline" onClick={onClose}>
+                          {row.title}
+                        </Link>
+                      </span>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {errors.length > 0 ? (
             <div role="alert" className="max-h-40 overflow-auto border border-danger/40 bg-card p-2 text-sm text-danger">
               <p className="font-medium">{t('importErrors')}</p>

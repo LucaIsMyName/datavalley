@@ -42,6 +42,8 @@ import {
   updateTag,
 } from '../tables/service.js'
 import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
+import { findDuplicateRows } from '../rows/duplicates.js'
+import { listFieldHistory } from '../rows/history.js'
 import { listMyWork } from '../rows/work.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { canonicalizeFormatRules, compileCondition, evaluateStored, fillFormulas, formulaCatalog, formulaDependenciesFor, previewFormula, readCellFormula, saveFormula } from '../formulas/service.js'
@@ -252,6 +254,25 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.get('/rows/:rowId/record', async (request) => {
     if (!request.subject) throw unauthorized()
     return getRecord(db, request.subject, (request.params as { rowId: string }).rowId)
+  })
+  app.get('/rows/:rowId/history', async (request) => {
+    if (!request.subject) throw unauthorized()
+    return { entries: await listFieldHistory(db, request.subject, (request.params as { rowId: string }).rowId) }
+  })
+  app.get('/tables/:tableId/duplicates', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const query = request.query as { columnId?: string; value?: string; excludeRowId?: string }
+    if (!query.columnId) throw badRequest('Choose a column')
+    return {
+      rows: await findDuplicateRows(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        query.columnId,
+        query.value ?? '',
+        query.excludeRowId,
+      ),
+    }
   })
   app.patch('/rows/:rowId', { schema: { body: dataSchema.patchRowBody } }, async (request) => {
     if (!request.subject) throw unauthorized()

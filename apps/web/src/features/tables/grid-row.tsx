@@ -301,6 +301,7 @@ function GridBodyRowView({
                 column={column}
                 row={row}
                 active={active}
+                showDuplicateHint={active}
                 tableId={tableId}
                 tags={tags}
                 statuses={statuses}

@@ -157,15 +157,22 @@ export function ChartView({
   rows,
   tags,
   statuses,
+  members,
   chart,
   truncated,
   loading,
   onChange,
 }: {
-  columns: { id: string; name: string; type: string }[]
+  columns: {
+    id: string
+    name: string
+    type: string
+    options?: { id: string; label: string; color: string | null; position: string }[]
+  }[]
   rows: { id?: string; cells: Record<string, unknown> }[]
   tags: Catalog[]
   statuses: Catalog[]
+  members: { userId: string; username: string }[]
   chart: ChartDisplay
   truncated: boolean
   loading: boolean
@@ -177,7 +184,17 @@ export function ChartView({
   const values = columns.filter((column) => isChartValueType(column.type))
   const selectedDimensions = chart.dimensionIds.filter((id) => dimensions.some((column) => column.id === id))
   const selectedValues = chart.valueIds.filter((id) => values.some((column) => column.id === id))
-  const ready = selectedDimensions.length > 0 && selectedValues.length > 0
+  const ownerColumn =
+    columns.find((column) => column.id === chart.ownerColumnId && column.type === 'user') ??
+    columns.find((column) => column.type === 'user')
+  const chartRows = useMemo(() => {
+    if (!ownerColumn || !chart.ownerUserId) return rows
+    return rows.filter((row) => {
+      const value = row.cells[ownerColumn.id]
+      return Array.isArray(value) && value.includes(chart.ownerUserId)
+    })
+  }, [chart.ownerUserId, ownerColumn, rows])
+  const ready = selectedDimensions.length > 0 && (selectedValues.length > 0 || chart.count)
 
   function toggle(kind: 'dimensionIds' | 'valueIds', id: string) {
     const current = chart[kind]
@@ -192,17 +209,24 @@ export function ChartView({
     const dimensionInputs: ChartDimensionInput[] = selectedDimensions.flatMap((id) => {
       const column = dimensions.find((item) => item.id === id)
       if (!column || !isChartDimensionType(column.type)) return []
-      const entries = column.type === 'status' ? statuses : column.type === 'tags' ? tags : []
+      const entries =
+        column.type === 'status'
+          ? statuses.map((entry) => ({ id: entry.id, label: entry.name, color: entry.color, position: entry.position }))
+          : column.type === 'tags'
+            ? tags.map((entry) => ({ id: entry.id, label: entry.name, color: entry.color, position: entry.position }))
+            : column.type === 'select' || column.type === 'radio'
+              ? (column.options ?? []).map((option) => ({
+                  id: option.id,
+                  label: option.label,
+                  color: option.color,
+                  position: option.position,
+                }))
+              : []
       return [
         {
           id: column.id,
           type: column.type,
-          entries: entries.map((entry) => ({
-            id: entry.id,
-            label: entry.name,
-            color: entry.color,
-            position: entry.position,
-          })),
+          entries,
         },
       ]
     })
@@ -212,11 +236,12 @@ export function ChartView({
         const column = values.find((item) => item.id === id)
         return column ? [{ id: column.id, name: column.name }] : []
       }),
-      rows,
+      rows: chartRows,
       emptyLabel: t('empty'),
       perRow: chart.perRow,
+      countName: chart.count ? t('chartCount') : undefined,
     })
-  }, [chart.perRow, dimensions, ready, rows, selectedDimensions, selectedValues, statuses, t, tags, values])
+  }, [chart.count, chart.perRow, chartRows, dimensions, ready, selectedDimensions, selectedValues, statuses, t, tags, values])
 
   const points = useMemo<PlotPoint[]>(() => {
     if (!aggregate) return []
@@ -245,11 +270,11 @@ export function ChartView({
   const message =
     dimensions.length === 0
       ? t('chartNoDimensions')
-      : values.length === 0
+      : values.length === 0 && !chart.count
         ? t('chartNoValues')
         : !ready
           ? t('chartPick')
-          : rows.length === 0
+          : chartRows.length === 0
             ? t('chartNoRows')
             : null
   const doughnuts = chart.type === 'doughnut' && aggregate ? aggregate.series : []
@@ -286,6 +311,31 @@ export function ChartView({
           selected={selectedValues}
           onToggle={(id) => toggle('valueIds', id)}
         />
+        <Label className="flex shrink-0 items-center gap-2 font-normal">
+          <Checkbox checked={chart.count} onCheckedChange={(checked) => onChange({ ...chart, count: checked === true })} />
+          {t('chartCount')}
+        </Label>
+        {ownerColumn ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="shrink-0 text-sm">{ownerColumn.name}</span>
+            <Select
+              value={chart.ownerUserId ?? 'all'}
+              onValueChange={(value) =>
+                onChange({ ...chart, ownerColumnId: ownerColumn.id, ownerUserId: value === 'all' ? null : value })
+              }
+            >
+              <SelectTrigger aria-label={t('chartOwner')} className="w-40" />
+              <SelectContent>
+                <SelectItem value="all">{t('chartAllOwners')}</SelectItem>
+                {members.map((member) => (
+                  <SelectItem key={member.userId} value={member.userId}>
+                    {member.username}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
       </div>
       {truncated ? <p className="border-b border-border px-3 py-2 text-sm text-muted-foreground">{t('chartTruncated', { count: rows.length })}</p> : null}
       {loading ? <p className="sr-only">{t('loading')}</p> : null}

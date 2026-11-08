@@ -19,6 +19,7 @@ type Scope = Record<string, any> & {
   setCsvImportOpen: any
   setCsvImportBusy: any
   setCsvImportErrors: any
+  setCsvImportDuplicates: any
   mediaUploadTarget: any
   checked: any
   setChecked: any
@@ -50,6 +51,7 @@ export function useRowCommands(scope: Scope) {
     setCsvImportOpen,
     setCsvImportBusy,
     setCsvImportErrors,
+    setCsvImportDuplicates,
     mediaUploadTarget,
     checked,
     setChecked,
@@ -103,16 +105,19 @@ export function useRowCommands(scope: Scope) {
       body.append('file', input.file)
       body.append('delimiter', input.delimiter)
       body.append('headerRow', input.headerRow ? 'true' : 'false')
-      const result = await api.request<{ created: number; errors: { error?: string }[] }>(
-        `/tables/${tableId}/import`,
-        { method: 'POST', body },
-      )
+      const result = await api.request<{
+        created: number
+        errors: { error?: string }[]
+        duplicates?: { columnName: string; value: string; rows: { rowId: string; title: string; href: string }[] }[]
+      }>(`/tables/${tableId}/import`, { method: 'POST', body })
       const summary = t('imported', { count: result.created })
       const errors = result.errors.map((item) => item.error).filter((item): item is string => Boolean(item))
+      const duplicates = result.duplicates ?? []
       await refresh()
-      if (errors.length > 0) {
+      setCsvImportDuplicates(duplicates)
+      if (errors.length > 0 || duplicates.length > 0) {
         setCsvImportErrors(errors)
-        toast.warning(summary)
+        toast.warning(duplicates.length > 0 ? t('importDuplicates') : summary)
         return
       }
       setCsvImportErrors([])

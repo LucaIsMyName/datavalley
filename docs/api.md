@@ -1602,6 +1602,24 @@ const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/r
 })
 ```
 
+### `GET /api/v1/tables/{tableId}/duplicates`
+
+List duplicates
+
+**Path**
+
+- `tableId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/duplicates")
+```
+
 ### `PATCH /api/v1/tables/{tableId}/cells/bulk`
 
 Bulk a cell
@@ -2450,6 +2468,24 @@ None
 
 ```ts
 const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/record")
+```
+
+### `GET /api/v1/rows/{rowId}/history`
+
+Get history
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/history")
 ```
 
 ### `PATCH /api/v1/rows/{rowId}`

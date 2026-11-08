@@ -174,6 +174,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [csvImportBusy, setCsvImportBusy] = useState(false)
   const [csvImportErrors, setCsvImportErrors] = useState<string[]>([])
+  const [csvImportDuplicates, setCsvImportDuplicates] = useState<
+    { columnName: string; value: string; rows: { rowId: string; title: string; href: string }[] }[]
+  >([])
   const mediaUploadTarget = useRef<{ rowId: string; columnId: string } | null>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
@@ -716,6 +719,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   })
   const rowCommands = useRowCommands({
     setCsvImportErrors,
+    setCsvImportDuplicates,
     t,
     i18n,
     navigate,
@@ -1024,6 +1028,23 @@ export function TableScreen({ tableId }: { tableId: string }) {
       setDisplayMode: (mode: 'grid' | 'chart' | 'timeline' | 'kanban') =>
         setDisplay((current) => {
           if (current.mode === mode) return current
+          if (mode === 'chart' && current.chart.dimensionIds.length === 0 && current.chart.valueIds.length === 0 && !current.chart.count) {
+            const stage = columns.find((column) => column.type === 'select' || column.type === 'status')
+            const amount = columns.find((column) => column.type === 'number' || column.type === 'currency')
+            const owner = columns.find((column) => column.type === 'user')
+            return {
+              ...current,
+              mode,
+              chart: {
+                ...current.chart,
+                type: 'bar',
+                dimensionIds: stage ? [stage.id] : [],
+                valueIds: amount ? [amount.id] : [],
+                count: Boolean(stage),
+                ownerColumnId: owner?.id ?? null,
+              },
+            }
+          }
           if (mode !== 'kanban' || current.kanban.statusColumnId) return { ...current, mode }
           const statusColumn = columns.find((column) => column.type === 'select' || column.type === 'status')
           return {
@@ -1266,8 +1287,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
         open={csvImportOpen}
         busy={csvImportBusy}
         errors={csvImportErrors}
+        duplicates={csvImportDuplicates}
         onClose={() => {
           setCsvImportErrors([])
+          setCsvImportDuplicates([])
           setCsvImportOpen(false)
         }}
         onImport={runCsvImport}
@@ -1334,6 +1357,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             rows={rows}
             tags={table.tags ?? []}
             statuses={table.statuses ?? []}
+            members={members}
             chart={display.chart}
             truncated={rows.length >= displayRowCap && Boolean(rowsQuery.hasNextPage)}
             loading={Boolean(rowsQuery.hasNextPage) && rows.length < displayRowCap}

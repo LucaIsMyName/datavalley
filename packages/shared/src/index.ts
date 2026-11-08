@@ -30,5 +30,6 @@ export type {
 export * from './dates/index.js'
 export * from './select/index.js'
 export * from './displays/index.js'
+export * from './duplicates.js'
 export * from './realtime.js'
 export * from './project-transfer.js'

@@ -6,7 +6,7 @@ describe('saved view display', () => {
   it('stores the current chart setup and restores it', () => {
     const display = defaultTableDisplay()
     display.mode = 'chart'
-    display.chart = { type: 'line', dimensionIds: ['status'], valueIds: ['amount'], perRow: true }
+    display.chart = { ...display.chart, type: 'line', dimensionIds: ['status'], valueIds: ['amount'], perRow: true }
     const definition = savedViewDefinition({ filter: null, sort: null, formatting: [], display })
     expect(definition.display.mode).toBe('chart')
     expect(displayFromSavedView(definition, [

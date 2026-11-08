@@ -2,7 +2,7 @@ import { isDateColumnType } from '../dates/column.js'
 
 export const displayModes = ['grid', 'chart', 'timeline', 'kanban'] as const
 export const chartTypes = ['line', 'bar', 'doughnut'] as const
-export const chartDimensionTypes = ['status', 'tags', 'text', 'mail', 'url'] as const
+export const chartDimensionTypes = ['status', 'select', 'radio', 'tags', 'text', 'mail', 'url'] as const
 export const chartValueTypes = ['number', 'formula'] as const
 
 export type DisplayMode = (typeof displayModes)[number]
@@ -15,6 +15,9 @@ export type ChartDisplay = {
   dimensionIds: string[]
   valueIds: string[]
   perRow: boolean
+  count: boolean
+  ownerColumnId: string | null
+  ownerUserId: string | null
 }
 
 export type TimelineDisplay = {
@@ -46,7 +49,7 @@ const idLimit = 24
 export function defaultTableDisplay(): TableDisplayState {
   return {
     mode: 'grid',
-    chart: { type: 'bar', dimensionIds: [], valueIds: [], perRow: false },
+    chart: { type: 'bar', dimensionIds: [], valueIds: [], perRow: false, count: false, ownerColumnId: null, ownerUserId: null },
     timeline: { dateColumnId: null, titleColumnIds: [], zoom: 1 },
     kanban: { statusColumnId: null, cardColumnIds: [], statusOrder: [] },
   }
@@ -92,6 +95,9 @@ export function sanitizeTableDisplay(value: unknown): TableDisplayState {
       dimensionIds: idList(chart.dimensionIds),
       valueIds: idList(chart.valueIds),
       perRow: chart.perRow === true,
+      count: chart.count === true,
+      ownerColumnId: optionalId(chart.ownerColumnId),
+      ownerUserId: optionalId(chart.ownerUserId),
     },
     timeline: {
       dateColumnId: optionalId(timeline.dateColumnId),
@@ -119,6 +125,8 @@ export function normalizeTableDisplay(value: unknown, columns: DisplayColumn[]):
   const clean = sanitizeTableDisplay(value)
   const dimensions = new Set(columns.filter((column) => isChartDimensionType(column.type)).map((column) => column.id))
   const values = new Set(columns.filter((column) => isChartValueType(column.type)).map((column) => column.id))
+  const owners = new Set(columns.filter((column) => column.type === 'user').map((column) => column.id))
+  const ownerColumnId = clean.chart.ownerColumnId && owners.has(clean.chart.ownerColumnId) ? clean.chart.ownerColumnId : null
   const known = new Set(columns.map((column) => column.id))
   const dateColumnId = clean.timeline.dateColumnId && columns.some((column) => column.id === clean.timeline.dateColumnId && isDateColumnType(column.type)) ? clean.timeline.dateColumnId : null
   const statusColumnId =
@@ -135,6 +143,8 @@ export function normalizeTableDisplay(value: unknown, columns: DisplayColumn[]):
       ...clean.chart,
       dimensionIds: clean.chart.dimensionIds.filter((id) => dimensions.has(id)),
       valueIds: clean.chart.valueIds.filter((id) => values.has(id)),
+      ownerColumnId,
+      ownerUserId: ownerColumnId ? clean.chart.ownerUserId : null,
     },
     timeline: {
       ...clean.timeline,

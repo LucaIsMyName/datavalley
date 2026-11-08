@@ -229,6 +229,17 @@ export const tableCells = pgTable('table_cells', {
     ...timestamps,
   })
 
+export const fieldHistory = pgTable('field_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+  rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+  columnId: uuid('column_id').notNull().references(() => tableColumns.id, { onDelete: 'cascade' }),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  beforeText: text('before_text').notNull().default(''),
+  afterText: text('after_text').notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const userFavorites = pgTable(
   'user_favorites',
   {

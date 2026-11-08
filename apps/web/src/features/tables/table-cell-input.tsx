@@ -2,6 +2,7 @@ import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-
 import { useTranslation } from 'react-i18next'
 import { SelectField } from '../../components/ui/select'
 import { CellEditor } from './cells'
+import { DuplicateHint } from './duplicate-hint'
 import { displayCellValue } from './cell-display'
 import { editFailureMessage } from './edit-error'
 import { formatFormulaValue } from './formula-help'
@@ -41,6 +42,7 @@ export function TableCellInput({
   onMediaUploading,
   onMediaCommit,
   onDateMode,
+  showDuplicateHint = false,
 }: {
   column: Column
   row: RowRecord
@@ -70,6 +72,7 @@ export function TableCellInput({
   onMediaUploading?: boolean
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
   onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void
+  showDuplicateHint?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const value = row.cells[column.id]
@@ -106,6 +109,7 @@ export function TableCellInput({
   }
 
   return (
+    <span className="relative flex min-w-0 flex-1 items-center">
     <CellEditor
       column={column}
       row={row}
@@ -151,5 +155,15 @@ export function TableCellInput({
       onMediaCommit={onMediaCommit}
       onDateMode={onDateMode}
     />
+    {showDuplicateHint ? (
+      <DuplicateHint
+        tableId={tableId}
+        column={column}
+        rowId={row.id}
+        value={value}
+        className="absolute left-0 top-full z-30 max-w-64 border border-border bg-card px-2 py-1 text-sm text-muted-foreground shadow-sm"
+      />
+    ) : null}
+    </span>
   )
 }

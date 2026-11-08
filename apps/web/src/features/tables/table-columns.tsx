@@ -249,6 +249,7 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
               column={column}
               row={row.original}
               active={active}
+              showDuplicateHint={active}
               tableId={tableId}
               tags={table?.tags ?? []}
               statuses={table?.statuses ?? []}

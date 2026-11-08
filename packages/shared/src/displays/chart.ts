@@ -87,11 +87,18 @@ function partsFor(column: ChartDimensionInput, raw: unknown, emptyLabel: string)
       return { key: id, label, color: entry?.color ?? null, sort: label, empty: false }
     })
   }
-  if (column.type === 'status') {
-    if (typeof raw !== 'string' || raw.length === 0) return [emptyPart(emptyLabel)]
-    const entry = entryFor(column, raw)
-    const label = entry?.label ?? raw
-    return [{ key: raw, label, color: entry?.color ?? null, sort: entry?.position ?? label, empty: false }]
+  if (column.type === 'status' || column.type === 'select' || column.type === 'radio') {
+    const ids = Array.isArray(raw)
+      ? raw.filter((item): item is string => typeof item === 'string' && item.length > 0)
+      : typeof raw === 'string' && raw.length > 0
+        ? [raw]
+        : []
+    if (ids.length === 0) return [emptyPart(emptyLabel)]
+    return ids.map((id) => {
+      const entry = entryFor(column, id)
+      const label = entry?.label ?? id
+      return { key: id, label, color: entry?.color ?? null, sort: entry?.position ?? label, empty: false }
+    })
   }
   if (typeof raw !== 'string' && typeof raw !== 'number' && typeof raw !== 'boolean') return [emptyPart(emptyLabel)]
   const label = String(raw).trim()
@@ -142,11 +149,18 @@ export function aggregateChart(input: {
   rows: { id?: string; cells: Record<string, unknown> }[]
   emptyLabel: string
   perRow?: boolean
+  countName?: string
 }): ChartAggregate {
   const dimensions = input.dimensions.filter((column) => isChartDimensionType(column.type))
-  const values = input.values.filter((column) => column.id.length > 0)
+  const values = [
+    ...(input.countName ? [{ id: '__count__', name: input.countName }] : []),
+    ...input.values.filter((column) => column.id.length > 0 && column.id !== '__count__'),
+  ]
   if (dimensions.length === 0 || values.length === 0) return { categories: [], series: [] }
-  const colorCategories = dimensions.length === 1 && values.length === 1 && (dimensions[0].type === 'status' || dimensions[0].type === 'tags')
+  const colorCategories =
+    dimensions.length === 1 &&
+    values.length === 1 &&
+    (dimensions[0].type === 'status' || dimensions[0].type === 'select' || dimensions[0].type === 'radio' || dimensions[0].type === 'tags')
   if (input.perRow) {
     const categories = input.rows.map((row, index) => {
       const parts = dimensions.map((column) => dimensionPart(column, row.cells[column.id], input.emptyLabel))
@@ -155,7 +169,7 @@ export function aggregateChart(input: {
         key: `${id}\u001f${index}`,
         label: parts.map((part) => part.label).join(' · '),
         color: colorCategories ? parts[0]?.color ?? null : null,
-        amounts: values.map((column) => chartNumber(row.cells[column.id]) ?? 0),
+        amounts: values.map((column) => (column.id === '__count__' ? 1 : chartNumber(row.cells[column.id]) ?? 0)),
       }
     })
     return {
@@ -178,6 +192,10 @@ export function aggregateChart(input: {
         grouped.set(key, bucket)
       }
       values.forEach((column, index) => {
+        if (column.id === '__count__') {
+          bucket.sums[index] += 1
+          return
+        }
         const amount = chartNumber(row.cells[column.id])
         if (amount == null) return
         bucket.sums[index] += amount

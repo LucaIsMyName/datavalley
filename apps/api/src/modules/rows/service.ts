@@ -46,6 +46,8 @@ import {
   resolveTableContext,
   type LoadedColumn,
 } from '../tables/service.js'
+import { importDuplicateWarnings } from './duplicates.js'
+import { previousCellValues, recordCellHistory } from './history.js'
 import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
@@ -656,6 +658,13 @@ export async function createRow(
     return created
   })
   if (notify) await publishTableSignal(db, subject.id, table.id, 'rows.changed')
+  await recordCellHistory(
+    db,
+    subject.kind === 'user' ? subject.id : null,
+    dataTableId,
+    columns,
+    Object.keys(cells).map((columnId) => ({ rowId: row.id, columnId, before: null, after: cells[columnId] })),
+  )
   await announceAssignments(
     db,
     env,
@@ -726,6 +735,11 @@ export async function patchRow(
       throw notFound()
     }
   }
+  const previousValues = await previousCellValues(
+    db,
+    columns,
+    columnIds.map((columnId) => ({ rowId: row.id, columnId })),
+  )
   const previousAssignees = await readPreviousUserIds(
     db,
     columnIds
@@ -833,6 +847,18 @@ export async function patchRow(
     previousAssignees,
     recordTitle(columns, stored, row.id),
   )
+  await recordCellHistory(
+    db,
+    subject.kind === 'user' ? subject.id : null,
+    table.id,
+    columns,
+    columnIds.map((columnId) => ({
+      rowId: row.id,
+      columnId,
+      before: previousValues.get(`${row.id}:${columnId}`) ?? null,
+      after: cells[columnId],
+    })),
+  )
   return presented
 }
 
@@ -910,6 +936,11 @@ export async function bulkPatch(
       }
     }
   }
+  const previousValues = await previousCellValues(
+    db,
+    columns,
+    updates.flatMap((update) => Object.keys(update.cells).map((columnId) => ({ rowId: update.rowId, columnId }))),
+  )
   const previousAssignees = await readPreviousUserIds(
     db,
     updates.flatMap((update) =>
@@ -989,6 +1020,20 @@ export async function bulkPatch(
       recordTitle(columns, stored, update.rowId),
     )
   }
+  await recordCellHistory(
+    db,
+    subject.kind === 'user' ? subject.id : null,
+    dataTableId,
+    columns,
+    updates.flatMap((update) =>
+      Object.keys(update.cells).map((columnId) => ({
+        rowId: update.rowId,
+        columnId,
+        before: previousValues.get(`${update.rowId}:${columnId}`) ?? null,
+        after: update.cells[columnId],
+      })),
+    ),
+  )
   return presented
 }
 
@@ -1124,12 +1169,14 @@ export async function importCsv(
   const mapping = await ensureTextColumns(db, tableId, parsed.names)
   const chunks: { chunk: number; error?: string }[] = []
   let created = 0
+  const createdRows: { id: string; cells: Record<string, unknown> }[] = []
   for (let index = 0; index < parsed.records.length; index += chunkSize) {
     const slice = parsed.records.slice(index, index + chunkSize)
     const chunk = Math.floor(index / chunkSize) + 1
     try {
-      await db.transaction(async (tx) => {
-        for (const [rowOffset, record] of slice.entries()) {
+      const made = await db.transaction(async (tx) => {
+        const rows: { id: string; cells: Record<string, unknown> }[] = []
+        for (const record of slice) {
           const cells: Record<string, unknown> = {}
           mapping.forEach((column, columnIndex) => {
             const raw = record[columnIndex] ?? ''
@@ -1137,10 +1184,12 @@ export async function importCsv(
             coerceImport(column, raw)
             cells[column.id] = column.type === 'select' || column.type === 'radio' ? raw : raw
           })
-          await createRow(tx as unknown as AppDatabase, subject, table.id, cells, {}, false)
-          void rowOffset
+          const row = await createRow(tx as unknown as AppDatabase, subject, table.id, cells, {}, false)
+          rows.push({ id: row.id, cells })
         }
+        return rows
       })
+      createdRows.push(...made)
       created += slice.length
       chunks.push({ chunk })
     } catch (error) {
@@ -1149,7 +1198,8 @@ export async function importCsv(
   }
   await publishTableSignal(db, subject.id, table.id, 'rows.changed')
   await publishTableSignal(db, subject.id, table.id, 'columns.changed')
-  return { created, chunks, errors: chunks.filter((chunk) => chunk.error) }
+  const duplicates = await importDuplicateWarnings(db, subject, table.id, mapping, createdRows)
+  return { created, chunks, errors: chunks.filter((chunk) => chunk.error), duplicates }
 }
 
 export async function exportCsv(

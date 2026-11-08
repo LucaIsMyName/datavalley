@@ -84,6 +84,21 @@ export function RecordPage() {
   const table = tableQuery.data?.table
   const cache = recordQuery.data
   const row = cache?.pages[0]?.rows.find((item) => item.id === rowId) ?? readCachedRow(queryClient, tableId, rowId)
+  const history = useQuery({
+    queryKey: ['history', rowId, row?.version ?? 0],
+    enabled: Boolean(rowId),
+    queryFn: () =>
+      api.request<{
+        entries: {
+          id: string
+          columnName: string
+          actorName: string | null
+          before: string
+          after: string
+          createdAt: string
+        }[]
+      }>(`/rows/${rowId}/history`),
+  })
   const readOnly = isTableReadOnly(table)
   const cellEdit = useRowCellEdit({
     tableId,
@@ -144,7 +159,7 @@ export function RecordPage() {
   const title = recordTitle(table, row)
 
   return (
-    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-auto p-3 sm:p-4 md:p-6">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-auto p-3 sm:p-4 md:p-6 border-t border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <Link to={`/projects/${projectId}/tables/${tableId}`} className="text-sm text-primary hover:underline">
@@ -227,6 +242,33 @@ export function RecordPage() {
         ) : (
           <p className="text-sm text-muted-foreground">{t('linkedRecordsEmpty')}</p>
         )}
+      </section>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">{t('fieldHistory')}</h2>
+        {history.isLoading && !history.data ? <LoadingBlock variant="rows" /> : null}
+        {history.data && history.data.entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('fieldHistoryEmpty')}</p>
+        ) : null}
+        {history.data && history.data.entries.length > 0 ? (
+          <ul className="flex flex-col">
+            {history.data.entries.map((entry) => (
+              <li key={entry.id} className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 border-t border-border py-2 text-sm">
+                <span className="min-w-0 truncate">
+                  <span className="font-medium">{entry.actorName ?? t('fieldHistorySomeone')}</span>
+                  {' · '}
+                  {entry.columnName}
+                </span>
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {entry.before || t('empty')}
+                  {' → '}
+                  {entry.after || t('empty')}
+                  {' · '}
+                  {new Date(entry.createdAt).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </section>
       <section className="flex min-h-40 flex-col gap-2">
         <h2 className="text-sm font-medium">{t('notes')}</h2>
