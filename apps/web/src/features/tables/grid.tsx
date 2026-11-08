@@ -10,7 +10,6 @@ import {
 } from '@datavalley/api-client'
 import {
   defaultTableDisplay,
-  displayRowCap,
   isDateColumnType,
   isSelectFamilyType,
   moveSelection,
@@ -338,19 +337,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
       ...(editingThis ? {} : { draft: null }),
     })
   }, [editing, rows, selected.column, selected.row, table?.name, tableId, visible])
-  useEffect(() => {
-    if (display.mode !== 'chart' && display.mode !== 'timeline' && display.mode !== 'kanban') return
-    if (rowsQuery.isError || rowsQuery.isFetchingNextPage || !rowsQuery.hasNextPage) return
-    if (rows.length >= displayRowCap) return
-    void rowsQuery.fetchNextPage()
-  }, [
-    display.mode,
-    rows.length,
-    rowsQuery.isError,
-    rowsQuery.isFetchingNextPage,
-    rowsQuery.hasNextPage,
-    rowsQuery.fetchNextPage,
-  ])
   const rowsRef = useRef(rows)
   rowsRef.current = rows
   const { scheduleCell, applyMediaCell, invalidCells, invalidFor, clearInvalid } = useRowCellEdit({
@@ -381,11 +367,17 @@ export function TableScreen({ tableId }: { tableId: string }) {
     enabled?: boolean
     columns?: Record<string, string>
   }
+  const footerColumnIds = Object.entries(footerConfig.columns ?? {})
+    .filter(([, calc]) => Boolean(calc))
+    .map(([id]) => id)
   const footerQuery = useQuery({
-    queryKey: ['footer', tableId, filterKey],
-    enabled: Boolean(footerConfig.enabled),
-    queryFn: () =>
-      api.request<{
+    queryKey: ['footer', tableId, filterKey, footerColumnIds.join(',')],
+    enabled: Boolean(footerConfig.enabled) && footerColumnIds.length > 0,
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (filter) params.set('filter', JSON.stringify(filter))
+      params.set('columns', footerColumnIds.join(','))
+      return api.request<{
         footer: Record<
           string,
           {
@@ -400,9 +392,34 @@ export function TableScreen({ tableId }: { tableId: string }) {
             max: unknown
           }
         >
-      }>(
-        `/tables/${tableId}/footer${filter ? `?filter=${encodeURIComponent(JSON.stringify(filter))}` : ''}`,
-      ),
+      }>(`/tables/${tableId}/footer?${params}`)
+    },
+  })
+  const summaryValueIds = display.mode === 'chart' ? display.chart.valueIds : []
+  const summaryHasFormula = summaryValueIds.some((id) => columns.some((column) => column.id === id && column.type === 'formula'))
+  const summaryDimensionId =
+    display.mode === 'chart' &&
+    !display.chart.perRow &&
+    display.chart.dimensionIds.length === 1 &&
+    !display.chart.ownerUserId &&
+    !summaryHasFormula
+      ? display.chart.dimensionIds[0]
+      : display.mode === 'kanban'
+        ? display.kanban.statusColumnId
+        : null
+  const summaryUsesServer = Boolean(summaryDimensionId)
+  const summaryQuery = useQuery({
+    queryKey: ['summary', tableId, filterKey, summaryDimensionId, summaryValueIds.join(',')],
+    enabled: summaryUsesServer,
+    queryFn: () => {
+      const params = new URLSearchParams()
+      params.set('dimension', summaryDimensionId ?? '')
+      if (summaryValueIds.length > 0) params.set('values', summaryValueIds.join(','))
+      if (filter) params.set('filter', JSON.stringify(filter))
+      return api.request<{ groups: { key: string; count: number; sums: Record<string, number> }[] }>(
+        `/tables/${tableId}/summary?${params}`,
+      )
+    },
   })
   const views = useQuery({
     queryKey: ['views', tableId],
@@ -1385,8 +1402,17 @@ export function TableScreen({ tableId }: { tableId: string }) {
             statuses={table.statuses ?? []}
             members={members}
             chart={display.chart}
-            truncated={rows.length >= displayRowCap && Boolean(rowsQuery.hasNextPage)}
-            loading={Boolean(rowsQuery.hasNextPage) && rows.length < displayRowCap}
+            groups={
+              summaryUsesServer && display.mode === 'chart' && !display.chart.perRow
+                ? summaryQuery.isError
+                  ? undefined
+                  : (summaryQuery.data?.groups ?? null)
+                : undefined
+            }
+            truncated={
+              (display.chart.perRow || !summaryUsesServer) && Boolean(rowsQuery.hasNextPage)
+            }
+            loading={summaryUsesServer && !display.chart.perRow && summaryQuery.isFetching && !summaryQuery.data}
             onChange={(chart) => setDisplay((current) => ({ ...current, chart }))}
           />
         ) : display.mode === 'timeline' ? (
@@ -1398,8 +1424,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
             members={membersQuery.data?.members ?? []}
             timeline={display.timeline}
             readOnly={dataReadOnly}
-            truncated={rows.length >= displayRowCap && Boolean(rowsQuery.hasNextPage)}
-            loading={Boolean(rowsQuery.hasNextPage) && rows.length < displayRowCap}
+            truncated={Boolean(rowsQuery.hasNextPage)}
+            loading={false}
             onChange={(timeline) => setDisplay((current) => ({ ...current, timeline }))}
             onWrite={(row, column, value) => {
               scheduleCell(row, column, value, 0)
@@ -1415,6 +1441,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
             statuses={table.statuses ?? []}
             members={membersQuery.data?.members ?? []}
             kanban={display.kanban}
+            counts={
+              display.mode === 'kanban' && summaryQuery.data
+                ? Object.fromEntries(summaryQuery.data.groups.map((group) => [group.key, group.count]))
+                : undefined
+            }
             readOnly={dataReadOnly}
             onChange={(kanban) => setDisplay((current) => ({ ...current, kanban }))}
             onMove={(row, statusId) => {

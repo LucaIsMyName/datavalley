@@ -4212,6 +4212,25 @@
         }
       }
     },
+    "/tables/{tableId}/summary": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "tableId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/tables/{tableId}/import": {
       "post": {
         "parameters": [

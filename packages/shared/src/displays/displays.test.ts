@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateChart, chartCategoryPalette, chartMarkColor } from './chart.js'
+import { aggregateChart, chartCategoryPalette, chartFromGroups, chartMarkColor } from './chart.js'
 import { defaultTableDisplay, normalizeTableDisplay, sanitizeTableDisplay } from './state.js'
 
 const status = {
@@ -30,6 +30,25 @@ describe('chart aggregation', () => {
         { cells: { status: 'open', amount: 5 } },
         { cells: { status: 'open', amount: 1 } },
         { cells: { status: null, amount: 4 } },
+      ],
+    })
+    expect(chart.categories.map((category) => [category.label, category.color])).toEqual([
+      ['Open', 'amber'],
+      ['Done', 'green'],
+      ['Empty', null],
+    ])
+    expect(chart.series).toEqual([{ columnId: 'amount', name: 'Amount', values: [6, 2, 4] }])
+  })
+
+  it('builds the same chart from server groups', () => {
+    const chart = chartFromGroups({
+      dimension: status,
+      values: [{ id: 'amount', name: 'Amount' }],
+      emptyLabel: 'Empty',
+      groups: [
+        { key: 'done', count: 1, sums: { amount: 2 } },
+        { key: 'open', count: 2, sums: { amount: 6 } },
+        { key: '', count: 1, sums: { amount: 4 } },
       ],
     })
     expect(chart.categories.map((category) => [category.label, category.color])).toEqual([

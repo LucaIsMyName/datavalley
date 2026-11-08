@@ -1858,6 +1858,24 @@ None
 const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/footer")
 ```
 
+### `GET /api/v1/tables/{tableId}/summary`
+
+Get summary
+
+**Path**
+
+- `tableId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/summary")
+```
+
 ### `POST /api/v1/tables/{tableId}/import`
 
 Import a table

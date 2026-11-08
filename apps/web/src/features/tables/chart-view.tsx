@@ -7,6 +7,7 @@ import { scalePoint } from '@tanstack/charts/scales/point'
 import { tooltip } from '@tanstack/charts/tooltip'
 import {
   aggregateChart,
+  chartFromGroups,
   chartMarkColor,
   chartTypes,
   isChartDimensionType,
@@ -161,6 +162,7 @@ export function ChartView({
   chart,
   truncated,
   loading,
+  groups,
   onChange,
 }: {
   columns: {
@@ -176,6 +178,7 @@ export function ChartView({
   chart: ChartDisplay
   truncated: boolean
   loading: boolean
+  groups?: { key: string; count: number; sums: Record<string, number> }[] | null
   onChange: (chart: ChartDisplay) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -206,6 +209,7 @@ export function ChartView({
 
   const aggregate = useMemo(() => {
     if (!ready) return null
+    if (groups === null && !chart.perRow && selectedDimensions.length === 1) return null
     const dimensionInputs: ChartDimensionInput[] = selectedDimensions.flatMap((id) => {
       const column = dimensions.find((item) => item.id === id)
       if (!column || !isChartDimensionType(column.type)) return []
@@ -230,18 +234,29 @@ export function ChartView({
         },
       ]
     })
+    const valueInputs = selectedValues.flatMap((id) => {
+      const column = values.find((item) => item.id === id)
+      return column ? [{ id: column.id, name: column.name }] : []
+    })
+    const groupedDimension = dimensionInputs[0]
+    if (groups && groupedDimension && dimensionInputs.length === 1 && !chart.perRow) {
+      return chartFromGroups({
+        dimension: groupedDimension,
+        values: valueInputs,
+        groups,
+        emptyLabel: t('empty'),
+        countName: chart.count ? t('chartCount') : undefined,
+      })
+    }
     return aggregateChart({
       dimensions: dimensionInputs,
-      values: selectedValues.flatMap((id) => {
-        const column = values.find((item) => item.id === id)
-        return column ? [{ id: column.id, name: column.name }] : []
-      }),
+      values: valueInputs,
       rows: chartRows,
       emptyLabel: t('empty'),
       perRow: chart.perRow,
       countName: chart.count ? t('chartCount') : undefined,
     })
-  }, [chart.count, chart.perRow, chartRows, dimensions, ready, selectedDimensions, selectedValues, statuses, t, tags, values])
+  }, [chart.count, chart.perRow, chartRows, dimensions, groups, ready, selectedDimensions, selectedValues, statuses, t, tags, values])
 
   const points = useMemo<PlotPoint[]>(() => {
     if (!aggregate) return []

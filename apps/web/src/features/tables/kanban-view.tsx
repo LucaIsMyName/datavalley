@@ -47,6 +47,7 @@ export function KanbanView({
   statuses,
   members,
   kanban,
+  counts,
   readOnly,
   onChange,
   onMove,
@@ -58,6 +59,7 @@ export function KanbanView({
   statuses: CatalogItem[]
   members: { userId: string; username: string }[]
   kanban: KanbanDisplay
+  counts?: Record<string, number>
   readOnly: boolean
   onChange: (kanban: KanbanDisplay) => void
   onMove: (row: RowRecord, statusId: string | null) => void
@@ -145,7 +147,7 @@ export function KanbanView({
             >
               <h2 className="px-1 text-sm font-medium">
                 {lane.id ? lane.label : t('kanbanUnset')}
-                <span className="ml-2 text-muted-foreground">{lane.rowIds.length}</span>
+                <span className="ml-2 text-muted-foreground">{counts?.[lane.id] ?? lane.rowIds.length}</span>
               </h2>
               <div className="flex min-h-24 flex-col gap-2">
                 {lane.rowIds.map((rowId) => {

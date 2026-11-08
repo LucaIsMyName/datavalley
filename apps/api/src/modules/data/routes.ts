@@ -41,7 +41,7 @@ import {
   updateTable,
   updateTag,
 } from '../tables/service.js'
-import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, linkRelationRecord, listRows, moveRow, patchRow } from '../rows/service.js'
+import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, linkRelationRecord, listRows, moveRow, patchRow, tableSummary } from '../rows/service.js'
 import { findDuplicateRows } from '../rows/duplicates.js'
 import { listFieldHistory } from '../rows/history.js'
 import { exportPerson, removePerson } from '../rows/privacy.js'
@@ -307,13 +307,13 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/tables/:tableId/rows/bulk-delete', { schema: { body: dataSchema.rowIdsBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { rowIds: string[] }
-    await bulkDelete(db, request.subject, (request.params as { tableId: string }).tableId, body.rowIds)
-    return { ok: true }
+    const notes = await bulkDelete(db, request.subject, (request.params as { tableId: string }).tableId, body.rowIds)
+    return { ok: true, notes }
   })
   app.post('/tables/:tableId/rows/duplicate', { schema: { body: dataSchema.rowIdsBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { rowIds: string[] }
-    return { rowIds: await duplicateRows(db, request.subject, (request.params as { tableId: string }).tableId, body.rowIds) }
+    return duplicateRows(db, request.subject, (request.params as { tableId: string }).tableId, body.rowIds)
   })
   app.post('/tables/:tableId/fill', { schema: { body: dataSchema.fillDownBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
@@ -349,8 +349,27 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.get('/tables/:tableId/footer', async (request) => {
     if (!request.subject) throw unauthorized()
-    const query = request.query as { filter?: string }
-    return { footer: await footer(db, request.subject, (request.params as { tableId: string }).tableId, query.filter ? JSON.parse(query.filter) : null) }
+    const query = request.query as { filter?: string; columns?: string }
+    const columnIds = query.columns == null ? undefined : query.columns.split(',').map((id) => id.trim()).filter(Boolean)
+    return {
+      footer: await footer(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        query.filter ? JSON.parse(query.filter) : null,
+        columnIds,
+      ),
+    }
+  })
+  app.get('/tables/:tableId/summary', async (request) => {
+    if (!request.subject) throw unauthorized()
+    const query = request.query as { filter?: string; dimension?: string; values?: string }
+    if (!query.dimension) throw badRequest('Choose a column')
+    return tableSummary(db, request.subject, (request.params as { tableId: string }).tableId, {
+      dimensionId: query.dimension,
+      valueIds: query.values ? query.values.split(',').map((id) => id.trim()).filter(Boolean) : [],
+      filter: query.filter ? JSON.parse(query.filter) : null,
+    })
   })
   app.post('/tables/:tableId/import', async (request) => {
     if (!request.subject) throw unauthorized()

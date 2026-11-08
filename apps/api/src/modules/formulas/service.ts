@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, max, or, sum } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, max, or, sql, sum, type SQL } from 'drizzle-orm'
 import {
   bracketRowAsks,
   canonicalize,
@@ -363,18 +363,28 @@ class ValueMap {
     const cached = this.series.get(column.id)
     if (cached) return cached
     if (!(await canReadColumn(this.db, this.subject, column.id))) return [{ error: '#REF' }]
-    const rows = await this.db.select().from(tableRows).where(eq(tableRows.tableId, column.tableId)).orderBy(asc(tableRows.position))
+    const rows = await this.db
+      .select({ id: tableRows.id, rowNumber: tableRows.rowNumber })
+      .from(tableRows)
+      .where(eq(tableRows.tableId, column.tableId))
+      .orderBy(asc(tableRows.position))
     let values: FormulaValue[]
     if (column.type === 'row_id') {
       values = rows.map((row) => (column.config.style === 'uuid' ? row.id : String(row.rowNumber ?? '')))
     } else if (column.type === 'formula') {
       const stored = await this.db.select().from(formulas).where(eq(formulas.columnId, column.id))
-      const byRow = new Map(stored.map((formula) => [formula.rowId, formula]))
-      values = []
-      for (const row of rows) {
-        const formula = byRow.get(row.id)
-        values.push(formula ? await evaluateStored(this.db, this.subject, formula.id, row.id, this.stack) : null)
-      }
+      const results = await evaluateFormulasForRows(this.db, this.subject, stored, { stack: this.stack })
+      values = rows.map((row) => results.get(formulaCellKey(row.id, column.id)) ?? null)
+    } else if (column.type === 'number' || column.type === 'currency') {
+      const cells = await this.db
+        .select({ rowId: tableCells.rowId, valueNumber: tableCells.valueNumber })
+        .from(tableCells)
+        .where(eq(tableCells.columnId, column.id))
+      const byRow = new Map(cells.map((cell) => [cell.rowId, cell.valueNumber]))
+      values = rows.map((row) => {
+        const value = byRow.get(row.id)
+        return value == null ? null : Number(value)
+      })
     } else {
       const cells = await this.db.select().from(tableCells).where(eq(tableCells.columnId, column.id))
       const byRow = new Map(cells.map((cell) => [cell.rowId, cell]))
@@ -383,6 +393,30 @@ class ValueMap {
     }
     this.series.set(column.id, values)
     return values
+  }
+
+  async foldedAggregate(ref: RefNode, op: string): Promise<number | undefined> {
+    if (!ref.tableId || ref.rowId || !ref.columnId) return undefined
+    const column = await this.column(ref.columnId)
+    if (!column || (column.type !== 'number' && column.type !== 'currency')) return undefined
+    if (!(await canReadColumn(this.db, this.subject, column.id))) return undefined
+    const [stats] = await formulaRows<{ total: string | number | null; filled: string | number | null; minimum: string | number | null; maximum: string | number | null }>(
+      this.db,
+      sql`SELECT coalesce(sum(value_number), 0) AS total,
+             count(value_number) AS filled,
+             min(value_number) AS minimum,
+             max(value_number) AS maximum
+          FROM table_cells
+          WHERE column_id = ${column.id}::uuid`,
+    )
+    const total = Number(stats?.total ?? 0)
+    const filled = Number(stats?.filled ?? 0)
+    if (op === 'SUM') return total
+    if (op === 'COUNT' || op === 'COUNTA') return filled
+    if (op === 'MIN') return stats?.minimum == null ? 0 : Number(stats.minimum)
+    if (op === 'MAX') return stats?.maximum == null ? 0 : Number(stats.maximum)
+    if (op === 'AVERAGE') return filled === 0 ? undefined : total / filled
+    return undefined
   }
 }
 
@@ -572,12 +606,43 @@ function isRefError(value: FormulaValue) {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && 'error' in value
 }
 
+const FOLDABLE = new Set(['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA'])
+
+async function formulaRows<T extends Record<string, unknown>>(db: AppDatabase, query: SQL): Promise<T[]> {
+  const result = await db.execute(query)
+  if (Array.isArray(result)) return result as T[]
+  return ((result as { rows?: T[] }).rows ?? []) as T[]
+}
+
+async function foldSimpleAggregates(map: ValueMap, node: AstNode): Promise<AstNode> {
+  if (node.type === 'call') {
+    const args: AstNode[] = []
+    for (const arg of node.args) args.push(await foldSimpleAggregates(map, arg))
+    const arg = args[0]
+    if (args.length === 1 && arg?.type === 'ref' && FOLDABLE.has(node.name)) {
+      const folded = await map.foldedAggregate(arg.ref, node.name)
+      if (folded !== undefined) return { type: 'number', value: folded }
+    }
+    return { ...node, args }
+  }
+  if (node.type === 'unary') return { ...node, expr: await foldSimpleAggregates(map, node.expr) }
+  if (node.type === 'binary') {
+    return {
+      ...node,
+      left: await foldSimpleAggregates(map, node.left),
+      right: await foldSimpleAggregates(map, node.right),
+    }
+  }
+  return node
+}
+
 export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack = new Set<string>(), map?: ValueMap) {
   if ((ast as { cycle?: boolean }).cycle) return { error: '#CYCLE' as const }
   const shared = map ?? new ValueMap(db, subject, stack)
-  const values = await preload(shared, ast, rowId)
+  const folded = await foldSimpleAggregates(shared, ast)
+  const values = await preload(shared, folded, rowId)
   const series = new Map<string, FormulaValue[]>()
-  for (const call of callsNamed(ast, 'LOOKUP')) {
+  for (const call of callsNamed(folded, 'LOOKUP')) {
     for (const arg of [call.args[0], call.args[2]]) {
       if (!arg || arg.type !== 'ref' || !arg.ref.tableId) continue
       const column = await shared.column(arg.ref.columnId)
@@ -587,7 +652,7 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
   }
   const criteria = new Map<string, FormulaValue[]>()
   const columnTables = new Map<string, string>()
-  for (const call of [...callsNamed(ast, 'COUNTIF'), ...callsNamed(ast, 'SUMIF')]) {
+  for (const call of [...callsNamed(folded, 'COUNTIF'), ...callsNamed(folded, 'SUMIF')]) {
     const indexes = call.name === 'SUMIF' ? [0, 2] : [0]
     for (const index of indexes) {
       const arg = call.args[index]
@@ -599,7 +664,7 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     }
   }
   const related = new Map<string, FormulaValue>()
-  for (const call of callsNamed(ast, 'RELATION')) {
+  for (const call of callsNamed(folded, 'RELATION')) {
     const fromArg = call.args[0]
     const toArg = call.args[1]
     if (!fromArg || fromArg.type !== 'ref' || !toArg || toArg.type !== 'ref') continue
@@ -627,7 +692,7 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
     for (const link of links) linked.push(await shared.cell(to, link.toRowId))
     related.set(key, linked.some(isRefError) ? { error: '#REF' } : linked.length === 1 ? linked[0] : linked)
   }
-  return runFormula(ast, {
+  return runFormula(folded, {
     clock: () => new Date(),
     range: () => [{ error: '#REF' }],
     lookup: (tableId, matchColumnId, needle, resultColumnId) => {

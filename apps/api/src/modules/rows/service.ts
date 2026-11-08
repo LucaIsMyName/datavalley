@@ -52,7 +52,7 @@ import { previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
 import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
 import { createStageFollowUps } from './stage-task.js'
-import { footerFor, queryRows, type SortSpec } from './query.js'
+import { footerColumns, groupSummary, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 import { visibleColumns } from './visible-columns.js'
 
@@ -89,9 +89,14 @@ async function assertRow(
   return { row, table, grants }
 }
 
-async function cellsFor(db: AppDatabase, rowIds: string[]) {
+async function cellsFor(db: AppDatabase, rowIds: string[], columnIds?: string[]) {
   if (rowIds.length === 0) return []
-  return db.select().from(tableCells).where(inArray(tableCells.rowId, rowIds))
+  if (columnIds && columnIds.length === 0) return []
+  if (!columnIds) return db.select().from(tableCells).where(inArray(tableCells.rowId, rowIds))
+  return db
+    .select()
+    .from(tableCells)
+    .where(and(inArray(tableCells.rowId, rowIds), inArray(tableCells.columnId, columnIds)))
 }
 
 function presentRows(
@@ -251,8 +256,8 @@ async function presentRowRecord(
   const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
   if (!fresh) throw notFound()
   const columns = await loadColumns(db, tableId)
-  const stored = await cellsFor(db, [rowId])
   const visible = await visibleColumns(db, subject, tableId, projectId, columns)
+  const stored = await cellsFor(db, [rowId], visible.map((column) => column.id))
   const [presented] = await attachRelationLabels(
     db,
     visible,
@@ -494,6 +499,7 @@ export async function listRows(
   const cells = await cellsFor(
     db,
     page.rows.map((row) => row.id),
+    columns.map((column) => column.id),
   )
   const rows = await attachRelationLabels(
     db,
@@ -1172,6 +1178,10 @@ export async function bulkDelete(
   rowIds: string[],
 ) {
   await requireEditableTable(db, subject, tableId, 'delete')
+  const existing = rowIds.length
+    ? await db.select({ id: tableRows.id, notes: tableRows.notes }).from(tableRows).where(inArray(tableRows.id, rowIds))
+    : []
+  const notes = Object.fromEntries(existing.map((row) => [row.id, row.notes ?? '']))
   for (const rowId of rowIds) await deleteRow(db, subject, rowId, false)
   await writeAudit(db, subject, {
     action: 'row.bulk_delete',
@@ -1180,6 +1190,7 @@ export async function bulkDelete(
     metadata: { count: rowIds.length },
   })
   await publishTableSignal(db, subject.id, tableId, 'rows.changed')
+  return notes
 }
 
 export async function duplicateRows(
@@ -1190,8 +1201,10 @@ export async function duplicateRows(
 ) {
   await requireEditableTable(db, subject, tableId, 'edit')
   const created: string[] = []
+  const notes: Record<string, string> = {}
   for (const rowId of rowIds) {
     const { row } = await assertRow(db, subject, rowId, 'view')
+    notes[row.id] = row.notes ?? ''
     const cells = await cellsFor(db, [row.id])
     const copy = await createRow(db, subject, tableId, {}, {}, false)
     if (row.color || row.notes)
@@ -1217,7 +1230,7 @@ export async function duplicateRows(
     created.push(copy.id)
   }
   await publishTableSignal(db, subject.id, tableId, 'rows.changed')
-  return created
+  return { rowIds: created, notes }
 }
 
 export async function fillDown(
@@ -1306,6 +1319,7 @@ export async function footer(
   subject: Subject,
   tableId: string,
   filter?: FilterNode | null,
+  columnIds?: string[],
 ) {
   const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
   const columns = await visibleColumns(
@@ -1315,19 +1329,49 @@ export async function footer(
     shell.projectId,
     await loadColumns(db, physical.id),
   )
-  const result: Record<string, unknown> = {}
-  for (const column of columns) {
-    if (column.hidden) continue
-    result[column.id] = await footerFor(db, {
+  const chosen = (columnIds ? columns.filter((column) => columnIds.includes(column.id)) : columns).filter((column) => !column.hidden)
+  return footerColumns(db, {
+    tableId: physical.id,
+    columns: chosen,
+    catalog: columns,
+    subjectType: subject.kind,
+    subjectId: subject.id,
+    filter,
+  })
+}
+
+export async function tableSummary(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  input: { dimensionId: string; valueIds: string[]; filter?: FilterNode | null },
+) {
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
+  const columns = await visibleColumns(
+    db,
+    subject,
+    shell.id,
+    shell.projectId,
+    await loadColumns(db, physical.id),
+  )
+  const dimension = columns.find((column) => column.id === input.dimensionId && !column.hidden)
+  if (!dimension) throw badRequest('Unknown column')
+  const values = input.valueIds.flatMap((id) => {
+    const column = columns.find((item) => item.id === id && !item.hidden)
+    if (!column || (column.type !== 'number' && column.type !== 'currency')) return []
+    return [column]
+  })
+  return {
+    groups: await groupSummary(db, {
       tableId: physical.id,
-      column,
+      dimension,
+      values,
       columns,
       subjectType: subject.kind,
       subjectId: subject.id,
-      filter,
-    })
+      filter: input.filter,
+    }),
   }
-  return result
 }
 
 export async function importCsv(

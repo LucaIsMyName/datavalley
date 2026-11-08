@@ -296,13 +296,13 @@ export function useRowCommands(scope: Scope) {
   async function deleteRows(ids: string[]) {
     if (dataReadOnly || ids.length === 0) return
     const removed = new Set(ids)
-    const snaps = rows
-      .filter((row: any) => removed.has(row.id))
-      .map((row: any) => rowSnap(row, nextKept(row.id, removed)))
-    await api.request(`/tables/${tableId}/rows/bulk-delete`, {
+    const result = await api.request<{ notes?: Record<string, string> }>(`/tables/${tableId}/rows/bulk-delete`, {
       method: 'POST',
       body: JSON.stringify({ rowIds: ids }),
     })
+    const snaps = rows
+      .filter((row: any) => removed.has(row.id))
+      .map((row: any) => rowSnap({ ...row, notes: result.notes?.[row.id] ?? row.notes ?? '' }, nextKept(row.id, removed)))
     pushCommand(tableId, { kind: 'rows-deleted', rows: snaps })
     setChecked([])
     await refresh()
@@ -312,13 +312,15 @@ export function useRowCommands(scope: Scope) {
     if (dataReadOnly) return
     const ordered = rows.filter((row: any) => ids.includes(row.id))
     if (ordered.length === 0) return
-    const result = await api.request<{ rowIds: string[] }>(`/tables/${tableId}/rows/duplicate`, {
+    const result = await api.request<{ rowIds: string[]; notes?: Record<string, string> }>(`/tables/${tableId}/rows/duplicate`, {
       method: 'POST',
       body: JSON.stringify({ rowIds: ordered.map((row: any) => row.id) }),
     })
     pushCommand(tableId, {
       kind: 'rows-created',
-      rows: result.rowIds.map((id, index) => rowSnap({ ...ordered[index], id }, null)),
+      rows: result.rowIds.map((id, index) =>
+        rowSnap({ ...ordered[index], id, notes: result.notes?.[ordered[index].id] ?? ordered[index].notes ?? '' }, null),
+      ),
     })
     setChecked([])
     await refresh()

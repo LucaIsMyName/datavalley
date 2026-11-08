@@ -66,7 +66,9 @@ describe('table fields', () => {
     expect(noted.statusCode).toBe(200)
     expect(noted.json().row.notes).toBe('**Hello**')
     const listed = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows` })
-    expect(listed.json().rows[0].notes).toBe('**Hello**')
+    expect(listed.json().rows[0].notes).toBe('')
+    const record = await session.inject({ method: 'GET', url: `/api/v1/rows/${row.id}/record` })
+    expect(record.json().row.notes).toBe('**Hello**')
     const exported = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/export`, payload: {} })
     expect(exported.json().csv).toBe('Name\nAda')
     expect(exported.json().csv).not.toContain('**Hello**')
@@ -390,6 +392,56 @@ describe('table fields', () => {
     const footer = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/footer` })
     expect(footer.statusCode).toBe(200)
     expect(footer.json().footer[columnId].median).toBe(2)
+  })
+
+  it('summarizes chart groups in one pass and limits the footer to requested columns', async () => {
+    const { tableId } = await blankTable('Summary')
+    const stage = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Stage', type: 'status' } })
+    const amount = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Amount', type: 'number' } })
+    const tags = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Tags', type: 'tags' } })
+    const stageId = stage.json().column.id as string
+    const amountId = amount.json().column.id as string
+    const tagId = tags.json().column.id as string
+    const open = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/statuses`, payload: { name: 'Open' } })
+    const done = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/statuses`, payload: { name: 'Done' } })
+    const red = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Red' } })
+    const blue = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/tags`, payload: { name: 'Blue' } })
+    const openId = open.json().status.id as string
+    const doneId = done.json().status.id as string
+    const redId = red.json().tag.id as string
+    const blueId = blue.json().tag.id as string
+    for (const cells of [
+      { [stageId]: openId, [amountId]: 5 },
+      { [stageId]: openId, [amountId]: 1 },
+      { [stageId]: doneId, [amountId]: 2 },
+      { [amountId]: 4 },
+      { [tagId]: [redId, blueId], [amountId]: 3 },
+    ]) {
+      const saved = await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells } })
+      expect(saved.statusCode).toBe(200)
+    }
+    const summary = await session.inject({
+      method: 'GET',
+      url: `/api/v1/tables/${tableId}/summary?dimension=${stageId}&values=${amountId}`,
+    })
+    expect(summary.statusCode).toBe(200)
+    const groups = summary.json().groups as { key: string; count: number; sums: Record<string, number> }[]
+    const byKey = new Map(groups.map((group) => [group.key, group]))
+    expect(byKey.get(openId)).toMatchObject({ count: 2, sums: { [amountId]: 6 } })
+    expect(byKey.get(doneId)).toMatchObject({ count: 1, sums: { [amountId]: 2 } })
+    expect(byKey.get('')).toMatchObject({ count: 2, sums: { [amountId]: 7 } })
+    const tagged = await session.inject({
+      method: 'GET',
+      url: `/api/v1/tables/${tableId}/summary?dimension=${tagId}&values=${amountId}`,
+    })
+    const tagGroups = new Map(
+      (tagged.json().groups as { key: string; count: number; sums: Record<string, number> }[]).map((group) => [group.key, group]),
+    )
+    expect(tagGroups.get(redId)).toMatchObject({ count: 1, sums: { [amountId]: 3 } })
+    expect(tagGroups.get(blueId)).toMatchObject({ count: 1, sums: { [amountId]: 3 } })
+    const limited = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/footer?columns=${amountId}` })
+    expect(Object.keys(limited.json().footer)).toEqual([amountId])
+    expect(limited.json().footer[amountId].sum).toBe(15)
   })
 
   it('adds a number from another cell and keeps a linked field on that table', async () => {

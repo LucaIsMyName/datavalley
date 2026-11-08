@@ -1,11 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-client'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
+import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, readCachedRow } from './cache'
 import { showEditError } from './grid-edit'
@@ -480,9 +481,15 @@ export function NotesDrawer({
   const noteDraft = row
     ? people.find((person) => person.focus?.kind === 'notes' && person.focus.rowId === row.id && person.focus.tableId === tableId && person.draft != null)?.draft
     : undefined
-  const [text, setText] = useState(row?.notes ?? '')
+  const recordQuery = useQuery({
+    queryKey: ['row-notes', row?.id],
+    enabled: Boolean(row?.id),
+    queryFn: () => api.request<{ row: RowRecord }>(`/rows/${row?.id}/record`),
+  })
+  const loadedNotes = recordQuery.data?.row.notes
+  const [text, setText] = useState('')
   const focused = useRef(false)
-  const baseline = useRef(row?.notes ?? '')
+  const baseline = useRef('')
 
   const cellEdit = useRowCellEdit({
     tableId,
@@ -492,11 +499,23 @@ export function NotesDrawer({
   })
 
   useEffect(() => {
+    const loaded = recordQuery.data?.row
+    if (!loaded) return
+    mapCachedRows(queryClient, tableId, (item) =>
+      item.id === loaded.id ? { ...item, notes: loaded.notes, version: loaded.version } : item,
+    )
+  }, [queryClient, recordQuery.data, tableId])
+
+  useEffect(() => {
     if (focused.current) return
-    const next = noteDraft ?? row?.notes ?? ''
-    setText(next)
-    if (noteDraft == null) baseline.current = row?.notes ?? ''
-  }, [noteDraft, row?.id, row?.notes])
+    if (noteDraft != null) {
+      setText(noteDraft)
+      return
+    }
+    if (loadedNotes == null) return
+    setText(loadedNotes)
+    baseline.current = loadedNotes
+  }, [loadedNotes, noteDraft, row?.id])
 
   function flushRowEdits(rowId: string) {
     for (const column of columns) {
@@ -506,7 +525,7 @@ export function NotesDrawer({
   }
 
   function schedule(next: string) {
-    if (!row || readOnly) return
+    if (!row || readOnly || !recordQuery.isSuccess) return
     const rowId = row.id
     reportPresence({
       tableId,
@@ -609,7 +628,7 @@ export function NotesDrawer({
               <NotesBlockEditor
                 rowId={row.id}
                 markdown={text}
-                readOnly={readOnly}
+                readOnly={readOnly || !recordQuery.isSuccess}
                 onChange={(next) => {
                   setText(next)
                   schedule(next)

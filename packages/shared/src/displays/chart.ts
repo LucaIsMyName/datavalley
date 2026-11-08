@@ -216,3 +216,39 @@ export function aggregateChart(input: {
     })),
   }
 }
+
+export function chartFromGroups(input: {
+  dimension: ChartDimensionInput
+  values: { id: string; name: string }[]
+  groups: { key: string; count: number; sums: Record<string, number> }[]
+  emptyLabel: string
+  countName?: string
+}): ChartAggregate {
+  const values = [
+    ...(input.countName ? [{ id: '__count__', name: input.countName }] : []),
+    ...input.values.filter((column) => column.id.length > 0 && column.id !== '__count__'),
+  ]
+  if (!isChartDimensionType(input.dimension.type) || values.length === 0) return { categories: [], series: [] }
+  const colorCategories =
+    values.length === 1 &&
+    (input.dimension.type === 'status' || input.dimension.type === 'select' || input.dimension.type === 'radio' || input.dimension.type === 'tags')
+  const ordered = input.groups
+    .map((group) => {
+      const raw = input.dimension.type === 'tags' ? (group.key ? [group.key] : []) : group.key
+      const part = partsFor(input.dimension, raw, input.emptyLabel)[0] ?? emptyPart(input.emptyLabel)
+      return { part, group }
+    })
+    .sort((left, right) => compareCombos([left.part], [right.part]))
+  return {
+    categories: ordered.map(({ part }) => ({
+      key: part.key,
+      label: part.label,
+      color: colorCategories ? part.color : null,
+    })),
+    series: values.map((column) => ({
+      columnId: column.id,
+      name: column.name,
+      values: ordered.map(({ group }) => (column.id === '__count__' ? group.count : group.sums[column.id] ?? 0)),
+    })),
+  }
+}

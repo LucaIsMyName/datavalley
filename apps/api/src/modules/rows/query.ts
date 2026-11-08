@@ -1,4 +1,4 @@
-import { dateColumnIncludesTime, escapeLike, isFilterGroup, selectColumnMultiple, type FilterCondition, type FilterNode } from '@datavalley/shared'
+import { dateColumnIncludesTime, escapeLike, isChartDimensionType, isFilterGroup, selectColumnMultiple, type FilterCondition, type FilterNode } from '@datavalley/shared'
 import { sql, type SQL } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
 import { badRequest } from '../../errors.js'
@@ -193,24 +193,16 @@ export async function queryRows(
           )
       )`
     : sql`TRUE`
-  const denied = sql`NOT EXISTS (
-    SELECT 1 FROM permission_grants g
-    WHERE g.subject_type = ${input.subjectType}
-      AND g.subject_id = ${input.subjectId}::uuid
-      AND g.resource_type = 'row'
-      AND g.resource_id = r.id
-      AND g.action = 'view'
-      AND g.effect = 'deny'
-  )`
+  const denied = rowViewDenied(input.subjectType, input.subjectId)
   const order = sortColumn
     ? sql`${sortSql(sortColumn)} ${sql.raw(input.sort?.direction === 'desc' ? 'DESC' : 'ASC')} NULLS LAST, r.position ASC, r.id ASC`
     : sql`r.position ASC, r.id ASC`
   const join = sortColumn
     ? sql`LEFT JOIN table_cells sc ON sc.row_id = r.id AND sc.column_id = ${sortColumn.id}::uuid`
     : sql``
-  const rows = await many<{ id: string; position: string; version: number; color: string | null; notes: string | null; row_number: number | null; sort_value: string | null }>(
+  const rows = await many<{ id: string; position: string; version: number; color: string | null; row_number: number | null; sort_value: string | null }>(
     db,
-    sql`SELECT r.id, r.position, r.version::int AS version, r.color, r.notes, r.row_number::int AS row_number, ${sortColumn ? sortSql(sortColumn) : sql`NULL`} AS sort_value
+    sql`SELECT r.id, r.position, r.version::int AS version, r.color, r.row_number::int AS row_number, ${sortColumn ? sortSql(sortColumn) : sql`NULL`} AS sort_value
         FROM table_rows r
         ${join}
         WHERE r.table_id = ${input.tableId}::uuid
@@ -239,7 +231,7 @@ export async function queryRows(
       position: String(row.position),
       version: Number(row.version),
       color: row.color == null ? null : String(row.color),
-      notes: row.notes == null ? '' : String(row.notes),
+      notes: '',
       rowNumber: Number(row.row_number ?? 0),
     })),
     nextCursor,
@@ -250,69 +242,242 @@ function searchValue(value: string | null | undefined) {
   return value?.trim() ?? ''
 }
 
-export async function footerFor(
+function rowViewDenied(subjectType: string, subjectId: string): SQL {
+  return sql`NOT EXISTS (
+    SELECT 1 FROM permission_grants g
+    WHERE g.subject_type = ${subjectType}
+      AND g.subject_id = ${subjectId}::uuid
+      AND g.resource_type = 'row'
+      AND g.resource_id = r.id
+      AND g.action = 'view'
+      AND g.effect = 'deny'
+  )`
+}
+
+type FooterStatRow = {
+  column_id: string
+  count: number | string
+  num_filled: number | string | null
+  num_sum: number | string | null
+  num_avg: number | string | null
+  num_min: number | string | null
+  num_max: number | string | null
+  num_median: number | string | null
+  num_unique: number | string | null
+  bool_filled: number | string | null
+  bool_unique: number | string | null
+  bool_min: string | null
+  bool_max: string | null
+  text_filled: number | string | null
+  text_unique: number | string | null
+  text_min: string | null
+  text_max: string | null
+  json_filled: number | string | null
+  json_unique: number | string | null
+  json_min: string | null
+  json_max: string | null
+  range_filled: number | string | null
+  range_unique: number | string | null
+  range_min: string | null
+  range_max: string | null
+  datetime_filled: number | string | null
+  datetime_unique: number | string | null
+  datetime_min: string | null
+  datetime_max: string | null
+}
+
+function uuidList(ids: string[]) {
+  return sql`ARRAY[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`
+}
+
+function footerKind(column: ColumnShape) {
+  if (column.type === 'number' || column.type === 'currency') return 'num' as const
+  if (column.type === 'checkbox') return 'bool' as const
+  if (column.type === 'tags' || column.type === 'user' || column.type === 'status') return 'json' as const
+  if ((column.type === 'date' || column.type === 'datetime') && column.config.range) return 'range' as const
+  if ((column.type === 'date' || column.type === 'datetime') && dateColumnIncludesTime(column)) return 'datetime' as const
+  return 'text' as const
+}
+
+function footerColumnStats(column: ColumnShape, row: FooterStatRow | undefined, count: number) {
+  const kind = footerKind(column)
+  const filled = Number(
+    (kind === 'num' ? row?.num_filled : kind === 'bool' ? row?.bool_filled : kind === 'json' ? row?.json_filled : kind === 'range' ? row?.range_filled : kind === 'datetime' ? row?.datetime_filled : row?.text_filled) ?? 0,
+  )
+  const unique = Number(
+    (kind === 'num' ? row?.num_unique : kind === 'bool' ? row?.bool_unique : kind === 'json' ? row?.json_unique : kind === 'range' ? row?.range_unique : kind === 'datetime' ? row?.datetime_unique : row?.text_unique) ?? 0,
+  )
+  const min = kind === 'num' ? row?.num_min : kind === 'bool' ? row?.bool_min : kind === 'json' ? row?.json_min : kind === 'range' ? row?.range_min : kind === 'datetime' ? row?.datetime_min : row?.text_min
+  const max = kind === 'num' ? row?.num_max : kind === 'bool' ? row?.bool_max : kind === 'json' ? row?.json_max : kind === 'range' ? row?.range_max : kind === 'datetime' ? row?.datetime_max : row?.text_max
+  const numeric = kind === 'num'
+  return {
+    count,
+    filled,
+    empty: count - filled,
+    unique,
+    sum: numeric && row?.num_sum != null ? Number(row.num_sum) : null,
+    avg: numeric && row?.num_avg != null ? Number(row.num_avg) : null,
+    median: numeric && row?.num_median != null ? Number(row.num_median) : null,
+    min: min == null ? null : numeric ? Number(min) : min,
+    max: max == null ? null : numeric ? Number(max) : max,
+  }
+}
+
+export async function footerColumns(
   db: AppDatabase,
   input: {
     tableId: string
-    column: ColumnShape
+    columns: ColumnShape[]
+    catalog: ColumnShape[]
+    subjectType: string
+    subjectId: string
+    filter?: FilterNode | null
+  },
+) {
+  const result: Record<string, ReturnType<typeof footerColumnStats>> = {}
+  if (input.columns.length === 0) return result
+  const catalog = new Map(input.catalog.map((column) => [column.id, column]))
+  const filter = compileFilter(input.filter, catalog)
+  const denied = rowViewDenied(input.subjectType, input.subjectId)
+  const ids = uuidList(input.columns.map((column) => column.id))
+  const rows = await many<FooterStatRow>(
+    db,
+    sql`WITH filtered AS (
+          SELECT r.id
+          FROM table_rows r
+          WHERE r.table_id = ${input.tableId}::uuid
+            AND ${filter}
+            AND ${denied}
+        ),
+        cols AS (
+          SELECT u.column_id FROM unnest(${ids}) AS u(column_id)
+        ),
+        stats AS (
+          SELECT
+            c.column_id,
+            count(c.value_number)::int AS num_filled,
+            sum(c.value_number) AS num_sum,
+            avg(c.value_number) AS num_avg,
+            min(c.value_number) AS num_min,
+            max(c.value_number) AS num_max,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY c.value_number) AS num_median,
+            count(DISTINCT c.value_number)::int AS num_unique,
+            count(c.value_bool)::int AS bool_filled,
+            count(DISTINCT c.value_bool::text)::int AS bool_unique,
+            min(c.value_bool::text) AS bool_min,
+            max(c.value_bool::text) AS bool_max,
+            count(c.value_text)::int AS text_filled,
+            count(DISTINCT c.value_text)::int AS text_unique,
+            min(c.value_text) AS text_min,
+            max(c.value_text) AS text_max,
+            count(c.value_jsonb)::int AS json_filled,
+            count(DISTINCT c.value_jsonb::text)::int AS json_unique,
+            min(c.value_jsonb::text) AS json_min,
+            max(c.value_jsonb::text) AS json_max,
+            count(c.value_jsonb->>'from')::int AS range_filled,
+            count(DISTINCT c.value_jsonb->>'from')::int AS range_unique,
+            min(c.value_jsonb->>'from') AS range_min,
+            max(c.value_jsonb->>'from') AS range_max,
+            count(COALESCE(c.value_timestamptz::text, c.value_text))::int AS datetime_filled,
+            count(DISTINCT COALESCE(c.value_timestamptz::text, c.value_text))::int AS datetime_unique,
+            min(COALESCE(c.value_timestamptz::text, c.value_text)) AS datetime_min,
+            max(COALESCE(c.value_timestamptz::text, c.value_text)) AS datetime_max
+          FROM filtered f
+          INNER JOIN table_cells c ON c.row_id = f.id AND c.column_id IN (SELECT column_id FROM cols)
+          GROUP BY c.column_id
+        )
+        SELECT
+          cols.column_id,
+          rc.count,
+          stats.num_filled, stats.num_sum, stats.num_avg, stats.num_min, stats.num_max, stats.num_median, stats.num_unique,
+          stats.bool_filled, stats.bool_unique, stats.bool_min, stats.bool_max,
+          stats.text_filled, stats.text_unique, stats.text_min, stats.text_max,
+          stats.json_filled, stats.json_unique, stats.json_min, stats.json_max,
+          stats.range_filled, stats.range_unique, stats.range_min, stats.range_max,
+          stats.datetime_filled, stats.datetime_unique, stats.datetime_min, stats.datetime_max
+        FROM cols
+        CROSS JOIN (SELECT count(*)::int AS count FROM filtered) rc
+        LEFT JOIN stats ON stats.column_id = cols.column_id`,
+  )
+  const byId = new Map(rows.map((row) => [String(row.column_id), row]))
+  const count = Number(rows[0]?.count ?? 0)
+  for (const column of input.columns) result[column.id] = footerColumnStats(column, byId.get(column.id), count)
+  return result
+}
+
+function dimensionFrom(column: ColumnShape): { from: SQL; key: SQL } {
+  const cell = sql`LEFT JOIN table_cells dim ON dim.row_id = f.id AND dim.column_id = ${column.id}::uuid`
+  if (column.type === 'tags') {
+    return {
+      from: sql`${cell} LEFT JOIN LATERAL jsonb_array_elements_text(COALESCE(dim.value_jsonb->'tagIds', '[]'::jsonb)) AS dim_key(k) ON TRUE`,
+      key: sql`COALESCE(dim_key.k, '')`,
+    }
+  }
+  if (selectColumnMultiple(column)) {
+    return {
+      from: sql`${cell} LEFT JOIN LATERAL jsonb_array_elements_text(COALESCE(dim.value_jsonb->'optionIds', '[]'::jsonb)) AS dim_key(k) ON TRUE`,
+      key: sql`COALESCE(dim_key.k, '')`,
+    }
+  }
+  if (column.type === 'status') return { from: cell, key: sql`COALESCE(dim.value_jsonb->>'statusId', '')` }
+  if (column.type === 'select' || column.type === 'radio') return { from: cell, key: sql`COALESCE(dim.value_jsonb->>'optionId', '')` }
+  return { from: cell, key: sql`COALESCE(NULLIF(btrim(dim.value_text), ''), '')` }
+}
+
+export async function groupSummary(
+  db: AppDatabase,
+  input: {
+    tableId: string
+    dimension: ColumnShape
+    values: ColumnShape[]
     columns: ColumnShape[]
     subjectType: string
     subjectId: string
     filter?: FilterNode | null
   },
 ) {
-  const columns = new Map(input.columns.map((column) => [column.id, column]))
-  const filter = compileFilter(input.filter, columns)
-  const numeric = input.column.type === 'number' || input.column.type === 'currency'
-  const field = numeric
-    ? sql`c.value_number`
-    : input.column.type === 'tags' || input.column.type === 'user' || input.column.type === 'status'
-      ? sql`c.value_jsonb::text`
-      : input.column.type === 'checkbox'
-        ? sql`c.value_bool::text`
-        : input.column.type === 'datetime' || input.column.type === 'date'
-          ? input.column.config.range
-            ? sql`c.value_jsonb->>'from'`
-            : dateColumnIncludesTime(input.column)
-              ? sql`COALESCE(c.value_timestamptz::text, c.value_text)`
-              : sql`c.value_text`
-          : sql`c.value_text`
-  const [row] = await many<{ count: number; filled: number; sum: string | null; avg: string | null; min: string | null; max: string | null; median: string | null; unique: number }>(
+  if (!isChartDimensionType(input.dimension.type)) throw badRequest('That column cannot group a chart')
+  const catalog = new Map(input.columns.map((column) => [column.id, column]))
+  const filter = compileFilter(input.filter, catalog)
+  const denied = rowViewDenied(input.subjectType, input.subjectId)
+  const dimension = dimensionFrom(input.dimension)
+  const values = input.values.filter((column) => column.type === 'number' || column.type === 'currency').slice(0, 12)
+  const joins = values.length
+    ? sql.join(
+        values.map((column, index) => {
+          const alias = sql.raw(`v${index}`)
+          return sql`LEFT JOIN table_cells ${alias} ON ${alias}.row_id = f.id AND ${alias}.column_id = ${column.id}::uuid`
+        }),
+        sql` `,
+      )
+    : sql``
+  const sums = values.length
+    ? sql`, ${sql.join(
+        values.map((_, index) => {
+          const alias = sql.raw(`v${index}`)
+          return sql`coalesce(sum(${alias}.value_number), 0) AS ${sql.raw(`sum_${index}`)}`
+        }),
+        sql`, `,
+      )}`
+    : sql``
+  const rows = await many<Record<string, unknown>>(
     db,
-    sql`SELECT
-          count(*)::int AS count,
-          count(${field})::int AS filled,
-          ${numeric ? sql`sum(${field})` : sql`NULL`} AS sum,
-          ${numeric ? sql`avg(${field})` : sql`NULL`} AS avg,
-          min(${field}) AS min,
-          max(${field}) AS max,
-          ${numeric ? sql`percentile_cont(0.5) WITHIN GROUP (ORDER BY ${field})` : sql`NULL`} AS median,
-          count(DISTINCT ${field})::int AS unique
-        FROM table_rows r
-        LEFT JOIN table_cells c ON c.row_id = r.id AND c.column_id = ${input.column.id}::uuid
-        WHERE r.table_id = ${input.tableId}::uuid
-          AND ${filter}
-          AND NOT EXISTS (
-            SELECT 1 FROM permission_grants g
-            WHERE g.subject_type = ${input.subjectType}
-              AND g.subject_id = ${input.subjectId}::uuid
-              AND g.resource_type = 'row'
-              AND g.resource_id = r.id
-              AND g.action = 'view'
-              AND g.effect = 'deny'
-          )`,
+    sql`WITH filtered AS (
+          SELECT r.id
+          FROM table_rows r
+          WHERE r.table_id = ${input.tableId}::uuid
+            AND ${filter}
+            AND ${denied}
+        )
+        SELECT ${dimension.key} AS key, count(*)::int AS count ${sums}
+        FROM filtered f
+        ${dimension.from}
+        ${joins}
+        GROUP BY 1`,
   )
-  const count = Number(row?.count ?? 0)
-  const filled = Number(row?.filled ?? 0)
-  return {
-    count,
-    filled,
-    empty: count - filled,
-    unique: Number(row?.unique ?? 0),
-    sum: row?.sum == null ? null : Number(row.sum),
-    avg: row?.avg == null ? null : Number(row.avg),
-    median: row?.median == null ? null : Number(row.median),
-    min: row?.min == null ? null : numeric ? Number(row.min) : row.min,
-    max: row?.max == null ? null : numeric ? Number(row.max) : row.max,
-  }
+  return rows.map((row) => ({
+    key: row.key == null ? '' : String(row.key),
+    count: Number(row.count ?? 0),
+    sums: Object.fromEntries(values.map((column, index) => [column.id, Number(row[`sum_${index}`] ?? 0)])),
+  }))
 }
