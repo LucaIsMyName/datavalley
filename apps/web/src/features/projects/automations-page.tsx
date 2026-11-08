@@ -92,7 +92,7 @@ export function AutomationsPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:p-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:p-6 border-t border-border">
       <div className="flex flex-wrap items-center gap-3">
         <Checkbox
           id="builtin-stage"
