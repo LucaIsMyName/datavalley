@@ -53,6 +53,32 @@ describe('field history, duplicates, and the pipeline view', () => {
     )
     expect(stageChange).toMatchObject({ actorName: 'ada', before: 'Qualified', after: 'Won' })
 
+    const peopleTable = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}` })
+    const peopleRows = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const person = (peopleRows.json().rows as { id: string; version: number }[])[0]
+    const nameColumn = (peopleTable.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Name')
+    let version = person.version
+    for (const value of ['J', 'Jo', 'John']) {
+      const typed = await session.inject({
+        method: 'PATCH',
+        url: `/api/v1/rows/${person.id}`,
+        payload: { version, cells: { [nameColumn?.id ?? '']: value } },
+      })
+      expect(typed.statusCode).toBe(200)
+      version = typed.json().row.version as number
+    }
+    const personHistory = await session.inject({ method: 'GET', url: `/api/v1/rows/${person.id}/history` })
+    const nameChanges = (personHistory.json().entries as { columnName: string; before: string; after: string }[]).filter(
+      (entry) => entry.columnName === 'Name',
+    )
+    expect(nameChanges).toEqual([{ columnName: 'Name', before: 'Ada Lovelace', after: 'John' }].map((entry) => expect.objectContaining(entry)))
+    const restored = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${person.id}`,
+      payload: { version, cells: { [nameColumn?.id ?? '']: 'Ada Lovelace' } },
+    })
+    expect(restored.statusCode).toBe(200)
+
     const views = await session.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}/views` })
     const pipeline = (views.json().views as { name: string; definition: { display: { mode: string; chart: { count: boolean } } } }[]).find(
       (view) => view.name === 'Pipeline',

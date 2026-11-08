@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { ResourceIcon } from '../../components/resource-icon'
 import { SavedRowTitle } from '../../components/saved-row-title'
+import { Badge } from '../../components/ui/badge'
 import { Card } from '../../components/ui/card'
 import { EmptyState, ErrorState, LoadingBlock, Page } from '../../components/states'
 import { ProjectCard, sortProjectsByLastEdited } from '../projects/project-card'
@@ -132,23 +133,43 @@ export function DashboardPage() {
           <p className="text-sm text-muted-foreground">{t('myWorkEmpty')}</p>
         ) : null}
         {work.data && work.data.tasks.length > 0 ? (
-          <ul className="min-w-0">
-            {work.data.tasks.map((task) => (
-              <li key={task.rowId} className="border-t border-border">
-                <Link
-                  to={task.href}
-                  className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                >
-                  <span className="min-w-0 truncate font-medium">{task.title}</span>
-                  <span className="min-w-0 truncate text-sm text-muted-foreground">
-                    {task.overdue ? t('myWorkOverdue') : t('myWorkDue')} {formatDue(task.due)}
-                    {' · '}
-                    {task.projectName}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="min-w-0 overflow-auto border border-border">
+            <table className="table-grid w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className="h-10 px-2 text-left font-medium">{t('myWorkTitle')}</th>
+                  <th className="h-10 px-2 text-left font-medium">{t('myWorkDate')}</th>
+                  <th className="h-10 px-2 text-left font-medium">{t('myWorkDue')}</th>
+                  <th className="h-10 px-2 text-left font-medium">{t('myWorkProject')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {work.data.tasks.map((task) => (
+                  <tr key={task.rowId} className="border-t border-border">
+                    <td className="h-11 max-w-0 px-2">
+                      <Link to={task.href} className="block truncate font-medium text-primary hover:underline">
+                        {task.title}
+                      </Link>
+                    </td>
+                    <td className="h-11 whitespace-nowrap px-2">{formatDue(task.due)}</td>
+                    <td className="h-11 px-2">
+                      <Badge color={task.overdue ? 'red' : 'blue'}>
+                        {task.overdue ? t('myWorkOverdue') : t('myWorkDue')}
+                      </Badge>
+                    </td>
+                    <td className="h-11 max-w-0 px-2">
+                      <Link
+                        to={`/projects/${task.projectId}/tables/${task.tableId}`}
+                        className="block truncate text-primary hover:underline"
+                      >
+                        {task.projectName}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </section>
       {projects.isLoading && !projects.data ? <LoadingBlock variant="cards" /> : null}

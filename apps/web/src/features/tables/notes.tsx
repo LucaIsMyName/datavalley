@@ -1,9 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useQueryClient } from '@tanstack/react-query'
 import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-client'
-import { MoreHorizontal, Plus } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -20,7 +18,6 @@ import type { TableReadOnlyReason } from './table-read-only'
 import { useRowCellEdit } from './use-row-cell-edit'
 import {
   applyBlockShortcutOnInput,
-  emptyParagraphBlock,
   insertBlock,
   newBlockId,
   nextBlockType,
@@ -121,9 +118,6 @@ function BlockTag({
   }
   return null
 }
-
-const gutterControlClass =
-  'inline-flex size-8 shrink-0 items-center justify-center text-muted-foreground opacity-0 pointer-events-none hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary group-hover/row:pointer-events-auto group-hover/row:opacity-100 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100'
 
 function activateBlock(readOnly: boolean, onActivate: () => void) {
   if (readOnly) return
@@ -243,7 +237,24 @@ export function NotesBlockEditor({
   const { t } = useTranslation()
   const [blocks, setBlocks] = useState(() => parseNotes(markdown))
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ blockId: string; x: number; y: number } | null>(null)
   const blocksRef = useRef(blocks)
+  useEffect(() => {
+    if (!menu) return
+    function close(event: Event) {
+      if (isNotesBlockMenuTarget(event.target)) return
+      setMenu(null)
+    }
+    function onKey(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
   blocksRef.current = blocks
   const editingRef = useRef(false)
   const emittedRef = useRef(markdown)
@@ -311,10 +322,12 @@ export function NotesBlockEditor({
     }
   }
 
-  function insertAt(index: number) {
-    const created = emptyParagraphBlock()
-    commit(insertBlock(blocksRef.current, index, created))
-    setActiveId(created.id)
+  function openMenu(blockId: string, event: MouseEvent) {
+    if (readOnly) return
+    event.preventDefault()
+    const left = Math.min(event.clientX, window.innerWidth - 192)
+    const top = Math.min(event.clientY, window.innerHeight - 280)
+    setMenu({ blockId, x: Math.max(8, left), y: Math.max(8, top) })
   }
 
   function turnInto(id: string, target: TurnIntoType) {
@@ -342,52 +355,11 @@ export function NotesBlockEditor({
       }}
     >
       {blocks.map((block, index) => (
-        <div key={block.id} className="group/row flex items-start gap-0.5 py-0.5">
-          {!readOnly ? (
-            <>
-              <button
-                type="button"
-                aria-label={t('notesInsertBlock')}
-                className={gutterControlClass}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => insertAt(index)}
-              >
-                <Plus className="size-3.5" />
-              </button>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t('notesBlockMenu')}
-                    className={gutterControlClass}
-                    onMouseDown={(event) => event.preventDefault()}
-                  >
-                    <MoreHorizontal className="size-3.5" />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    data-notes-block-menu=""
-                    className="z-[60] max-h-80 min-w-44 overflow-auto border border-border bg-card p-1 shadow-md"
-                    align="start"
-                    sideOffset={4}
-                  >
-                    {TURN_INTO_OPTIONS.map((option) => (
-                      <DropdownMenu.Item
-                        key={option.labelKey}
-                        className="cursor-pointer px-2 py-1.5 text-sm outline-none hover:bg-accent"
-                        onSelect={() => turnInto(block.id, option.type)}
-                      >
-                        {t(option.labelKey)}
-                      </DropdownMenu.Item>
-                    ))}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </>
-          ) : (
-            <span className="inline-flex size-6 shrink-0" aria-hidden />
-          )}
+        <div
+          key={block.id}
+          className="group/row flex items-start gap-0.5 py-0.5"
+          onContextMenu={(event) => openMenu(block.id, event)}
+        >
             <BlockTag
               block={block}
               number={blocks.slice(0, index + 1).filter((item) => item.type === 'numbered').length}
@@ -410,17 +382,26 @@ export function NotesBlockEditor({
             />
         </div>
       ))}
-      {!readOnly ? (
-        <div className="group/row flex h-8 items-center">
-          <button
-            type="button"
-            aria-label={t('notesInsertBlock')}
-            className={gutterControlClass}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => insertAt(blocks.length)}
-          >
-            <Plus className="size-3.5" />
-          </button>
+      {menu && !readOnly ? (
+        <div
+          data-notes-block-menu=""
+          className="fixed z-[60] max-h-80 min-w-44 overflow-auto border border-border bg-card p-1 shadow-md"
+          style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {TURN_INTO_OPTIONS.map((option) => (
+            <button
+              key={option.labelKey}
+              type="button"
+              className="flex min-h-9 w-full items-center px-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                turnInto(menu.blockId, option.type)
+                setMenu(null)
+              }}
+            >
+              {t(option.labelKey)}
+            </button>
+          ))}
         </div>
       ) : null}
     </div>

@@ -58,7 +58,6 @@ export function RecordPrivacy({
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-medium">{t('privacy')}</h2>
       <p className="text-sm text-muted-foreground">{t('privacyHint')}</p>
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={() => void download()}>

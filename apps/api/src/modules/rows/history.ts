@@ -96,6 +96,45 @@ export async function recordCellHistory(
   await db.insert(fieldHistory).values(rows)
 }
 
+const HISTORY_RAW_LIMIT = 300
+const HISTORY_GROUP_LIMIT = 30
+const HISTORY_BURST_MS = 5000
+
+type HistoryEntry = {
+  id: string
+  columnId: string
+  columnName: string
+  actorId: string | null
+  actorName: string | null
+  before: string
+  after: string
+  createdAt: Date
+}
+
+export function collapseFieldHistory(entries: HistoryEntry[]) {
+  const chronological = [...entries].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+  const open = new Map<string, HistoryEntry & { lastAt: number }>()
+  const closed: HistoryEntry[] = []
+  for (const entry of chronological) {
+    const key = `${entry.columnId}:${entry.actorId ?? ''}`
+    const current = open.get(key)
+    if (current && entry.createdAt.getTime() - current.lastAt <= HISTORY_BURST_MS) {
+      current.after = entry.after
+      current.lastAt = entry.createdAt.getTime()
+      current.createdAt = entry.createdAt
+      current.id = entry.id
+      continue
+    }
+    if (current) closed.push(current)
+    open.set(key, { ...entry, lastAt: entry.createdAt.getTime() })
+  }
+  for (const current of open.values()) closed.push(current)
+  return closed
+    .filter((entry) => entry.before !== entry.after)
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .slice(0, HISTORY_GROUP_LIMIT)
+}
+
 export async function listFieldHistory(db: AppDatabase, subject: Subject, rowId: string) {
   const [row] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
   if (!row) throw notFound()
@@ -109,6 +148,7 @@ export async function listFieldHistory(db: AppDatabase, subject: Subject, rowId:
       id: fieldHistory.id,
       columnId: fieldHistory.columnId,
       columnName: tableColumns.name,
+      actorId: fieldHistory.actorId,
       actorName: users.username,
       before: fieldHistory.beforeText,
       after: fieldHistory.afterText,
@@ -119,8 +159,8 @@ export async function listFieldHistory(db: AppDatabase, subject: Subject, rowId:
     .leftJoin(users, eq(users.id, fieldHistory.actorId))
     .where(and(eq(fieldHistory.rowId, row.id), eq(fieldHistory.tableId, table.id)))
     .orderBy(desc(fieldHistory.createdAt))
-    .limit(30)
-  return entries.map((entry) => ({
+    .limit(HISTORY_RAW_LIMIT)
+  return collapseFieldHistory(entries).map((entry) => ({
     id: entry.id,
     columnId: entry.columnId,
     columnName: entry.columnName,

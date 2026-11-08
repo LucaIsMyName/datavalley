@@ -62,6 +62,9 @@ describe('DashboardPage', () => {
             myWorkEmpty: 'Nothing due today',
             myWorkOverdue: 'Overdue',
             myWorkDue: 'Due',
+            myWorkTitle: 'Title',
+            myWorkDate: 'Date',
+            myWorkProject: 'Project',
             emptyProjects: 'No projects yet',
             emptyProjectsBody: 'Create a project to start collecting records.',
             emptyProjectsBodyViewer: 'Ask an admin to create a project.',
@@ -170,12 +173,15 @@ describe('DashboardPage', () => {
 
     const { host, root } = renderDashboard(queryClient)
     await act(async () => {})
+    expect(host.textContent).toContain('Title')
+    expect(host.textContent).toContain('Date')
+    expect(host.textContent).toContain('Due')
+    expect(host.textContent).toContain('Project')
     expect(host.textContent).toContain('Follow up')
     expect(host.textContent).toContain('Overdue')
     expect(host.textContent).toContain('Pipeline')
-    const link = host.querySelector('a[href="/projects/p1/tables/t1/rows/r1"]')
-    expect(link?.className).toContain('flex-col')
-    expect(link?.className).toContain('sm:flex-row')
+    expect(host.querySelector('a[href="/projects/p1/tables/t1/rows/r1"]')?.textContent).toContain('Follow up')
+    expect(host.querySelector('a[href="/projects/p1/tables/t1"]')?.textContent).toContain('Pipeline')
     await act(async () => root.unmount())
     host.remove()
   })

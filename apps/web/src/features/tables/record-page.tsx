@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MediaFile, RowRecord, TableRecord } from '@datavalley/api-client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
 import { ChevronRightIcon } from 'lucide-react'
@@ -42,6 +42,30 @@ type RecordCache = {
   pages: { rows: RowRecord[]; nextCursor: string | null }[]
   pageParams: unknown[]
   links: RecordLink[]
+}
+
+function RecordAccordion({ sections }: { sections: { id: string; label: string; body: ReactNode }[] }) {
+  const [open, setOpen] = useState<string | null>('notes')
+  return (
+    <div className="flex flex-col border border-border">
+      {sections.map((section) => {
+        const expanded = open === section.id
+        return (
+          <div key={section.id} className="border-t border-border first:border-t-0">
+            <button
+              type="button"
+              className="flex h-11 w-full items-center px-3 text-left text-sm font-medium"
+              aria-expanded={expanded}
+              onClick={() => setOpen(expanded ? null : section.id)}
+            >
+              {section.label}
+            </button>
+            {expanded ? <div className="flex flex-col gap-2 px-3 pb-3">{section.body}</div> : null}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function recordTitle(table: TableRecord | undefined, row: RowRecord | undefined) {
@@ -268,38 +292,66 @@ export function RecordPage() {
           <p className="text-sm text-muted-foreground">{t('linkedRecordsEmpty')}</p>
         )}
       </section>
-      <RecordMail rowId={row.id} readOnly={readOnly} />
-      <RecordPrivacy projectId={projectId} tableId={tableId} rowId={row.id} title={title} />
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium">{t('fieldHistory')}</h2>
-        {history.isLoading && !history.data ? <LoadingBlock variant="rows" /> : null}
-        {history.data && history.data.entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('fieldHistoryEmpty')}</p>
-        ) : null}
-        {history.data && history.data.entries.length > 0 ? (
-          <ul className="flex flex-col">
-            {history.data.entries.map((entry) => (
-              <li key={entry.id} className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 border-t border-border py-2 text-sm">
-                <span className="min-w-0 truncate">
-                  <span className="font-medium">{entry.actorName ?? t('fieldHistorySomeone')}</span>
-                  {' · '}
-                  {entry.columnName}
-                </span>
-                <span className="min-w-0 truncate text-muted-foreground">
-                  {entry.before || t('empty')}
-                  {' → '}
-                  {entry.after || t('empty')}
-                  {' · '}
-                  {new Date(entry.createdAt).toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
-      <section className="flex min-h-40 flex-col gap-2">
-        <h2 className="text-sm font-medium">{t('notes')}</h2>
-        <NotesBlockEditor
+      <RecordAccordion
+        sections={[
+          { id: 'mail', label: t('mail'), body: <RecordMail rowId={row.id} readOnly={readOnly} /> },
+          {
+            id: 'privacy',
+            label: t('privacy'),
+            body: <RecordPrivacy projectId={projectId} tableId={tableId} rowId={row.id} title={title} />,
+          },
+          {
+            id: 'history',
+            label: t('fieldHistory'),
+            body: (
+              <>
+                {history.isLoading && !history.data ? <LoadingBlock variant="rows" /> : null}
+                {history.data && history.data.entries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t('fieldHistoryEmpty')}</p>
+                ) : null}
+                {history.data && history.data.entries.length > 0 ? (
+                  <div className="min-w-0 overflow-auto border border-border">
+                    <table className="table-grid w-full border-collapse text-sm">
+                      <thead>
+                        <tr>
+                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryUser')}</th>
+                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryColumn')}</th>
+                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryStart')}</th>
+                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryEnd')}</th>
+                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryWhen')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {history.data.entries.map((entry) => (
+                          <tr key={entry.id} className="border-t border-border">
+                            <td className="h-11 max-w-0 px-2">
+                              <span className="block truncate">{entry.actorName ?? t('fieldHistorySomeone')}</span>
+                            </td>
+                            <td className="h-11 max-w-0 px-2">
+                              <span className="block truncate">{entry.columnName}</span>
+                            </td>
+                            <td className="h-11 max-w-0 px-2">
+                              <span className="block truncate">{entry.before || t('empty')}</span>
+                            </td>
+                            <td className="h-11 max-w-0 px-2">
+                              <span className="block truncate">{entry.after || t('empty')}</span>
+                            </td>
+                            <td className="h-11 whitespace-nowrap px-2">{new Date(entry.createdAt).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </>
+            ),
+          },
+          {
+            id: 'notes',
+            label: t('notes'),
+            body: (
+              <div className="flex min-h-40 flex-col">
+                <NotesBlockEditor
           rowId={row.id}
           markdown={notes}
           readOnly={readOnly}
@@ -323,8 +375,12 @@ export function RecordPage() {
               reportPresence({ focus: null, editing: false, draft: null })
             })
           }}
-        />
-      </section>
+                />
+              </div>
+            ),
+          },
+        ]}
+      />
       <input
         ref={uploadRef}
         type="file"

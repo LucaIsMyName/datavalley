@@ -39,7 +39,6 @@ export function RecordMail({ rowId, readOnly }: { rowId: string; readOnly: boole
   })
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-medium">{t('mail')}</h2>
       {mail.isLoading && !mail.data ? <LoadingBlock variant="rows" /> : null}
       {mail.data && mail.data.messages.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('mailLogEmpty')}</p>

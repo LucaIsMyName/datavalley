@@ -168,7 +168,7 @@ function GridBodyRowView({
           <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-primary" />
         ) : null}
         <div
-          className="flex h-9 items-center gap-1 px-1"
+          className="flex h-9 items-center gap-1 px-1 border-r border-border"
           onContextMenu={(event) => api.openRowMenu(event, row)}
           onPointerDown={(event) => {
             if (event.pointerType === 'mouse') return
