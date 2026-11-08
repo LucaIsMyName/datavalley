@@ -4,7 +4,7 @@ import { showEditError } from './grid-edit'
 import { type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
-import { patchCachedTable } from './cache'
+import { invalidateRowTitles, patchCachedTable } from './cache'
 import {
   dateColumnIncludesTime,
   migrateDateCell,
@@ -303,6 +303,7 @@ export function useColumnCommands(scope: Scope) {
         body: JSON.stringify({ headerConfig: header }),
       })
       patchCachedTable(queryClient, tableId, (current) => ({ ...current, headerConfig: result.table.headerConfig }))
+      await invalidateRowTitles(queryClient, tableId)
     } catch (error) {
       const message = editFailureMessage(error, t('error'))
       if (message) showEditError(message)

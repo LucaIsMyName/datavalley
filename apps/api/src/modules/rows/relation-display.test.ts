@@ -138,6 +138,16 @@ describe('relation display titles', () => {
     const labels = linked.json().rows as { id: string; relationLabels: Record<string, { title: string }> }[]
     expect(labels.find((row) => row.id === first.json().row.id)?.relationLabels[linkId]?.title).toBe('NW')
 
+    const renamed = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${companiesId}`,
+      payload: { headerConfig: { mainColumnId: companyNameId } },
+    })
+    expect(renamed.statusCode).toBe(200)
+    const retitled = await session.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}/rows` })
+    const nextLabels = retitled.json().rows as { id: string; relationLabels: Record<string, { title: string }> }[]
+    expect(nextLabels.find((row) => row.id === first.json().row.id)?.relationLabels[linkId]?.title).toBe('Northwind')
+
     const rejected = await session.inject({
       method: 'POST',
       url: `/api/v1/columns/${linkId}/relation`,
@@ -156,6 +166,12 @@ describe('relation display titles', () => {
     expect(dealRows.find((row) => row.id === first.json().row.id)?.cells[linkId] ?? null).toBeNull()
     expect(dealRows.find((row) => row.id === second.json().row.id)?.cells[linkId] ?? null).toBeNull()
 
+    const restored = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/tables/${companiesId}`,
+      payload: { headerConfig: { mainColumnId: codeId } },
+    })
+    expect(restored.statusCode).toBe(200)
     const removed = await session.inject({ method: 'DELETE', url: `/api/v1/columns/${codeId}` })
     expect(removed.statusCode).toBe(200)
     const afterDelete = await session.inject({ method: 'GET', url: `/api/v1/tables/${companiesId}` })

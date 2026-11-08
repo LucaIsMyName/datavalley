@@ -118,4 +118,20 @@ describe('remote row apply', () => {
     expect(invalidate).toHaveBeenCalled()
     vi.useRealTimers()
   })
+
+  it('refreshes relation titles when a table changes', async () => {
+    const client = new QueryClient()
+    client.setQueryData(['rows', 'companies', 'link'], { rows: [] })
+    client.setQueryData(['rows', 'deals', '', null, ''], { pages: [], pageParams: [] })
+    client.setQueryData(['footer', 'deals'], { footer: { sum: 1 } })
+    applyRealtimeEvent(
+      client,
+      { id: '1', type: 'tables.changed', actorId: 'me', projectId: 'p1', tableId: 'companies' },
+      'me',
+    )
+    await Promise.resolve()
+    expect(client.getQueryState(['rows', 'companies', 'link'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['rows', 'deals', '', null, ''])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['footer', 'deals'])?.isInvalidated).toBe(false)
+  })
 })

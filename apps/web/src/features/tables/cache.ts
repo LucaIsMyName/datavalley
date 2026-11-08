@@ -42,3 +42,10 @@ export function invalidateOtherRowQueries(queryClient: QueryClient, tableId: str
     predicate: (query) => query.queryKey[1] !== tableId,
   })
 }
+
+export function invalidateRowTitles(queryClient: QueryClient, tableId: string) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['rows', tableId] }),
+    invalidateOtherRowQueries(queryClient, tableId),
+  ])
+}

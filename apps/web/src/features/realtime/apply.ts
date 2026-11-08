@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import type { Project } from '@datavalley/api-client'
 import type { RealtimeEvent, RealtimeRow } from '@datavalley/shared'
-import { invalidateFooter, invalidateOtherRowQueries, mapCachedRows } from '../tables/cache.js'
+import { invalidateFooter, invalidateOtherRowQueries, invalidateRowTitles, mapCachedRows } from '../tables/cache.js'
 import {
   isCellEditing,
   isNotesEditing,
@@ -95,7 +95,10 @@ export function applyRealtimeEvent(queryClient: QueryClient, event: RealtimeEven
   }
   if (event.type === 'tables.changed') {
     void queryClient.invalidateQueries({ queryKey: ['tables', event.projectId] })
-    if (event.tableId) void queryClient.invalidateQueries({ queryKey: ['table', event.tableId] })
+    if (event.tableId) {
+      void queryClient.invalidateQueries({ queryKey: ['table', event.tableId] })
+      void invalidateRowTitles(queryClient, event.tableId)
+    }
     return
   }
   if (event.type === 'row.updated') {

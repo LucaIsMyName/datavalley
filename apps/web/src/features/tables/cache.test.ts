@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import { invalidateFooter, invalidateOtherRowQueries, replaceCachedRows } from './cache.js'
+import { invalidateFooter, invalidateOtherRowQueries, invalidateRowTitles, replaceCachedRows } from './cache.js'
 
 describe('footer cache', () => {
   it('invalidates every footer query for the table and leaves other tables alone', async () => {
@@ -49,6 +49,19 @@ describe('footer cache', () => {
     expect(client.getQueryState(['rows', 'table-1', 'link'])?.isInvalidated).toBe(false)
     expect(client.getQueryState(['rows', 'table-2', '', null, ''])?.isInvalidated).toBe(true)
     expect(client.getQueryState(['rows', 'table-2', 'link'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['footer', 'table-2'])?.isInvalidated).toBe(false)
+  })
+
+  it('refreshes this table and other tables when the main column changes', async () => {
+    const client = new QueryClient()
+    client.setQueryData(['rows', 'table-1', '', null, ''], { pages: [], pageParams: [] })
+    client.setQueryData(['rows', 'table-2', '', null, ''], { pages: [], pageParams: [] })
+    client.setQueryData(['footer', 'table-2'], { footer: { sum: 1 } })
+
+    await invalidateRowTitles(client, 'table-1')
+
+    expect(client.getQueryState(['rows', 'table-1', '', null, ''])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['rows', 'table-2', '', null, ''])?.isInvalidated).toBe(true)
     expect(client.getQueryState(['footer', 'table-2'])?.isInvalidated).toBe(false)
   })
 })
