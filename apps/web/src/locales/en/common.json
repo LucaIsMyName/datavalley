@@ -70,6 +70,8 @@
   "delete": "Delete",
   "archive": "Archive",
   "name": "Name",
+  "prefix": "Prefix",
+  "actions": "Actions",
   "loading": "Loading",
   "error": "Something went wrong",
   "versionConflict": "Someone else saved this row. Your edit was not applied.",

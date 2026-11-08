@@ -417,30 +417,44 @@ export function ApiKeysPage() {
       {keys.data && keys.data.apiKeys.length === 0 ? (
         <EmptyState title={t('emptyApiKeys')} body={t('emptyApiKeys')} />
       ) : null}
-      {keys.data?.apiKeys.map((key) => (
-        <div
-          key={key.id}
-          className="flex flex-col items-start justify-between gap-2 border-b border-border py-3 text-sm sm:flex-row sm:items-center"
-        >
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            <div>{key.name}</div>
-            <code className="rounded-md border border-border px-1 py-0 font-mono text-muted-foreground">
-              {key.prefix}...
-            </code>
-            {key.revokedAt ? <span className="text-muted-foreground">{t('revoked')}</span> : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {key.revokedAt ? null : (
-              <Button variant="outline" onClick={() => setConfirm({ id: key.id, name: key.name, kind: 'revoke' })}>
-                {t('revoke')}
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setConfirm({ id: key.id, name: key.name, kind: 'delete' })}>
-              {t('delete')}
-            </Button>
-          </div>
+      {keys.data && keys.data.apiKeys.length > 0 ? (
+        <div className="min-w-0 overflow-auto border border-border">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="h-10 border-r border-border px-2 text-left font-medium">{t('name')}</th>
+                <th className="h-10 border-r border-border px-2 text-left font-medium">{t('prefix')}</th>
+                <th className="h-10 px-2 text-left font-medium">{t('actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {keys.data.apiKeys.map((key) => (
+                <tr key={key.id} className="border-b border-border last:border-b-0">
+                  <td className="h-11 border-r border-border px-2">
+                    <span className="font-medium">{key.name}</span>
+                    {key.revokedAt ? <span className="ml-2 text-muted-foreground">{t('revoked')}</span> : null}
+                  </td>
+                  <td className="h-11 border-r border-border px-2">
+                    <code className="font-mono text-muted-foreground">{key.prefix}...</code>
+                  </td>
+                  <td className="h-11 px-2">
+                    <div className="flex flex-wrap gap-2">
+                      {key.revokedAt ? null : (
+                        <Button variant="outline" onClick={() => setConfirm({ id: key.id, name: key.name, kind: 'revoke' })}>
+                          {t('revoke')}
+                        </Button>
+                      )}
+                      <Button variant="outline" onClick={() => setConfirm({ id: key.id, name: key.name, kind: 'delete' })}>
+                        {t('delete')}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ))}
+      ) : null}
       <ConfirmDialog
         open={Boolean(confirm)}
         title={confirm?.kind === 'delete' ? t('deleteKeyTitle') : t('revokeKeyTitle')}

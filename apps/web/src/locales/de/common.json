@@ -70,6 +70,8 @@
   "delete": "Löschen",
   "archive": "Archivieren",
   "name": "Name",
+  "prefix": "Präfix",
+  "actions": "Aktionen",
   "loading": "Wird geladen",
   "error": "Etwas ist schiefgelaufen",
   "versionConflict": "Jemand hat diese Zeile gespeichert. Deine Änderung wurde nicht übernommen.",
