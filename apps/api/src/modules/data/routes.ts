@@ -42,6 +42,7 @@ import {
   updateTag,
 } from '../tables/service.js'
 import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
+import { listMyWork } from '../rows/work.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { canonicalizeFormatRules, compileCondition, evaluateStored, fillFormulas, formulaCatalog, formulaDependenciesFor, previewFormula, readCellFormula, saveFormula } from '../formulas/service.js'
 import { requireTable } from '../tables/service.js'
@@ -229,10 +230,18 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     if (!request.subject) throw unauthorized()
     const body = request.body as { cells?: Record<string, unknown>; beforeId?: string; afterId?: string }
     return {
-      row: await createRow(db, request.subject, (request.params as { tableId: string }).tableId, body.cells ?? {}, {
-        beforeId: body.beforeId,
-        afterId: body.afterId,
-      }),
+      row: await createRow(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.cells ?? {},
+        {
+          beforeId: body.beforeId,
+          afterId: body.afterId,
+        },
+        true,
+        env,
+      ),
     }
   })
   app.post('/tables/:tableId/rows/move', { schema: { body: dataSchema.moveRowBody } }, async (request) => {
@@ -247,7 +256,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.patch('/rows/:rowId', { schema: { body: dataSchema.patchRowBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; formats?: Record<string, FormatRule[]>; notes?: string }
-    return { row: await patchRow(db, request.subject, (request.params as { rowId: string }).rowId, body) }
+    return { row: await patchRow(db, request.subject, (request.params as { rowId: string }).rowId, body, env) }
   })
   app.delete('/rows/:rowId', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -257,7 +266,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.patch('/tables/:tableId/cells/bulk', { schema: { body: dataSchema.bulkPatchBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { updates: { rowId: string; version: number; cells: Record<string, unknown> }[] }
-    const rows = await bulkPatch(db, request.subject, (request.params as { tableId: string }).tableId, body.updates)
+    const rows = await bulkPatch(db, request.subject, (request.params as { tableId: string }).tableId, body.updates, env)
     return { rows }
   })
   app.post('/tables/:tableId/rows/bulk-delete', { schema: { body: dataSchema.rowIdsBody } }, async (request) => {
@@ -502,6 +511,10 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.get('/audit', async (request) => {
     if (!request.subject) throw unauthorized()
     return listAudit(db, request.subject, request.query as never)
+  })
+  app.get('/work', async (request) => {
+    if (!request.subject) throw unauthorized()
+    return { tasks: await listMyWork(db, request.subject) }
   })
   app.get('/notifications', async (request) => {
     if (!request.subject?.user) throw unauthorized()

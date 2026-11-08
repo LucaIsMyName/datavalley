@@ -144,7 +144,7 @@ export function RecordPage() {
   const title = recordTitle(table, row)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 md:p-6">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-auto p-3 sm:p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <Link to={`/projects/${projectId}/tables/${tableId}`} className="text-sm text-primary hover:underline">
@@ -216,7 +216,7 @@ export function RecordPage() {
               <li key={`${link.tableId}:${link.rowId}:${link.columnName}`} className="border-t border-border">
                 <Link
                   to={`/projects/${projectId}/tables/${link.tableId}/rows/${link.rowId}`}
-                  className="flex min-h-11 items-center gap-2 text-sm"
+                  className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 py-1.5 text-sm sm:flex-row sm:items-center sm:gap-2"
                 >
                   <span className="text-muted-foreground">{link.columnName || link.tableName}</span>
                   <span className="min-w-0 truncate font-medium">{link.title}</span>

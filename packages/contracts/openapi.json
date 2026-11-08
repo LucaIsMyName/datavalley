@@ -870,6 +870,12 @@
                         "enum": [
                           "customers"
                         ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "crm"
+                        ]
                       }
                     ]
                   }
@@ -3590,6 +3596,25 @@
         }
       }
     },
+    "/rows/{rowId}/record": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "rowId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/rows/{rowId}": {
       "patch": {
         "requestBody": {
@@ -4575,6 +4600,15 @@
       }
     },
     "/audit": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/work": {
       "get": {
         "responses": {
           "200": {

@@ -26,6 +26,7 @@ import type { Subject } from '../../security/subject.js'
 import { loadColumns, type LoadedColumn } from '../tables/service.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { assertTableDataEditable } from '../tables/resolve.js'
+import { notifySyncFailure } from '../rows/notices.js'
 import { fetchConnectorPayload, type ConnectorAuthConfig } from './fetch.js'
 import { connectorApiKey } from './service.js'
 import { generateKeyBetween } from 'fractional-indexing'
@@ -44,6 +45,16 @@ export async function executeConnectorSyncJob(
         .update(connectorSyncJobs)
         .set({ status: 'failed', error: message, finishedAt: new Date() })
         .where(eq(connectorSyncJobs.id, input.syncJobId))
+    }
+    try {
+      await notifySyncFailure(db, env, {
+        connectorId: input.connectorId,
+        tableId: input.tableId,
+        actorUserId: input.actorUserId,
+        message,
+      })
+    } catch {
+      // Keep the original sync error if the notice cannot be stored.
     }
     throw error
   }

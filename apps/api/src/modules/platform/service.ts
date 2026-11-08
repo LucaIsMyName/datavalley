@@ -509,9 +509,24 @@ export async function notify(db: AppDatabase, userId: string, input: { type: str
   await db.insert(notifications).values({ userId, type: input.type, title: input.title, body: input.body ?? '', metadata: input.metadata ?? {} })
 }
 
+function noticeHref(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object') return null
+  const href = (metadata as { href?: unknown }).href
+  if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//')) return null
+  return href
+}
+
 export async function listNotifications(db: AppDatabase, userId: string) {
   const rows = await db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(50)
-  return rows.map((row) => ({ id: row.id, type: row.type, title: row.title, body: row.body, readAt: row.readAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString() }))
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    href: noticeHref(row.metadata),
+    readAt: row.readAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  }))
 }
 
 export async function markNotificationRead(db: AppDatabase, userId: string, id: string) {

@@ -263,7 +263,52 @@ export async function seedCrm(db: AppDatabase, projectId: string, userId: string
     { relationId: dealRelation, fromRowId: dealRow.row.id, toRowId: companyRow.row.id },
     { relationId: personDealRelation, fromRowId: dealRow.row.id, toRowId: personRow.row.id },
   ])
-  return { companies: companies.id, people: people.id, deals: deals.id }
+
+  const tasks = await insertTable(db, projectId, userId, 'Tasks', 'Follow-ups on deals and people')
+  let taskPos: string | null = null
+  const taskName = await insertColumn(db, tasks.id, taskPos, { name: 'Name', type: 'text' })
+  taskPos = taskName.position
+  const assignee = await insertColumn(db, tasks.id, taskPos, { name: 'Assignee', type: 'user' })
+  taskPos = assignee.position
+  const due = await insertColumn(db, tasks.id, taskPos, { name: 'Due', type: 'date' })
+  taskPos = due.position
+  const done = await insertColumn(db, tasks.id, taskPos, { name: 'Done', type: 'checkbox' })
+  taskPos = done.position
+  const taskDeal = await insertColumn(db, tasks.id, taskPos, { name: 'Deal', type: 'relation' })
+  taskPos = taskDeal.position
+  const taskDealRelation = await relate(db, tasks.id, deals.id, taskDeal.column.id)
+  const taskPerson = await insertColumn(db, tasks.id, taskPos, { name: 'Person', type: 'relation' })
+  const taskPersonRelation = await relate(db, tasks.id, people.id, taskPerson.column.id)
+
+  const today = new Date().toISOString().slice(0, 10)
+  const followUp = await insertRow(db, tasks.id, userId, null, 1)
+  const later = await insertRow(db, tasks.id, userId, followUp.position, 2)
+  const finished = await insertRow(db, tasks.id, userId, later.position, 3)
+  const someday = await insertRow(db, tasks.id, userId, finished.position, 4)
+  await db.insert(tableCells).values([
+    { tableId: tasks.id, rowId: followUp.row.id, columnId: taskName.column.id, valueText: 'Follow up' },
+    { tableId: tasks.id, rowId: followUp.row.id, columnId: assignee.column.id, valueJsonb: { userIds: [userId] } },
+    { tableId: tasks.id, rowId: followUp.row.id, columnId: due.column.id, valueText: today },
+    { tableId: tasks.id, rowId: followUp.row.id, columnId: done.column.id, valueBool: false },
+    { tableId: tasks.id, rowId: followUp.row.id, columnId: taskDeal.column.id, valueJsonb: { rowId: dealRow.row.id } },
+    { tableId: tasks.id, rowId: followUp.row.id, columnId: taskPerson.column.id, valueJsonb: { rowId: personRow.row.id } },
+    { tableId: tasks.id, rowId: later.row.id, columnId: taskName.column.id, valueText: 'Later' },
+    { tableId: tasks.id, rowId: later.row.id, columnId: assignee.column.id, valueJsonb: { userIds: [userId] } },
+    { tableId: tasks.id, rowId: later.row.id, columnId: due.column.id, valueText: '2099-01-01' },
+    { tableId: tasks.id, rowId: later.row.id, columnId: done.column.id, valueBool: false },
+    { tableId: tasks.id, rowId: finished.row.id, columnId: taskName.column.id, valueText: 'Archive notes' },
+    { tableId: tasks.id, rowId: finished.row.id, columnId: assignee.column.id, valueJsonb: { userIds: [userId] } },
+    { tableId: tasks.id, rowId: finished.row.id, columnId: due.column.id, valueText: '2020-01-01' },
+    { tableId: tasks.id, rowId: finished.row.id, columnId: done.column.id, valueBool: true },
+    { tableId: tasks.id, rowId: someday.row.id, columnId: taskName.column.id, valueText: 'Someday' },
+    { tableId: tasks.id, rowId: someday.row.id, columnId: assignee.column.id, valueJsonb: { userIds: [userId] } },
+    { tableId: tasks.id, rowId: someday.row.id, columnId: done.column.id, valueBool: false },
+  ])
+  await db.insert(relationRecords).values([
+    { relationId: taskDealRelation, fromRowId: followUp.row.id, toRowId: dealRow.row.id },
+    { relationId: taskPersonRelation, fromRowId: followUp.row.id, toRowId: personRow.row.id },
+  ])
+  return { companies: companies.id, people: people.id, deals: deals.id, tasks: tasks.id }
 }
 
 const demoRows = [

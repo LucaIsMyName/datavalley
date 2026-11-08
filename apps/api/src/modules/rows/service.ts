@@ -6,6 +6,7 @@ import {
   type FilterNode,
   type FormatRule,
 } from '@datavalley/shared'
+import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import {
   formulas,
@@ -45,6 +46,7 @@ import {
   resolveTableContext,
   type LoadedColumn,
 } from '../tables/service.js'
+import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 
@@ -612,6 +614,7 @@ export async function createRow(
   cells: Record<string, unknown> = {},
   placement: { beforeId?: string; afterId?: string } = {},
   notify = true,
+  env?: Env,
 ) {
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
@@ -653,6 +656,17 @@ export async function createRow(
     return created
   })
   if (notify) await publishTableSignal(db, subject.id, table.id, 'rows.changed')
+  await announceAssignments(
+    db,
+    env,
+    subject,
+    { id: dataTableId, name: table.name, projectId: table.projectId },
+    row.id,
+    columns,
+    cells,
+    new Map(),
+    titleFromInput(columns, cells),
+  )
   return { id: row.id, position: row.position, version: row.version }
 }
 
@@ -693,6 +707,7 @@ export async function patchRow(
     formats?: Record<string, FormatRule[]>
     notes?: string
   },
+  env?: Env,
 ) {
   const { row, table, grants } = await assertRow(db, subject, rowId, 'edit')
   const cells = input.cells ?? {}
@@ -711,6 +726,12 @@ export async function patchRow(
       throw notFound()
     }
   }
+  const previousAssignees = await readPreviousUserIds(
+    db,
+    columnIds
+      .filter((columnId) => columns.find((item) => item.id === columnId)?.type === 'user')
+      .map((columnId) => ({ rowId: row.id, columnId })),
+  )
   await db.transaction(async (tx) => {
     const updated = await tx
       .update(tableRows)
@@ -801,6 +822,17 @@ export async function patchRow(
     projectId: table.projectId,
     tableId: table.id,
   })
+  await announceAssignments(
+    db,
+    env,
+    subject,
+    { id: table.id, name: table.name, projectId: table.projectId },
+    row.id,
+    columns,
+    cells,
+    previousAssignees,
+    recordTitle(columns, stored, row.id),
+  )
   return presented
 }
 
@@ -839,6 +871,7 @@ export async function bulkPatch(
   subject: Subject,
   tableId: string,
   updates: { rowId: string; version: number; cells: Record<string, unknown> }[],
+  env?: Env,
 ) {
   const cellCount = updates.reduce((sum, update) => sum + Object.keys(update.cells).length, 0)
   if (cellCount > 500) throw badRequest('Bulk updates are limited to 500 cells')
@@ -877,6 +910,14 @@ export async function bulkPatch(
       }
     }
   }
+  const previousAssignees = await readPreviousUserIds(
+    db,
+    updates.flatMap((update) =>
+      Object.keys(update.cells)
+        .filter((columnId) => columnById.get(columnId)?.type === 'user')
+        .map((columnId) => ({ rowId: update.rowId, columnId })),
+    ),
+  )
   await db.transaction(async (tx) => {
     const database = tx as unknown as AppDatabase
     for (const update of updates) {
@@ -935,6 +976,19 @@ export async function bulkPatch(
     projectId: table.projectId,
     tableId: table.id,
   })
+  for (const update of updates) {
+    await announceAssignments(
+      db,
+      env,
+      subject,
+      { id: dataTableId, name: table.name, projectId: table.projectId },
+      update.rowId,
+      columns,
+      update.cells,
+      previousAssignees,
+      recordTitle(columns, stored, update.rowId),
+    )
+  }
   return presented
 }
 

@@ -13,6 +13,24 @@ import { useSession } from '../../stores/session'
 
 const SAVED_PREVIEW_LIMIT = 5
 
+export type WorkTask = {
+  rowId: string
+  title: string
+  due: string
+  overdue: boolean
+  projectId: string
+  projectName: string
+  tableId: string
+  tableName: string
+  href: string
+}
+
+function formatDue(value: string) {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  if (!year || !month || !day) return value
+  return new Date(year, month - 1, day).toLocaleDateString()
+}
+
 export type SavedHit = {
   resourceType: string
   resourceId: string
@@ -93,6 +111,10 @@ export function DashboardPage() {
     queryKey: ['favorites'],
     queryFn: () => api.request<{ favorites: SavedHit[] }>('/favorites'),
   })
+  const work = useQuery({
+    queryKey: ['work'],
+    queryFn: () => api.request<{ tasks: WorkTask[] }>('/work'),
+  })
   const sortedProjects = sortProjectsByLastEdited(projects.data?.projects ?? [])
   const projectsReady = !projects.isLoading && !projects.isError && projects.data
   return (
@@ -100,6 +122,35 @@ export function DashboardPage() {
       title={t('dashboard')}
       actions={user?.role === 'admin' ? <ProjectAdminActions openCreate={openCreate} openImport={openImport} /> : null}
     >
+      <section aria-labelledby="dashboard-work-heading" className="flex min-w-0 flex-col gap-2">
+        <h2 id="dashboard-work-heading" className="text-base font-medium">
+          {t('myWork')}
+        </h2>
+        {work.isLoading && !work.data ? <LoadingBlock variant="rows" /> : null}
+        {work.isError ? <ErrorState message={(work.error as Error).message} /> : null}
+        {work.data && work.data.tasks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('myWorkEmpty')}</p>
+        ) : null}
+        {work.data && work.data.tasks.length > 0 ? (
+          <ul className="min-w-0">
+            {work.data.tasks.map((task) => (
+              <li key={task.rowId} className="border-t border-border">
+                <Link
+                  to={task.href}
+                  className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                >
+                  <span className="min-w-0 truncate font-medium">{task.title}</span>
+                  <span className="min-w-0 truncate text-sm text-muted-foreground">
+                    {task.overdue ? t('myWorkOverdue') : t('myWorkDue')} {formatDue(task.due)}
+                    {' · '}
+                    {task.projectName}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
       {projects.isLoading && !projects.data ? <LoadingBlock variant="cards" /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
       {projectsReady ? (

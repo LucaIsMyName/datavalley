@@ -58,6 +58,10 @@ describe('DashboardPage', () => {
             projects: 'Projects',
             recent: 'Recent',
             favorites: 'Favorites',
+            myWork: 'My work',
+            myWorkEmpty: 'Nothing due today',
+            myWorkOverdue: 'Overdue',
+            myWorkDue: 'Due',
             emptyProjects: 'No projects yet',
             emptyProjectsBody: 'Create a project to start collecting records.',
             emptyProjectsBodyViewer: 'Ask an admin to create a project.',
@@ -95,15 +99,18 @@ describe('DashboardPage', () => {
     queryClient.setQueryData(['projects'], { projects: [] as Project[] })
     queryClient.setQueryData(['recents'], { recents: [] })
     queryClient.setQueryData(['favorites'], { favorites: [] })
+    queryClient.setQueryData(['work'], { tasks: [] })
     vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
       if (path === '/projects') return { projects: [] }
       if (path === '/recents') return { recents: [] }
       if (path === '/favorites') return { favorites: [] }
+      if (path === '/work') return { tasks: [] }
       throw new Error(path)
     })
 
     const { host, root } = renderDashboard(queryClient)
     await act(async () => {})
+    expect(host.textContent).toContain('Nothing due today')
     expect(host.textContent).toContain('No projects yet')
     expect(host.textContent).toContain('Create a project to start collecting records.')
     await act(async () => root.unmount())
@@ -116,16 +123,59 @@ describe('DashboardPage', () => {
     queryClient.setQueryData(['projects'], { projects: [] as Project[] })
     queryClient.setQueryData(['recents'], { recents: [] })
     queryClient.setQueryData(['favorites'], { favorites: [] })
+    queryClient.setQueryData(['work'], { tasks: [] })
     vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
       if (path === '/projects') return { projects: [] }
       if (path === '/recents') return { recents: [] }
       if (path === '/favorites') return { favorites: [] }
+      if (path === '/work') return { tasks: [] }
       throw new Error(path)
     })
 
     const { host, root } = renderDashboard(queryClient)
     await act(async () => {})
     expect(host.textContent).toContain('New project')
+    await act(async () => root.unmount())
+    host.remove()
+  })
+
+  it('lists an overdue task on a narrow row', async () => {
+    useSession.setState({ user: adminUser, ready: true })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    queryClient.setQueryData(['projects'], { projects: [] as Project[] })
+    queryClient.setQueryData(['recents'], { recents: [] })
+    queryClient.setQueryData(['favorites'], { favorites: [] })
+    queryClient.setQueryData(['work'], {
+      tasks: [
+        {
+          rowId: 'r1',
+          title: 'Follow up',
+          due: '2020-01-01',
+          overdue: true,
+          projectId: 'p1',
+          projectName: 'Pipeline',
+          tableId: 't1',
+          tableName: 'Tasks',
+          href: '/projects/p1/tables/t1/rows/r1',
+        },
+      ],
+    })
+    vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
+      if (path === '/projects') return { projects: [] }
+      if (path === '/recents') return { recents: [] }
+      if (path === '/favorites') return { favorites: [] }
+      if (path === '/work') return { tasks: [] }
+      throw new Error(path)
+    })
+
+    const { host, root } = renderDashboard(queryClient)
+    await act(async () => {})
+    expect(host.textContent).toContain('Follow up')
+    expect(host.textContent).toContain('Overdue')
+    expect(host.textContent).toContain('Pipeline')
+    const link = host.querySelector('a[href="/projects/p1/tables/t1/rows/r1"]')
+    expect(link?.className).toContain('flex-col')
+    expect(link?.className).toContain('sm:flex-row')
     await act(async () => root.unmount())
     host.remove()
   })

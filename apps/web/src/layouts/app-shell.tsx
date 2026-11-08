@@ -130,11 +130,12 @@ function NotificationsBell({
 }: {
   open: boolean
   onOpen: (open: boolean) => void
-  items: { id: string; title: string; readAt: string | null }[]
+  items: { id: string; title: string; body?: string; href?: string | null; readAt: string | null }[]
   loading: boolean
   onRead: (id: string) => void
 }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -176,10 +177,17 @@ function NotificationsBell({
               ? items.map((item) => (
                   <button
                     key={item.id}
-                    className={`block min-h-11 w-full px-2 py-2 text-left text-sm hover:bg-accent ${item.readAt ? 'text-muted-foreground' : 'font-medium'}`}
-                    onClick={() => onRead(item.id)}
+                    className={`block min-h-11 w-full min-w-0 px-2 py-2 text-left text-sm hover:bg-accent ${item.readAt ? 'text-muted-foreground' : 'font-medium'}`}
+                    onClick={() => {
+                      onRead(item.id)
+                      onOpen(false)
+                      if (item.href) navigate(item.href)
+                    }}
                   >
-                    {item.title}
+                    <span className="block truncate">{item.title}</span>
+                    {item.body ? (
+                      <span className="block truncate text-xs font-normal text-muted-foreground">{item.body}</span>
+                    ) : null}
                   </button>
                 ))
               : null}
@@ -202,9 +210,9 @@ export function AppShell() {
   const notifications = useQuery({
     queryKey: ['notifications'],
     queryFn: () =>
-      api.request<{ notifications: { id: string; title: string; readAt: string | null }[] }>(
-        '/notifications',
-      ),
+      api.request<{
+        notifications: { id: string; title: string; body: string; href: string | null; readAt: string | null }[]
+      }>('/notifications'),
   })
 
   useEffect(() => {

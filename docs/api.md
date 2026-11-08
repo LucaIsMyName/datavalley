@@ -2434,6 +2434,24 @@ const result = await api.request("/columns/00000000-0000-4000-8000-0000dad75f11/
 
 ## Rows
 
+### `GET /api/v1/rows/{rowId}/record`
+
+Get record
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/record")
+```
+
 ### `PATCH /api/v1/rows/{rowId}`
 
 Update a row
@@ -2917,6 +2935,26 @@ None
 
 ```ts
 const result = await api.request("/audit")
+```
+
+## Work
+
+### `GET /api/v1/work`
+
+Get work
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/work")
 ```
 
 ## Notifications

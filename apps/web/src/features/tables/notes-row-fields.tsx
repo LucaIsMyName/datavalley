@@ -84,7 +84,7 @@ export function NotesRowFields({
         }
 
         return (
-          <div key={column.id} className="grid grid-cols-[minmax(0,38%)_1fr] items-center gap-2">
+          <div key={column.id} className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[minmax(0,38%)_1fr] sm:gap-2">
             <dt className="min-w-0 truncate font-medium text-muted-foreground">
               <ColumnTitle
                 name={column.name}
@@ -93,7 +93,7 @@ export function NotesRowFields({
               />
             </dt>
             <dd
-              className={`relative flex h-9 min-w-0 items-center ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${
+              className={`relative flex min-h-9 min-w-0 items-center sm:h-9 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${
                 column.type === 'number' || column.type === 'currency' || column.type === 'formula' || column.type === 'lookup'
                   ? 'font-mono'
                   : ''

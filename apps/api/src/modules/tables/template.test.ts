@@ -29,7 +29,7 @@ describe('crm project template', () => {
     const projectId = created.json().project.id as string
     const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
     const tables = listed.json().tables as { id: string; name: string }[]
-    expect(tables.map((table) => table.name).sort()).toEqual(['Companies', 'Deals', 'People'])
+    expect(tables.map((table) => table.name).sort()).toEqual(['Companies', 'Deals', 'People', 'Tasks'])
     const dealsId = tables.find((table) => table.name === 'Deals')?.id
     const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}` })
     const columns = detail.json().table.columns as { name: string; type: string; config: { toTableId?: string; currency?: string } }[]
@@ -51,7 +51,23 @@ describe('crm project template', () => {
     const links = record.json().links as { title: string; columnName: string }[]
     expect(links.map((link) => `${link.columnName}:${link.title}`).sort()).toEqual([
       'Company:Northwind',
+      'Deal:Follow up',
       'Person:Ada Lovelace',
     ])
+    const tasksId = tables.find((table) => table.name === 'Tasks')?.id
+    const taskDetail = await session.inject({ method: 'GET', url: `/api/v1/tables/${tasksId}` })
+    const taskColumns = taskDetail.json().table.columns as { name: string; type: string }[]
+    expect(taskColumns.map((column) => `${column.name}:${column.type}`)).toEqual([
+      'Name:text',
+      'Assignee:user',
+      'Due:date',
+      'Done:checkbox',
+      'Deal:relation',
+      'Person:relation',
+    ])
+    const work = await session.inject({ method: 'GET', url: '/api/v1/work' })
+    expect(work.statusCode).toBe(200)
+    const taskTitles = (work.json().tasks as { title: string }[]).map((task) => task.title)
+    expect(taskTitles).toEqual(['Follow up'])
   })
 })
