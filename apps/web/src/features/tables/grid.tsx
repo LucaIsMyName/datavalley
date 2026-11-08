@@ -737,7 +737,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     views,
     projectTables,
     flags,
-    table,
+    // table,
     tableId,
     refresh,
     undo,
@@ -1302,7 +1302,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
 
   if (tableQuery.isLoading || rowsQuery.isLoading)
     return (
-      <section className="p-4 md:p-6">
+      <section className="px-4 md:px-6">
         <LoadingBlock variant="table" />
       </section>
     )

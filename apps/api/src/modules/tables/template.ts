@@ -70,7 +70,14 @@ export async function seedCustomers(db: AppDatabase, projectId: string, userId: 
   return table.id
 }
 
-async function insertTable(db: AppDatabase, projectId: string, userId: string, name: string, description: string) {
+async function insertTable(
+  db: AppDatabase,
+  projectId: string,
+  userId: string,
+  name: string,
+  description: string,
+  activity = false,
+) {
   const [table] = await db
     .insert(tables)
     .values({
@@ -79,6 +86,7 @@ async function insertTable(db: AppDatabase, projectId: string, userId: string, n
       description,
       position: await nextPosition(db, projectId),
       createdBy: userId,
+      activity,
     })
     .returning()
   return table
@@ -264,7 +272,7 @@ export async function seedCrm(db: AppDatabase, projectId: string, userId: string
     { relationId: personDealRelation, fromRowId: dealRow.row.id, toRowId: personRow.row.id },
   ])
 
-  const tasks = await insertTable(db, projectId, userId, 'Tasks', 'Follow-ups on deals and people')
+  const tasks = await insertTable(db, projectId, userId, 'Tasks', 'Follow-ups on deals and people', true)
   let taskPos: string | null = null
   const taskName = await insertColumn(db, tasks.id, taskPos, { name: 'Name', type: 'text' })
   taskPos = taskName.position
@@ -309,7 +317,7 @@ export async function seedCrm(db: AppDatabase, projectId: string, userId: string
     { relationId: taskPersonRelation, fromRowId: followUp.row.id, toRowId: personRow.row.id },
   ])
 
-  const meetings = await insertTable(db, projectId, userId, 'Meetings', 'Meetings with people and deals')
+  const meetings = await insertTable(db, projectId, userId, 'Meetings', 'Meetings with people and deals', true)
   let meetingPos: string | null = null
   const meetingName = await insertColumn(db, meetings.id, meetingPos, { name: 'Name', type: 'text' })
   meetingPos = meetingName.position

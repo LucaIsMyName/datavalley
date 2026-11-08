@@ -178,6 +178,7 @@ export function useRowCellEdit({
             }>(['table', tableId])?.table?.footerConfig
             if (columnFeedsFooter(footer, columnId)) void invalidateFooter(queryClient, tableId)
             void invalidateOtherRowQueries(queryClient, tableId)
+            void queryClient.invalidateQueries({ queryKey: ['rows', tableId, 'record', row.id] })
             onRefreshRows?.()
           }
         },

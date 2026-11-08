@@ -118,6 +118,7 @@ export type TableRecord = {
   archivedAt: string | null
   lockedAt: string | null
   mirrorOfTableId: string | null
+  activity?: boolean
   mirrorSource?: MirrorSource | null
   connector?: TableConnectorLink | null
   columns?: Column[]

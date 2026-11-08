@@ -3,6 +3,7 @@ import { anchor, showEditError } from './grid-edit'
 import { type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
 import { type FilterNode, type FormatRule } from '@datavalley/shared'
 import {
+  Activity,
   ArrowDownToLine,
   ArrowUpToLine,
   Bookmark,
@@ -492,6 +493,12 @@ export function useTableMenus(scope: Scope) {
         icon: Sigma,
         onSelect: () => void setFooter(!footerConfig.enabled),
       },
+      {
+        id: 'activity',
+        label: table?.activity ? t('hideFromTimelines') : t('showOnTimelines'),
+        icon: Activity,
+        onSelect: () => void toggleActivity(),
+      },
       { id: 'import', label: t('import'), icon: Upload, onSelect: () => setCsvImportOpen(true) },
       ...(views.data?.views ?? []).map((view: any) => ({
         id: view.id,
@@ -580,6 +587,28 @@ export function useTableMenus(scope: Scope) {
         queryClient,
         navigate,
         api,
+      })
+    } catch (caught) {
+      showEditError(caught instanceof Error ? caught.message : t('error'))
+    }
+  }
+
+  async function toggleActivity() {
+    if (!table) return
+    const next = !table.activity
+    try {
+      const result = await api.request<{ table: TableRecord }>(`/tables/${tableId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ activity: next }),
+      })
+      queryClient.setQueryData(['table', tableId], { table: { ...table, ...result.table } })
+      queryClient.setQueryData(['tables', projectId], (current: { tables: TableRecord[] } | undefined) => {
+        if (!current) return current
+        return {
+          tables: current.tables.map((item) =>
+            item.id === tableId ? { ...item, activity: result.table.activity } : item,
+          ),
+        }
       })
     } catch (caught) {
       showEditError(caught instanceof Error ? caught.message : t('error'))

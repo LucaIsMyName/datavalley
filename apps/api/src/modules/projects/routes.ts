@@ -31,6 +31,7 @@ import {
   projectPermissionsBody,
   setMemberDisabledBody,
 } from './schema.js'
+import { listAutomations, saveAutomations } from './automations.js'
 import { exportProject, importProject } from './transfer.js'
 
 export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase, env: Env) {
@@ -59,6 +60,16 @@ export function registerProjectRoutes(app: FastifyInstance, db: AppDatabase, env
     reply.header('Content-Disposition', `attachment; filename="${safe}.json"`)
     reply.type('application/json')
     return doc
+  })
+
+  app.get('/projects/:id/automations', { schema: { params: projectIdParams } }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    return listAutomations(db, request.subject, (request.params as { id: string }).id)
+  })
+
+  app.put('/projects/:id/automations', { schema: { params: projectIdParams } }, async (request) => {
+    if (!request.subject) throw unauthorized()
+    return saveAutomations(db, request.subject, (request.params as { id: string }).id, request.body)
   })
 
   app.get('/projects/:id', { schema: { params: projectIdParams } }, async (request) => {

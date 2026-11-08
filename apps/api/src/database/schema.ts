@@ -151,6 +151,7 @@ export const tables = pgTable(
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     lockedAt: timestamp('locked_at', { withTimezone: true }),
     mirrorOfTableId: uuid('mirror_of_table_id'),
+    activity: boolean('activity').notNull().default(false),
     createdBy: uuid('created_by'),
     ...timestamps,
   },

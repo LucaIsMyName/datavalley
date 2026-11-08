@@ -528,6 +528,45 @@ None
 const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/export")
 ```
 
+### `GET /api/v1/projects/{id}/automations`
+
+List automations
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/automations")
+```
+
+### `PUT /api/v1/projects/{id}/automations`
+
+Replace project automations
+
+**Path**
+
+- `id` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/projects/00000000-0000-4000-8000-0000c479187a/automations", {
+  method: "PUT",
+})
+```
+
 ### `GET /api/v1/projects/{id}`
 
 Get a project
@@ -1349,7 +1388,8 @@ const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989",
     "footerConfig": {},
     "formatRules": [
       "formatRules"
-    ]
+    ],
+    "activity": false
   }),
 })
 ```

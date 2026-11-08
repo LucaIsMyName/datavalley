@@ -20,6 +20,7 @@ import { mergeMediaIntoCell } from './media-cell'
 import { NotesBlockEditor } from './notes'
 import { notesAfterFailure, saveNotes } from './notes-save'
 import { NotesRowFields } from './notes-row-fields'
+import { RecordActivityList, visibleActivity, type RecordActivityItem } from './record-activity'
 import { RecordMail } from './record-mail'
 import { RecordPrivacy } from './record-privacy'
 import { mergeColumnOption } from './select-options-utils'
@@ -38,12 +39,14 @@ type RecordPayload = {
   row: RowRecord
   tableId: string
   links: RecordLink[]
+  activity?: RecordActivityItem[]
 }
 
 type RecordCache = {
   pages: { rows: RowRecord[]; nextCursor: string | null }[]
   pageParams: unknown[]
   links: RecordLink[]
+  activity: RecordActivityItem[]
 }
 
 function RecordAccordion({ sections }: { sections: { id: string; label: string; body: ReactNode }[] }) {
@@ -111,6 +114,7 @@ export function RecordPage() {
         pages: [{ rows: [result.row], nextCursor: null }],
         pageParams: [null],
         links: result.links,
+        activity: result.activity ?? [],
       }
       return cache
     },
@@ -298,6 +302,10 @@ export function RecordPage() {
         ) : (
           <p className="text-sm text-muted-foreground">{t('linkedRecordsEmpty')}</p>
         )}
+      </section>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">{t('activityTimeline')}</h2>
+        <RecordActivityList projectId={projectId} items={visibleActivity(cache?.activity ?? [], notes, row.id)} />
       </section>
       <RecordAccordion
         sections={[

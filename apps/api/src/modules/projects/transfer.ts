@@ -246,6 +246,7 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
           formatRules: [],
           nextRowNumber: 1,
           locked: false,
+          activity: table.activity,
           mirrorOf: name,
           columns: [],
           tags: [],
@@ -375,6 +376,7 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
       formatRules: await portableFormatRules(db, projectId, table.id, table.formatRules, ctx),
       nextRowNumber: table.nextRowNumber,
       locked: table.lockedAt != null,
+      activity: table.activity,
       columns: portableColumns,
       tags: tags.map((tag) => ({ name: tag.name, color: tag.color })),
       statuses: statuses.map((status) => ({ name: status.name, color: status.color, position: status.position })),
@@ -411,6 +413,13 @@ type ImportContext = {
   statusIdByKey: Map<string, string>
   optionIdByKey: Map<string, string>
   usernameToId: Map<string, string>
+}
+
+function activityFlag(portable: { activity?: boolean; name: string }) {
+  if (portable.activity === true) return true
+  if (portable.activity === false) return false
+  const name = portable.name.trim().toLowerCase()
+  return name === 'tasks' || name === 'meetings'
 }
 
 function rowRefKey(table: string, rowNumber: number) {
@@ -527,6 +536,7 @@ export async function importProject(
           formatRules: [] as never,
           nextRowNumber: portable.nextRowNumber,
           lockedAt: portable.locked ? new Date() : null,
+          activity: activityFlag(portable),
           createdBy: subject.id,
         })
         .returning()

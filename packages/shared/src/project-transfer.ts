@@ -55,6 +55,7 @@ export type PortableTable = {
   formatRules: PortableFormatRule[]
   nextRowNumber: number
   locked: boolean
+  activity?: boolean
   mirrorOf?: string
   columns: PortableColumn[]
   tags: { name: string; color: string }[]

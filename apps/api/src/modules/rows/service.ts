@@ -51,7 +51,7 @@ import { importDuplicateWarnings } from './duplicates.js'
 import { previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
 import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
-import { createStageFollowUps } from './stage-task.js'
+import { runProjectAutomations } from './automations.js'
 import { footerColumns, groupSummary, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 import { visibleColumns } from './visible-columns.js'
@@ -280,6 +280,16 @@ export type RecordLink = {
   columnName: string
 }
 
+export type RecordActivity = {
+  at: string
+  kind: 'notes' | 'record'
+  text: string
+  tableId: string
+  tableName: string
+  rowId: string
+  title: string
+}
+
 async function recordTitles(db: AppDatabase, rowIds: string[]) {
   const titles = new Map<string, string>()
   if (rowIds.length === 0) return titles
@@ -421,7 +431,37 @@ export async function getRecord(db: AppDatabase, subject: Subject, rowId: string
       columnName: candidate.columnName,
     })
   }
-  return { row, tableId: shell.id, links }
+  const activity: RecordActivity[] = []
+  if (stored.notes.trim()) {
+    activity.push({
+      at: stored.updatedAt.toISOString(),
+      kind: 'notes',
+      text: stored.notes,
+      tableId: shell.id,
+      tableName: shell.name,
+      rowId: stored.id,
+      title: '',
+    })
+  }
+  const activityRows = new Set<string>()
+  for (const link of links) {
+    if (activityRows.has(link.rowId)) continue
+    const linked = linkedRows.find((item) => item.id === link.rowId)
+    const table = linkedTables.find((item) => item.id === linked?.tableId)
+    if (!linked || !table?.activity) continue
+    activityRows.add(link.rowId)
+    activity.push({
+      at: linked.createdAt.toISOString(),
+      kind: 'record',
+      text: linked.notes ?? '',
+      tableId: link.tableId,
+      tableName: link.tableName,
+      rowId: link.rowId,
+      title: link.title,
+    })
+  }
+  activity.sort((left, right) => right.at.localeCompare(left.at))
+  return { row, tableId: shell.id, links, activity }
 }
 
 async function attachFormulaValues<T extends { id: string; cells: Record<string, unknown> }>(
@@ -1153,6 +1193,26 @@ export async function bulkPatch(
   return presented
 }
 
+async function writeAutomationCells(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  rowId: string,
+  cells: Record<string, unknown>,
+) {
+  const columns = await loadColumns(db, tableId)
+  for (const [columnId, value] of Object.entries(cells)) {
+    const column = columns.find((item) => item.id === columnId)
+    if (!column) continue
+    await writeCell(db, tableId, rowId, column, value)
+  }
+  await db
+    .update(tableRows)
+    .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
+    .where(eq(tableRows.id, rowId))
+  await publishTableSignal(db, subject.id, tableId, 'rows.changed')
+}
+
 async function followStageChanges(
   db: AppDatabase,
   subject: Subject,
@@ -1162,9 +1222,10 @@ async function followStageChanges(
   env?: Env,
 ) {
   try {
-    await createStageFollowUps(db, subject, table, columns, changes, (tableId, cells) =>
-      createRow(db, subject, tableId, cells, {}, true, env),
-    )
+    await runProjectAutomations(db, subject, table, columns, changes, {
+      create: (tableId, cells) => createRow(db, subject, tableId, cells, {}, true, env),
+      update: (tableId, rowId, cells) => writeAutomationCells(db, subject, tableId, rowId, cells),
+    })
   } catch (error) {
     if (error instanceof AppError && error.status < 500) return
     throw error

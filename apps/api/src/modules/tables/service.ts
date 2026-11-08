@@ -147,6 +147,7 @@ export function presentTable(table: typeof tables.$inferSelect) {
     archivedAt: table.archivedAt?.toISOString() ?? null,
     lockedAt: table.lockedAt?.toISOString() ?? null,
     mirrorOfTableId: table.mirrorOfTableId,
+    activity: table.activity,
     createdAt: table.createdAt.toISOString(),
     updatedAt: table.updatedAt.toISOString(),
   }
@@ -603,6 +604,7 @@ export async function updateTable(
     headerConfig?: unknown
     footerConfig?: unknown
     formatRules?: unknown
+    activity?: boolean
   },
 ) {
   const table = await requireTable(db, subject, tableId, 'manage_structure')
@@ -633,6 +635,7 @@ export async function updateTable(
         headerConfig: restricted ? undefined : (input.headerConfig as never),
         footerConfig: restricted ? undefined : (input.footerConfig as never),
         formatRules: restricted ? undefined : (input.formatRules as never),
+        activity: input.activity,
         updatedAt: new Date(),
       })
       .where(eq(tables.id, tableId))

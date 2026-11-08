@@ -962,6 +962,46 @@
         }
       }
     },
+    "/projects/{id}/automations": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 36,
+              "maxLength": 36,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/projects/{id}": {
       "get": {
         "parameters": [
@@ -3087,6 +3127,9 @@
                   "formatRules": {
                     "type": "array",
                     "items": {}
+                  },
+                  "activity": {
+                    "type": "boolean"
                   }
                 }
               }

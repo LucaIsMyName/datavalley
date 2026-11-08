@@ -28,6 +28,7 @@ export const patchTableBody = Type.Object({
   headerConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   footerConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   formatRules: Type.Optional(Type.Array(Type.Unknown())),
+  activity: Type.Optional(Type.Boolean()),
 })
 
 export const moveTableBody = Type.Object({

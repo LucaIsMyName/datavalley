@@ -6,6 +6,7 @@ import {
   Info,
   Link2,
   Plus,
+  Zap,
   RefreshCw,
   Star,
   Trash2,
@@ -37,6 +38,7 @@ import { PresenceChip } from '../realtime/presence-chip'
 import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { useProjectEvents } from '../realtime/use-project-events'
 import type { SavedHit } from '../home/pages'
+import { AutomationsDialog } from './automations-dialog'
 import { ProjectDescription } from './projects-page'
 import { ProjectMembersDialog } from './project-members-dialog'
 import { CreateTableDialog } from './create-table-dialog'
@@ -87,6 +89,7 @@ export function ProjectPage() {
   const [tabOver, setTabOver] = useState<string | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
   const [descriptionOpen, setDescriptionOpen] = useState(false)
+  const [automationsOpen, setAutomationsOpen] = useState(false)
   const [remove, setRemove] = useState<TableRecord | null>(null)
   const [removePending, setRemovePending] = useState(false)
   const [creatingTable, setCreatingTable] = useState(false)
@@ -390,6 +393,14 @@ export function ProjectPage() {
               ) : null}
               <button
                 type="button"
+                aria-label={t('automations')}
+                className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
+                onClick={() => setAutomationsOpen(true)}
+              >
+                <Zap className="size-4" />
+              </button>
+              <button
+                type="button"
                 aria-label={t('info')}
                 className="inline-flex size-8 shrink-0 items-center justify-center hover:bg-accent"
                 onClick={() => setDescriptionOpen(true)}
@@ -618,6 +629,7 @@ export function ProjectPage() {
             <Outlet />
           )}
         </div>
+        <AutomationsDialog projectId={projectId} open={automationsOpen} onOpenChange={setAutomationsOpen} />
         <Dialog.Root
           open={descriptionOpen}
           onOpenChange={(open) => {
