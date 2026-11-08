@@ -2106,6 +2106,71 @@ const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/r
 })
 ```
 
+### `GET /api/v1/tables/{tableId}/form`
+
+Get form
+
+**Path**
+
+- `tableId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/form")
+```
+
+### `PUT /api/v1/tables/{tableId}/form`
+
+Replace table form
+
+**Path**
+
+- `tableId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/form", {
+  method: "PUT",
+  body: JSON.stringify({
+    "columnIds": [
+      "columnIds"
+    ]
+  }),
+})
+```
+
+### `DELETE /api/v1/tables/{tableId}/form`
+
+Delete a form
+
+**Path**
+
+- `tableId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/form", {
+  method: "DELETE",
+})
+```
+
 ## Search
 
 ### `GET /api/v1/search`
@@ -2511,6 +2576,63 @@ None
 
 ```ts
 const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/history")
+```
+
+### `GET /api/v1/rows/{rowId}/quote`
+
+Get quote
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/quote")
+```
+
+### `GET /api/v1/rows/{rowId}/privacy`
+
+Get privacy
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/privacy")
+```
+
+### `DELETE /api/v1/rows/{rowId}/privacy`
+
+Delete a privacy
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/privacy", {
+  method: "DELETE",
+})
 ```
 
 ### `PATCH /api/v1/rows/{rowId}`
@@ -3436,5 +3558,49 @@ None
 await api.ensureCsrf()
 const result = await api.request("/mail/templates/00000000-0000-4000-8000-00004db99f35", {
   method: "DELETE",
+})
+```
+
+## Public
+
+### `GET /api/v1/public/forms/{token}`
+
+Get a form
+
+**Path**
+
+- `token` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/public/forms/token_1")
+```
+
+### `POST /api/v1/public/forms/{token}`
+
+Create a form
+
+**Path**
+
+- `token` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/public/forms/token_1", {
+  method: "POST",
+  body: JSON.stringify({
+    "cells": {}
+  }),
 })
 ```

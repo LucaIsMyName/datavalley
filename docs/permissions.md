@@ -16,4 +16,4 @@ Row, column, and cell grants are exception overlays. Opening a table still requi
 
 Admins bypass checks only for system resources such as user management, API keys, plugins, and the audit log. Admins can edit and delete other users (including other admins), and can revoke or delete API keys. Project data still uses explicit grants. Creating a project writes a full owner grant set for the creator. The member dialog applies one preset: full edit (including columns and access), sales (edit rows, not the schema), or read-only. Inviting an email creates the account when needed and sends a link to set a password. Changing tables, columns, and who else has access stays with the full-edit preset.
 
-The `share` action is stored for later public sharing. This version does not create public links.
+The `share` action publishes a public form for one table. The form lists only the columns chosen on it. Anyone with the link can add a row in those columns. The row is created with the grants of the person who published the form. Members without `share` cannot create or read that link.

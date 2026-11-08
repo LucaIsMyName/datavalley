@@ -25,7 +25,7 @@ export const listProjectsQuery = Type.Object({
 
 export const createProjectBody = Type.Object({
   name: Type.String({ minLength: 1 }),
-  template: Type.Optional(Type.Union([Type.Literal('blank'), Type.Literal('customers'), Type.Literal('crm')])),
+  template: Type.Optional(Type.Union([Type.Literal('blank'), Type.Literal('customers'), Type.Literal('crm'), Type.Literal('quotes')])),
 })
 
 export const patchProjectBody = Type.Object({

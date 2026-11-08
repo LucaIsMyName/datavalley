@@ -308,6 +308,45 @@ export async function seedCrm(db: AppDatabase, projectId: string, userId: string
     { relationId: taskDealRelation, fromRowId: followUp.row.id, toRowId: dealRow.row.id },
     { relationId: taskPersonRelation, fromRowId: followUp.row.id, toRowId: personRow.row.id },
   ])
+
+  const meetings = await insertTable(db, projectId, userId, 'Meetings', 'Meetings with people and deals')
+  let meetingPos: string | null = null
+  const meetingName = await insertColumn(db, meetings.id, meetingPos, { name: 'Name', type: 'text' })
+  meetingPos = meetingName.position
+  const when = await insertColumn(db, meetings.id, meetingPos, { name: 'When', type: 'datetime' })
+  meetingPos = when.position
+  const meetingDeal = await insertColumn(db, meetings.id, meetingPos, { name: 'Deal', type: 'relation' })
+  meetingPos = meetingDeal.position
+  const meetingDealRelation = await relate(db, meetings.id, deals.id, meetingDeal.column.id)
+  const meetingPerson = await insertColumn(db, meetings.id, meetingPos, { name: 'Person', type: 'relation' })
+  const meetingPersonRelation = await relate(db, meetings.id, people.id, meetingPerson.column.id)
+  const meetingRow = await insertRow(db, meetings.id, userId, null, 1)
+  await db.insert(tableCells).values([
+    { tableId: meetings.id, rowId: meetingRow.row.id, columnId: meetingName.column.id, valueText: 'Kickoff' },
+    { tableId: meetings.id, rowId: meetingRow.row.id, columnId: when.column.id, valueText: '2026-11-09T09:00:00.000Z' },
+    { tableId: meetings.id, rowId: meetingRow.row.id, columnId: meetingDeal.column.id, valueJsonb: { rowId: dealRow.row.id } },
+    { tableId: meetings.id, rowId: meetingRow.row.id, columnId: meetingPerson.column.id, valueJsonb: { rowId: personRow.row.id } },
+  ])
+  await db.insert(relationRecords).values([
+    { relationId: meetingDealRelation, fromRowId: meetingRow.row.id, toRowId: dealRow.row.id },
+    { relationId: meetingPersonRelation, fromRowId: meetingRow.row.id, toRowId: personRow.row.id },
+  ])
+  await db.insert(tableViews).values({
+    tableId: meetings.id,
+    name: 'Timeline',
+    ownerId: userId,
+    shared: true,
+    definition: {
+      filter: null,
+      sort: null,
+      display: {
+        mode: 'timeline',
+        chart: { type: 'bar', dimensionIds: [], valueIds: [], perRow: false, count: false, ownerColumnId: null, ownerUserId: null },
+        timeline: { dateColumnId: when.column.id, titleColumnIds: [meetingName.column.id], zoom: 1 },
+        kanban: { statusColumnId: null, cardColumnIds: [], statusOrder: [] },
+      },
+    },
+  })
   await db.insert(tableViews).values({
     tableId: deals.id,
     name: 'Pipeline',
@@ -332,7 +371,68 @@ export async function seedCrm(db: AppDatabase, projectId: string, userId: string
       },
     },
   })
-  return { companies: companies.id, people: people.id, deals: deals.id, tasks: tasks.id }
+  return { companies: companies.id, people: people.id, deals: deals.id, tasks: tasks.id, meetings: meetings.id }
+}
+
+export async function seedQuotes(db: AppDatabase, projectId: string, userId: string) {
+  const products = await insertTable(db, projectId, userId, 'Products', 'Things you sell')
+  const quotes = await insertTable(db, projectId, userId, 'Quotes', 'Offers for a customer')
+  const lines = await insertTable(db, projectId, userId, 'Lines', 'Products on a quote')
+  let productPos: string | null = null
+  const productName = await insertColumn(db, products.id, productPos, { name: 'Name', type: 'text' })
+  productPos = productName.position
+  const price = await insertColumn(db, products.id, productPos, {
+    name: 'Price',
+    type: 'number',
+    config: { icon: 'Coins', variant: 'money', currency: 'EUR' },
+  })
+  let quotePos: string | null = null
+  const quoteName = await insertColumn(db, quotes.id, quotePos, { name: 'Name', type: 'text' })
+  quotePos = quoteName.position
+  const status = await insertColumn(db, quotes.id, quotePos, {
+    name: 'Status',
+    type: 'select',
+    options: [
+      { label: 'Draft', color: 'slate' },
+      { label: 'Sent', color: 'blue' },
+      { label: 'Accepted', color: 'green' },
+    ],
+  })
+  quotePos = status.position
+  const customer = await insertColumn(db, quotes.id, quotePos, { name: 'Customer', type: 'text' })
+  let linePos: string | null = null
+  const lineQuote = await insertColumn(db, lines.id, linePos, { name: 'Quote', type: 'relation' })
+  linePos = lineQuote.position
+  const quoteRelation = await relate(db, lines.id, quotes.id, lineQuote.column.id)
+  const lineProduct = await insertColumn(db, lines.id, linePos, { name: 'Product', type: 'relation' })
+  linePos = lineProduct.position
+  const productRelation = await relate(db, lines.id, products.id, lineProduct.column.id)
+  const quantity = await insertColumn(db, lines.id, linePos, { name: 'Quantity', type: 'number' })
+  const productRow = await insertRow(db, products.id, userId, null, 1)
+  await db.insert(tableCells).values([
+    { tableId: products.id, rowId: productRow.row.id, columnId: productName.column.id, valueText: 'Workshop' },
+    { tableId: products.id, rowId: productRow.row.id, columnId: price.column.id, valueNumber: '500' },
+  ])
+  const quoteRow = await insertRow(db, quotes.id, userId, null, 1)
+  const draft = (await db.select().from(columnOptions).where(eq(columnOptions.columnId, status.column.id))).find(
+    (option) => option.label === 'Draft',
+  )
+  await db.insert(tableCells).values([
+    { tableId: quotes.id, rowId: quoteRow.row.id, columnId: quoteName.column.id, valueText: 'Northwind site' },
+    { tableId: quotes.id, rowId: quoteRow.row.id, columnId: status.column.id, valueJsonb: { optionId: draft?.id ?? null } },
+    { tableId: quotes.id, rowId: quoteRow.row.id, columnId: customer.column.id, valueText: 'Northwind' },
+  ])
+  const lineRow = await insertRow(db, lines.id, userId, null, 1)
+  await db.insert(tableCells).values([
+    { tableId: lines.id, rowId: lineRow.row.id, columnId: lineQuote.column.id, valueJsonb: { rowId: quoteRow.row.id } },
+    { tableId: lines.id, rowId: lineRow.row.id, columnId: lineProduct.column.id, valueJsonb: { rowId: productRow.row.id } },
+    { tableId: lines.id, rowId: lineRow.row.id, columnId: quantity.column.id, valueNumber: '2' },
+  ])
+  await db.insert(relationRecords).values([
+    { relationId: quoteRelation, fromRowId: lineRow.row.id, toRowId: quoteRow.row.id },
+    { relationId: productRelation, fromRowId: lineRow.row.id, toRowId: productRow.row.id },
+  ])
+  return { products: products.id, quotes: quotes.id, lines: lines.id }
 }
 
 const demoRows = [

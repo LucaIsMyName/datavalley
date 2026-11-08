@@ -44,6 +44,8 @@ import {
 import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
 import { findDuplicateRows } from '../rows/duplicates.js'
 import { listFieldHistory } from '../rows/history.js'
+import { exportPerson, removePerson } from '../rows/privacy.js'
+import { quoteSummary } from '../rows/quote.js'
 import { listMyWork } from '../rows/work.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { canonicalizeFormatRules, compileCondition, evaluateStored, fillFormulas, formulaCatalog, formulaDependenciesFor, previewFormula, readCellFormula, saveFormula } from '../formulas/service.js'
@@ -258,6 +260,18 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.get('/rows/:rowId/history', async (request) => {
     if (!request.subject) throw unauthorized()
     return { entries: await listFieldHistory(db, request.subject, (request.params as { rowId: string }).rowId) }
+  })
+  app.get('/rows/:rowId/quote', async (request) => {
+    if (!request.subject) throw unauthorized()
+    return quoteSummary(db, request.subject, (request.params as { rowId: string }).rowId)
+  })
+  app.get('/rows/:rowId/privacy', async (request) => {
+    if (!request.subject) throw unauthorized()
+    return exportPerson(db, request.subject, (request.params as { rowId: string }).rowId)
+  })
+  app.delete('/rows/:rowId/privacy', async (request) => {
+    if (!request.subject) throw unauthorized()
+    return removePerson(db, request.subject, (request.params as { rowId: string }).rowId)
   })
   app.get('/tables/:tableId/duplicates', async (request) => {
     if (!request.subject) throw unauthorized()

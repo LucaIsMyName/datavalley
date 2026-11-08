@@ -253,6 +253,15 @@ export const mailMessages = pgTable('mail_messages', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const publicForms = pgTable('public_forms', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tableId: uuid('table_id').notNull().unique().references(() => tables.id, { onDelete: 'cascade' }),
+  token: text('token').notNull().unique(),
+  columnIds: jsonb('column_ids').notNull().default([]),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const fieldHistory = pgTable('field_history', {
   id: uuid('id').primaryKey().defaultRandom(),
   tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),

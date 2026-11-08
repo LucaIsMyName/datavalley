@@ -18,6 +18,7 @@ import { registerAiRoutes } from './modules/ai/routes.js'
 import { passwordChangeGate, registerAuthRoutes, sessionCookie } from './modules/auth/routes.js'
 import { registerDataRoutes } from './modules/data/routes.js'
 import { registerMailRoutes } from './modules/mail/routes.js'
+import { registerFormRoutes } from './modules/forms/routes.js'
 import { subjectFromSession } from './modules/auth/service.js'
 import { ensurePlugins, subjectFromApiKey } from './modules/platform/service.js'
 import { registerConnectorRoutes, registerProjectConnectorRoutes } from './modules/connectors/routes.js'
@@ -87,7 +88,9 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
     if (request.subject?.user?.mustChangePassword) passwordChangeGate(request.url, request.method)
     if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return
     if (request.headers.authorization?.toLowerCase().startsWith('bearer ')) return
-    if (/\/integrations\/[^/]+\/webhook/.test(request.url.split('?')[0])) return
+    const path = request.url.split('?')[0]
+    if (/\/integrations\/[^/]+\/webhook/.test(path)) return
+    if (/\/public\/forms\//.test(path)) return
     await new Promise<void>((resolve, reject) => {
       app.csrfProtection(request, reply, (error?: Error) => (error ? reject(error) : resolve()))
     })
@@ -130,6 +133,7 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       registerAiRoutes(api, db, env, apiKeyRateLimiter)
       registerDataRoutes(api, db, env)
       registerMailRoutes(api, db, env)
+      registerFormRoutes(api, db)
     },
     { prefix: '/api/v1' },
   )

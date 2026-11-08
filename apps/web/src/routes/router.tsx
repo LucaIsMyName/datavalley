@@ -60,6 +60,8 @@ const ApiKeysPage = route(() => import('../features/settings/admin-pages'), 'Api
 const AuditPage = route(() => import('../features/settings/admin-pages'), 'AuditPage')
 const AiPage = route(() => import('../features/settings/ai-page'), 'AiPage')
 const MailTemplatesPage = route(() => import('../features/settings/mail-page'), 'MailTemplatesPage')
+const PublicFormPage = route(() => import('../features/forms/public-form-page'), 'PublicFormPage')
+const QuotePrintPage = route(() => import('../features/tables/quote-print-page'), 'QuotePrintPage')
 
 function RequireAuth() {
   const location = useLocation()
@@ -99,9 +101,11 @@ export const router = createBrowserRouter([
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
       { path: '/reset-password', element: <ResetPasswordPage /> },
       { path: '/change-password', element: <ChangePasswordPage /> },
+      { path: '/forms/:token', element: <PublicFormPage /> },
       {
         element: <RequireAuth />,
         children: [
+          { path: '/projects/:projectId/tables/:tableId/rows/:rowId/print', element: <QuotePrintPage /> },
           {
             element: <AppShell />,
             children: [

@@ -28,6 +28,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
+import { ShareFormDialog } from './share-form-dialog'
 
 export type TableToolbarView = {
   id: string
@@ -56,6 +57,7 @@ export type TableToolbarActions = {
   onToggleLock: () => void
   onSync: () => void
   onConnect: () => void
+  tableId?: string
 }
 
 const TableToolbarContext = createContext<{
@@ -84,6 +86,7 @@ export function TableToolbarRow() {
   const ctx = useContext(TableToolbarContext)
   const actions = ctx?.actions
   const viewsTriggerRef = useRef<HTMLButtonElement>(null)
+  const [shareOpen, setShareOpen] = useState(false)
   if (!actions) return <div className="h-9 shrink-0" aria-hidden />
 
   return (
@@ -145,6 +148,18 @@ export function TableToolbarRow() {
           onClick={() => actions.importCsv()}
         >
           <Upload className="size-4" />
+        </Button>
+      ) : null}
+      {actions.tableId && !actions.isMirror ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="size-9 shrink-0 px-0"
+          aria-label={t('shareForm')}
+          title={t('shareForm')}
+          onClick={() => setShareOpen(true)}
+        >
+          <Link2 className="size-4" />
         </Button>
       ) : null}
       <DropdownMenu.Root>
@@ -308,6 +323,9 @@ export function TableToolbarRow() {
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+      {actions.tableId ? (
+        <ShareFormDialog tableId={actions.tableId} open={shareOpen} onClose={() => setShareOpen(false)} />
+      ) : null}
     </div>
   )
 }

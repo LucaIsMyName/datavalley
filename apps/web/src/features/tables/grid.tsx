@@ -1102,6 +1102,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       onToggleLock: () => void toggleTableLock(),
       onSync: () => void syncConnector(),
       onConnect: () => setConnectOpen(true),
+      tableId,
     }
   }, [activeViewId, columns, display.mode, table, tableId, t, views.data?.views, lockPending, syncPending])
 

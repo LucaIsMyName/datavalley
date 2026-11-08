@@ -1,0 +1,154 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { connectorRowLinks } from '../../database/schema.js'
+import { ApiSession, createHarness, createUser, login, type Harness } from '../../test/harness.js'
+
+const password = 'correct horse battery'
+
+describe('public forms, quotes, and privacy', () => {
+  let harness: Harness
+
+  afterEach(async () => {
+    await harness?.close()
+  })
+
+  it('creates a row from a shared form and refuses a member who cannot share', async () => {
+    harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const admin = await new ApiSession(harness.app).prepare()
+    expect((await login(admin, 'ada', password)).statusCode).toBe(200)
+    const project = await admin.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: { name: 'Pipeline', template: 'crm' },
+    })
+    const projectId = project.json().project.id as string
+    const tables = await admin.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const peopleId = (tables.json().tables as { id: string; name: string }[]).find((table) => table.name === 'People')?.id
+    const detail = await admin.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}` })
+    const columns = detail.json().table.columns as { id: string; name: string }[]
+    const nameId = columns.find((column) => column.name === 'Name')?.id ?? ''
+    const emailId = columns.find((column) => column.name === 'Email')?.id ?? ''
+    const saved = await admin.inject({
+      method: 'PUT',
+      url: `/api/v1/tables/${peopleId}/form`,
+      payload: { columnIds: [nameId, emailId] },
+    })
+    expect(saved.statusCode).toBe(200)
+    const token = saved.json().form.token as string
+    const fields = await harness.app.inject({ method: 'GET', url: `/api/v1/public/forms/${token}` })
+    expect(fields.statusCode).toBe(200)
+    expect(fields.json().fields.map((field: { name: string }) => field.name).sort()).toEqual(['Email', 'Name'])
+    const secret = columns.find((column) => column.name !== 'Name' && column.name !== 'Email')?.id ?? nameId
+    const submitted = await harness.app.inject({
+      method: 'POST',
+      url: `/api/v1/public/forms/${token}`,
+      payload: { cells: { [nameId]: 'Grace Hopper', [emailId]: 'grace@navy.example', [secret]: 'hidden' } },
+    })
+    expect(submitted.statusCode).toBe(200)
+    const row = await admin.inject({ method: 'GET', url: `/api/v1/rows/${submitted.json().id}/record` })
+    expect(row.statusCode).toBe(200)
+    expect(row.json().row.cells[nameId]).toBe('Grace Hopper')
+    expect(row.json().row.cells[emailId]).toBe('grace@navy.example')
+    expect(row.json().row.cells[secret]).not.toBe('hidden')
+    const invited = await admin.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/invites`,
+      payload: { email: 'bea@example.com', preset: 'view' },
+    })
+    const tokenLink = new URL(invited.json().inviteUrl as string).searchParams.get('token')
+    await admin.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token: tokenLink, newPassword: 'bea chooses one' },
+    })
+    const bea = await new ApiSession(harness.app).prepare()
+    expect((await login(bea, 'bea', 'bea chooses one')).statusCode).toBe(200)
+    const denied = await bea.inject({
+      method: 'PUT',
+      url: `/api/v1/tables/${peopleId}/form`,
+      payload: { columnIds: [nameId] },
+    })
+    expect(denied.statusCode).toBe(404)
+  })
+
+  it('prints a quote total from its product lines', async () => {
+    harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+    const project = await session.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: { name: 'Offers', template: 'quotes' },
+    })
+    const projectId = project.json().project.id as string
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    expect((listed.json().tables as { name: string }[]).map((table) => table.name).sort()).toEqual(['Lines', 'Products', 'Quotes'])
+    const quotesId = (listed.json().tables as { id: string; name: string }[]).find((table) => table.name === 'Quotes')?.id
+    const rows = await session.inject({ method: 'GET', url: `/api/v1/tables/${quotesId}/rows` })
+    const quote = await session.inject({ method: 'GET', url: `/api/v1/rows/${rows.json().rows[0].id}/quote` })
+    expect(quote.statusCode).toBe(200)
+    expect(quote.json()).toMatchObject({
+      title: 'Northwind site',
+      status: 'Draft',
+      customer: 'Northwind',
+      total: 1000,
+    })
+    expect(quote.json().lines).toEqual([{ product: 'Workshop', quantity: 2, price: 500, amount: 1000 }])
+  })
+
+  it('exports a person with related rows and deletes them unless a connector owns the row', async () => {
+    harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+    const project = await session.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: { name: 'Pipeline', template: 'crm' },
+    })
+    const projectId = project.json().project.id as string
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const tables = listed.json().tables as { id: string; name: string }[]
+    const peopleId = tables.find((table) => table.name === 'People')?.id
+    const people = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const personId = people.json().rows[0].id as string
+    const exported = await session.inject({ method: 'GET', url: `/api/v1/rows/${personId}/privacy` })
+    expect(exported.statusCode).toBe(200)
+    const related = exported.json().related as { table: string; title: string; connector: boolean }[]
+    expect(related.map((item) => item.table).sort()).toEqual(['Companies', 'Deals', 'Meetings', 'Tasks'])
+    expect(exported.json().row.connector).toBe(false)
+    const removed = await session.inject({ method: 'DELETE', url: `/api/v1/rows/${personId}/privacy` })
+    expect(removed.statusCode).toBe(200)
+    expect(removed.json()).toEqual({ removed: true, connector: false })
+    const gone = await session.inject({ method: 'GET', url: `/api/v1/rows/${personId}/record` })
+    expect(gone.statusCode).toBe(404)
+
+    const dealsId = tables.find((table) => table.name === 'Deals')?.id
+    const deals = await session.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}/rows` })
+    const dealId = deals.json().rows[0].id as string
+    await harness.db.insert(connectorRowLinks).values({ tableId: dealsId ?? '', externalKey: 'deal-1', rowId: dealId })
+    const kept = await session.inject({ method: 'DELETE', url: `/api/v1/rows/${dealId}/privacy` })
+    expect(kept.json()).toEqual({ removed: false, connector: true })
+    const still = await session.inject({ method: 'GET', url: `/api/v1/rows/${dealId}/record` })
+    expect(still.statusCode).toBe(200)
+    const links = await harness.db.select().from(connectorRowLinks).where(eq(connectorRowLinks.rowId, dealId))
+    expect(links).toHaveLength(1)
+  })
+})

@@ -19,6 +19,7 @@ import { mergeMediaIntoCell } from './media-cell'
 import { NotesBlockEditor } from './notes'
 import { NotesRowFields } from './notes-row-fields'
 import { RecordMail } from './record-mail'
+import { RecordPrivacy } from './record-privacy'
 import { mergeColumnOption } from './select-options-utils'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { useRowCellEdit } from './use-row-cell-edit'
@@ -106,6 +107,13 @@ export function RecordPage() {
         }[]
       }>(`/rows/${rowId}/history`),
   })
+  const quote = useQuery({
+    queryKey: ['quote', rowId],
+    enabled: Boolean(rowId),
+    retry: false,
+    queryFn: () =>
+      api.request<{ title: string }>(`/rows/${rowId}/quote`),
+  })
   const readOnly = isTableReadOnly(table)
   const cellEdit = useRowCellEdit({
     tableId,
@@ -175,6 +183,14 @@ export function RecordPage() {
           <ChevronRightIcon className="size-4" />
           <h1 className="truncate text-xl font-semibold">{title}</h1>
         </div>
+        {quote.data ? (
+          <Link
+            to={`/projects/${projectId}/tables/${tableId}/rows/${rowId}/print`}
+            className="inline-flex h-9 items-center border border-border px-3 text-sm"
+          >
+            {t('printQuote')}
+          </Link>
+        ) : null}
       </div>
       <NotesRowFields
         tableId={tableId}
@@ -253,6 +269,7 @@ export function RecordPage() {
         )}
       </section>
       <RecordMail rowId={row.id} readOnly={readOnly} />
+      <RecordPrivacy projectId={projectId} tableId={tableId} rowId={row.id} title={title} />
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">{t('fieldHistory')}</h2>
         {history.isLoading && !history.data ? <LoadingBlock variant="rows" /> : null}

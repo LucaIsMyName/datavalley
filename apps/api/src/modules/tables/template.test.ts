@@ -29,7 +29,7 @@ describe('crm project template', () => {
     const projectId = created.json().project.id as string
     const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
     const tables = listed.json().tables as { id: string; name: string }[]
-    expect(tables.map((table) => table.name).sort()).toEqual(['Companies', 'Deals', 'People', 'Tasks'])
+    expect(tables.map((table) => table.name).sort()).toEqual(['Companies', 'Deals', 'Meetings', 'People', 'Tasks'])
     const dealsId = tables.find((table) => table.name === 'Deals')?.id
     const detail = await session.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}` })
     const columns = detail.json().table.columns as { name: string; type: string; config: { toTableId?: string; currency?: string } }[]
@@ -62,6 +62,7 @@ describe('crm project template', () => {
     expect(links.map((link) => `${link.columnName}:${link.title}`).sort()).toEqual([
       'Company:Northwind',
       'Deal:Follow up',
+      'Deal:Kickoff',
       'Person:Ada Lovelace',
     ])
     const tasksId = tables.find((table) => table.name === 'Tasks')?.id
@@ -75,6 +76,12 @@ describe('crm project template', () => {
       'Deal:relation',
       'Person:relation',
     ])
+    const meetingsId = tables.find((table) => table.name === 'Meetings')?.id
+    const meetingViews = await session.inject({ method: 'GET', url: `/api/v1/tables/${meetingsId}/views` })
+    const timeline = (meetingViews.json().views as { name: string; definition: { display?: { mode?: string } } }[]).find(
+      (view) => view.name === 'Timeline',
+    )
+    expect(timeline?.definition.display?.mode).toBe('timeline')
     const work = await session.inject({ method: 'GET', url: '/api/v1/work' })
     expect(work.statusCode).toBe(200)
     const taskTitles = (work.json().tasks as { title: string }[]).map((task) => task.title)

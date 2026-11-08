@@ -24,7 +24,7 @@ export function useProjectCreateImport() {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [projectName, setProjectName] = useState('')
-  const [template, setTemplate] = useState<'blank' | 'customers' | 'crm'>('blank')
+  const [template, setTemplate] = useState<'blank' | 'customers' | 'crm' | 'quotes'>('blank')
   const [createError, setCreateError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importName, setImportName] = useState('')
@@ -35,7 +35,7 @@ export function useProjectCreateImport() {
   const nameInput = useRef<HTMLInputElement>(null)
 
   const create = useMutation({
-    mutationFn: (input: { name: string; template?: 'customers' | 'crm' }) =>
+    mutationFn: (input: { name: string; template?: 'customers' | 'crm' | 'quotes' }) =>
       api.request<{ project: Project }>('/projects', {
         method: 'POST',
         body: JSON.stringify(input),
@@ -121,6 +121,14 @@ export function useProjectCreateImport() {
                   onCheckedChange={(next) => setTemplate(next === true ? 'crm' : 'blank')}
                 />
                 {t('crmTemplate')}
+              </label>
+              <label htmlFor="project-quotes-template" className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  id="project-quotes-template"
+                  checked={template === 'quotes'}
+                  onCheckedChange={(next) => setTemplate(next === true ? 'quotes' : 'blank')}
+                />
+                {t('quotesTemplate')}
               </label>
               {createError ? (
                 <p role="alert" className="text-sm text-danger">
