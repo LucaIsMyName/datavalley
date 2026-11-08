@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { selectDropdownItemClassName } from '../../components/ui/select'
 import { deleteColumnOptionApi, patchColumnOption, postColumnOption } from './select-option-api'
 import { SelectOptionDeleteButton } from './select-option-delete-button'
 import type { ColumnOption } from './select-options-utils'
@@ -98,13 +97,13 @@ function SelectOptionRow({
     }
   }
 
-  const inputLocked = !editing
-
   return (
-    <div className="flex min-w-0 items-center gap-0.5 py-0.5">
+    <div
+      className={`flex min-h-9 min-w-0 items-center gap-0.5  px-1 ${picked ? 'bg-muted' : 'hover:bg-accent'}`}
+    >
       <button
         type="button"
-        className="flex h-8 w-7 shrink-0 items-center justify-center rounded-sm outline-none hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+        className="flex size-7 shrink-0 items-center justify-center outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         aria-label={option.label}
         disabled={editing}
         onClick={() => {
@@ -113,30 +112,17 @@ function SelectOptionRow({
       >
         {picked ? <Check className="size-4" aria-hidden /> : null}
       </button>
-      <div
-        className={`min-w-0 flex-1 ${inputLocked ? 'cursor-pointer' : ''}`}
-        onClick={() => {
-          if (inputLocked) onSelect()
-        }}
-      >
+      {editing ? (
         <Input
           ref={inputRef}
           aria-label={t('renameSelectOption')}
-          className={`h-8 min-w-0 border-0 px-2 shadow-none focus-visible:ring-1 ${
-            inputLocked ? 'pointer-events-none cursor-pointer bg-muted/40 text-foreground' : 'bg-transparent'
-          }`}
+          className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-1"
           value={draft}
-          readOnly={inputLocked}
-          disabled={pending || (busy && !inputLocked)}
+          disabled={pending || busy}
           onPointerDown={stopBubble}
-          onClick={(event) => {
-            stopBubble(event)
-            if (inputLocked) onSelect()
-          }}
+          onClick={stopBubble}
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => {
-            if (editing) void commit()
-          }}
+          onBlur={() => void commit()}
           onKeyDown={(event) => {
             stopBubble(event)
             if (event.key === 'Escape') {
@@ -145,13 +131,21 @@ function SelectOptionRow({
               setDraft(option.label)
               return
             }
-            if (event.key === 'Enter' && editing) {
+            if (event.key === 'Enter') {
               event.preventDefault()
               void commit()
             }
           }}
         />
-      </div>
+      ) : (
+        <button
+          type="button"
+          className="h-8 min-w-0 flex-1 truncate px-1 text-left"
+          onClick={onSelect}
+        >
+          {option.label}
+        </button>
+      )}
       <Button
         type="button"
         variant="ghost"
@@ -230,16 +224,18 @@ export function SelectCellOptionsPanel({
     <>
       <div className="max-h-60 overflow-auto p-1">
         {!multiple ? (
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              className={`${selectDropdownItemClassName} min-h-8 flex-1 py-1`}
-              onClick={onPickNone}
-            >
-              <span className="truncate">{t('none')}</span>
-              {!singleSelected ? <Check className="absolute right-2 size-4" aria-hidden /> : null}
-            </button>
-          </div>
+          <button
+            type="button"
+            className={`flex min-h-9 w-full items-center gap-0.5 px-1 text-left ${
+              singleSelected ? 'hover:bg-accent' : 'bg-muted'
+            }`}
+            onClick={onPickNone}
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center">
+              {singleSelected ? null : <Check className="size-4" aria-hidden />}
+            </span>
+            <span className="min-w-0 flex-1 truncate px-1">{t('none')}</span>
+          </button>
         ) : null}
         {options.map((option) => {
           const picked = multiple ? selectedIds.includes(option.id) : singleSelected === option.id

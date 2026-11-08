@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next'
 import { AnchoredLayer } from '../../components/anchored-layer'
 import { Badge } from '../../components/ui/badge'
 import { Checkbox } from '../../components/ui/checkbox'
-import { cellSelectTriggerClassName, selectDropdownPanelClassName, SelectField } from '../../components/ui/select'
+import { cellSelectTriggerClassName, SelectField } from '../../components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
 import { createColumnOption, SelectCellOptionsPanel } from './select-cell-options-panel'
 import { formatSelectCellSummary, sortOptionsByPosition } from './select-options-utils'
@@ -979,7 +979,11 @@ function SelectEditor({
             <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" sideOffset={4} className={`${selectDropdownPanelClassName} p-0`}>
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          className="z-[200] max-h-72 w-[max(18rem,var(--radix-popover-trigger-width))] max-w-[min(24rem,calc(100vw-2rem))] overflow-auto p-0 text-sm"
+        >
           <SelectCellOptionsPanel
             columnId={column.id}
             options={sorted}

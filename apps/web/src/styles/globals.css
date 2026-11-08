@@ -75,8 +75,8 @@
   --muted: #262626;
   --muted-foreground: #a8b7af;
   --border: #3d3d3d;
-  --primary: #7c68ff;
-  --primary-foreground: #1b1923;
+  --primary: #a89aff;
+  --primary-foreground: #1b162e;
   --chart-comparison: color-mix(in srgb, var(--primary) 70%, black);
   --chart-mix: black;
   --accent: #343434;
