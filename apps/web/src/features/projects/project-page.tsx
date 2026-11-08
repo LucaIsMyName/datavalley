@@ -1,5 +1,16 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, FolderOpen, GripVertical, Info, Plus, Star, Trash2, Users } from 'lucide-react'
+import {
+  Download,
+  FolderOpen,
+  GripVertical,
+  Info,
+  Link2,
+  Plus,
+  RefreshCw,
+  Star,
+  Trash2,
+  Users,
+} from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -62,8 +73,12 @@ export function ProjectPage() {
   const queryClient = useQueryClient()
   useProjectEvents(projectId)
   const people = usePresencePeople()
-  const nameDraft = people.find((person) => person.focus?.kind === 'projectName' && person.draft != null)?.draft
-  const descriptionDraft = people.find((person) => person.focus?.kind === 'projectDescription' && person.draft != null)?.draft
+  const nameDraft = people.find(
+    (person) => person.focus?.kind === 'projectName' && person.draft != null,
+  )?.draft
+  const descriptionDraft = people.find(
+    (person) => person.focus?.kind === 'projectDescription' && person.draft != null,
+  )?.draft
   const nameRef = useRef<HTMLInputElement>(null)
   const pressTimer = useRef(0)
   const pressOrigin = useRef({ x: 0, y: 0 })
@@ -267,7 +282,9 @@ export function ProjectPage() {
                 onChange={(icon) => void saveIcon('project', projectId, icon)}
               />
               <h1 aria-label={record?.name ?? t('projects')} className="relative min-w-0">
-                <PresenceChip people={people.filter((person) => person.focus?.kind === 'projectName')} />
+                <PresenceChip
+                  people={people.filter((person) => person.focus?.kind === 'projectName')}
+                />
                 <QuietInput
                   fit
                   fitMaxClass="max-w-[min(28rem,calc(100vw-9rem))]"
@@ -294,25 +311,49 @@ export function ProjectPage() {
                   }}
                   onFlush={() => {
                     void sync.flush(`project:${projectId}:name`)
-                    reportPresence({ focus: null, editing: false, draft: null, tableId: null, tableName: null })
+                    reportPresence({
+                      focus: null,
+                      editing: false,
+                      draft: null,
+                      tableId: null,
+                      tableName: null,
+                    })
                   }}
                   onCancel={() => {
                     sync.cancel(`project:${projectId}:name`)
-                    reportPresence({ focus: null, editing: false, draft: null, tableId: null, tableName: null })
+                    reportPresence({
+                      focus: null,
+                      editing: false,
+                      draft: null,
+                      tableId: null,
+                      tableName: null,
+                    })
                   }}
                 />
               </h1>
             </div>
             <div className="flex min-w-0 items-center gap-1">
-              {people.map((person) => (
-                <span
-                  key={person.userId}
-                  className="max-w-40 truncate rounded-sm px-1.5 text-xs leading-6 text-white"
-                  style={{ backgroundColor: person.color }}
-                >
-                  {person.tableName ? `${person.username} · ${person.tableName}` : person.username}
-                </span>
-              ))}
+              {people.map((person) => {
+                const label = person.tableName
+                  ? `${person.username} · ${person.tableName}`
+                  : person.username
+                const initial = person.username.trim().charAt(0).toUpperCase() || '?'
+                return (
+                  <Badge
+                    key={person.userId}
+                    className="max-w-40 normal-case"
+                    image={
+                      <span className="flex h-full w-full items-center justify-center bg-white/25 text-[10px] leading-none font-semibold">
+                        {initial}
+                      </span>
+                    }
+                    style={{ backgroundColor: person.color, color: '#fff' }}
+                    title={label}
+                  >
+                    <span className="min-w-0 truncate">{label}</span>
+                  </Badge>
+                )
+              })}
               <button
                 type="button"
                 aria-label={projectFavorited ? t('removeFromFavorites') : t('addToFavorites')}
@@ -494,7 +535,8 @@ export function ProjectPage() {
                     <div className="relative flex min-w-0 items-center gap-1.5">
                       <PresenceChip
                         people={people.filter(
-                          (person) => person.focus?.kind === 'tableName' && person.focus.tableId === table.id,
+                          (person) =>
+                            person.focus?.kind === 'tableName' && person.focus.tableId === table.id,
                         )}
                       />
                       <QuietInput
@@ -592,7 +634,10 @@ export function ProjectPage() {
                   people={people.filter((person) => person.focus?.kind === 'projectDescription')}
                   className="absolute -top-2 left-1 z-20"
                 />
-                <ProjectDescription projectId={projectId} value={descriptionDraft ?? record?.description ?? ''} />
+                <ProjectDescription
+                  projectId={projectId}
+                  value={descriptionDraft ?? record?.description ?? ''}
+                />
               </div>
               <Dialog.Close className="self-end border border-border px-3 py-1.5 text-sm">
                 {t('close')}
@@ -648,14 +693,14 @@ function TableTabBadge({ table }: { table: Pick<TableRecord, 'mirrorOfTableId' |
   const { t } = useTranslation()
   if (table.mirrorOfTableId) {
     return (
-      <Badge className="shrink-0 normal-case" color="slate">
+      <Badge className="shrink-0 normal-case" color="slate" image={<RefreshCw />}>
         {t('syncedBadge')}
       </Badge>
     )
   }
   if (table.connector) {
     return (
-      <Badge className="shrink-0 normal-case" color="slate">
+      <Badge className="shrink-0 normal-case" color="slate" image={<Link2 />}>
         {t('connectorBadge')}
       </Badge>
     )
