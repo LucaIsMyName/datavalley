@@ -271,19 +271,24 @@ export function AppShell() {
               }}
             />
           </header>
-          <main id="main" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
-            <Outlet />
-          </main>
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <main
+              id="main"
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden pb-[calc(2.75rem+env(safe-area-inset-bottom))] md:pb-0"
+            >
+              <Outlet />
+            </main>
+            <AiChat
+              context={{
+                projectId: tableMatch?.params.projectId ?? projectMatch?.params.projectId,
+                tableId: tableMatch?.params.tableId,
+              }}
+            />
+          </div>
         </SidebarInset>
       </SidebarProvider>
       <Toaster />
       <FormulaWindow />
-      <AiChat
-        context={{
-          projectId: tableMatch?.params.projectId ?? projectMatch?.params.projectId,
-          tableId: tableMatch?.params.tableId,
-        }}
-      />
     </ContextMenuProvider>
   )
 }

@@ -5,14 +5,32 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import type { AiCellProposal, AiChatResponse, AiFormulaProposal, AiHighlight, AiProposal } from '@datavalley/shared'
+import { AppSheet } from '../../components/ui/app-sheet'
 import { Button } from '../../components/ui/button'
 import { api } from '../../lib/api'
-import { useAiFrame } from './chat-frame'
+import { cn } from '../../lib/utils'
+import { AI_PANEL_WIDTH, AI_RAIL_WIDTH, readAiChatOpen, writeAiChatOpen } from './chat-open-state'
 import { chatTitle, loadChats, readActiveChat, rememberChat, removeChat, writeActiveChat, writeChats, type StoredChat } from './chats'
 import { useAiHighlight } from './highlight-store'
 import { highlightsForDestination, safeAppPath } from './navigate'
 import { cellWritePlan } from './proposals'
 import { useAiEnabled } from './status'
+
+const AI_DESKTOP_PANEL_ID = 'ai-chat-panel-desktop'
+const AI_MOBILE_PANEL_ID = 'ai-chat-panel-mobile'
+
+function useIsMobileViewport() {
+  const query = '(max-width: 767px)'
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const onChange = () => setMobile(media.matches)
+    onChange()
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+  return mobile
+}
 
 type ChatContext = { projectId?: string; tableId?: string }
 
@@ -52,15 +70,14 @@ export function AiChat({ context, active = true }: { context: ChatContext; activ
 
 function AiChatPanel({ context }: { context: ChatContext }) {
   const { t } = useTranslation()
+  const isMobile = useIsMobileViewport()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const setMarks = useAiHighlight((state) => state.setMarks)
   const clearMarks = useAiHighlight((state) => state.clear)
-  const frame = useAiFrame()
-  const panelRef = useRef<HTMLElement>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const session = useState(initialSession)[0]
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(readAiChatOpen)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
@@ -78,65 +95,15 @@ function AiChatPanel({ context }: { context: ChatContext }) {
     if (node) node.scrollTop = node.scrollHeight
   }, [lines, pending, open])
 
-  useEffect(() => {
-    function onResize() {
-      const current = useAiFrame.getState()
-      current.resize(current.width, current.height)
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  function setChatOpen(next: boolean) {
+    setOpen(next)
+    writeAiChatOpen(next)
+    if (!next) clearMarks()
+  }
 
-  useEffect(() => {
-    const panel = panelRef.current
-    const bar = panel?.querySelector<HTMLElement>('[data-ai-drag]')
-    const grip = panel?.querySelector<HTMLElement>('[data-ai-resize]')
-    if (!bar || !grip) return
-    function onBarDown(event: PointerEvent) {
-      if (event.button !== 0) return
-      const target = event.target
-      if (target instanceof Element && target.closest('button, a, input')) return
-      event.preventDefault()
-      const startX = event.clientX
-      const startY = event.clientY
-      const origin = useAiFrame.getState()
-      const previous = document.body.style.userSelect
-      document.body.style.userSelect = 'none'
-      function move(next: PointerEvent) {
-        useAiFrame.getState().move(origin.x + next.clientX - startX, origin.y + next.clientY - startY)
-      }
-      function up() {
-        document.body.style.userSelect = previous
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
-      }
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', up)
-    }
-    function onGripDown(event: PointerEvent) {
-      if (event.button !== 0) return
-      event.preventDefault()
-      event.stopPropagation()
-      const startX = event.clientX
-      const startY = event.clientY
-      const origin = useAiFrame.getState()
-      function move(next: PointerEvent) {
-        useAiFrame.getState().resize(origin.width + next.clientX - startX, origin.height + next.clientY - startY)
-      }
-      function up() {
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
-      }
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', up)
-    }
-    bar.addEventListener('pointerdown', onBarDown)
-    grip.addEventListener('pointerdown', onGripDown)
-    return () => {
-      bar.removeEventListener('pointerdown', onBarDown)
-      grip.removeEventListener('pointerdown', onGripDown)
-    }
-  }, [open])
+  function toggleOpen() {
+    setChatOpen(!open)
+  }
 
   function commit(id: string, nextLines: ChatLine[]) {
     if (activeRef.current === id) setLines(nextLines)
@@ -146,11 +113,6 @@ function AiChatPanel({ context }: { context: ChatContext }) {
       return next
     })
     writeActiveChat(id)
-  }
-
-  function close() {
-    setOpen(false)
-    clearMarks()
   }
 
   function startNew() {
@@ -225,36 +187,157 @@ function AiChatPanel({ context }: { context: ChatContext }) {
     }
   }
 
-  if (!open) {
-    return (
-      <Button type="button" className="fixed bottom-4 right-4 z-30" onClick={() => setOpen(true)}>
-        {t('aiAsk')}
-      </Button>
-    )
-  }
-
   const title = chatTitle(lines, t('aiChatTitle'))
 
+  const body = (
+    <AiChatPanelBody
+      title={title}
+      lines={lines}
+      pending={pending}
+      historyOpen={historyOpen}
+      chats={chats}
+      activeId={activeId}
+      draft={draft}
+      applying={applying}
+      context={context}
+      scrollerRef={scrollerRef}
+      onDraftChange={setDraft}
+      onSend={() => void send()}
+      onStartNew={startNew}
+      onToggleHistory={() => setHistoryOpen((current) => !current)}
+      onClearHighlights={() => clearMarks()}
+      onClose={() => setChatOpen(false)}
+      onOpenChat={openChat}
+      onDeleteChat={deleteChat}
+      onApply={apply}
+      onCancelProposal={(index, proposal) =>
+        commit(activeId, lines.map((item, itemIndex) => (itemIndex === index ? { ...item, proposals: item.proposals?.filter((entry) => entry !== proposal) } : item)))
+      }
+    />
+  )
+
   return (
-    <section
-      ref={panelRef}
-      className="fixed z-[100] flex flex-col border border-border bg-card shadow-md"
-      style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
-      aria-label={t('aiChatTitle')}
-    >
-      <div data-ai-drag="" className="flex shrink-0 cursor-grab items-center gap-2 border-b border-border px-3 py-2 select-none">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>{title}</h2>
+    <>
+      <div
+        className="hidden h-full shrink-0 self-stretch border-l border-border bg-card md:flex"
+        aria-label={t('aiChatTitle')}
+      >
+        <button
+          type="button"
+          className="flex h-full shrink-0 flex-col items-center justify-center gap-2 border-r border-border bg-card text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          style={{ width: AI_RAIL_WIDTH }}
+          aria-label={t('aiAsk')}
+          aria-expanded={open}
+          aria-controls={AI_DESKTOP_PANEL_ID}
+          onClick={toggleOpen}
+        >
+          <MessagesSquare className="size-4 shrink-0" aria-hidden />
+          <span className="text-[10px] leading-tight tracking-wide [writing-mode:vertical-rl]">{t('aiAsk')}</span>
+        </button>
+        {open && !isMobile ? (
+          <section
+            id={AI_DESKTOP_PANEL_ID}
+            className="flex min-h-0 min-w-0 flex-col"
+            style={{ width: AI_PANEL_WIDTH }}
+          >
+            {body}
+          </section>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        className="fixed inset-x-0 bottom-0 z-30 flex h-11 items-center justify-center gap-2 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] text-sm font-medium hover:bg-accent md:hidden"
+        aria-label={t('aiAsk')}
+        aria-expanded={open}
+        aria-controls={AI_MOBILE_PANEL_ID}
+        onClick={toggleOpen}
+      >
+        <MessagesSquare className="size-4 shrink-0" aria-hidden />
+        {t('aiAsk')}
+      </button>
+
+      {isMobile ? (
+        <AppSheet open={open} onOpenChange={setChatOpen} title={title} contentId={AI_MOBILE_PANEL_ID}>
+          {body}
+        </AppSheet>
+      ) : null}
+    </>
+  )
+}
+
+type PanelBodyProps = {
+  title: string
+  lines: ChatLine[]
+  pending: boolean
+  historyOpen: boolean
+  chats: StoredChat[]
+  activeId: string
+  draft: string
+  applying: number | null
+  context: ChatContext
+  scrollerRef: React.RefObject<HTMLDivElement | null>
+  onDraftChange: (value: string) => void
+  onSend: () => void
+  onStartNew: () => void
+  onToggleHistory: () => void
+  onClearHighlights: () => void
+  onClose: () => void
+  onOpenChat: (id: string) => void
+  onDeleteChat: (id: string) => void
+  onApply: (index: number, proposal: AiCellProposal) => void
+  onCancelProposal: (index: number, proposal: AiProposal) => void
+}
+
+function AiChatPanelBody({
+  title,
+  lines,
+  pending,
+  historyOpen,
+  chats,
+  activeId,
+  draft,
+  applying,
+  context,
+  scrollerRef,
+  onDraftChange,
+  onSend,
+  onStartNew,
+  onToggleHistory,
+  onClearHighlights,
+  onClose,
+  onOpenChat,
+  onDeleteChat,
+  onApply,
+  onCancelProposal,
+}: PanelBodyProps) {
+  const { t } = useTranslation()
+
+  return (
+    <>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>
+          {title}
+        </h2>
         <div className="flex shrink-0 items-center">
-          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('aiNewChat')} title={t('aiNewChat')} onClick={startNew}>
+          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('aiNewChat')} title={t('aiNewChat')} onClick={onStartNew}>
             <Plus className="size-4" />
           </Button>
-          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('aiChats')} title={t('aiChats')} aria-pressed={historyOpen} onClick={() => setHistoryOpen((current) => !current)}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            aria-label={t('aiChats')}
+            title={t('aiChats')}
+            aria-pressed={historyOpen}
+            onClick={onToggleHistory}
+          >
             <MessagesSquare className="size-4" />
           </Button>
-          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('aiClearHighlights')} title={t('aiClearHighlights')} onClick={() => clearMarks()}>
+          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('aiClearHighlights')} title={t('aiClearHighlights')} onClick={onClearHighlights}>
             <Eraser className="size-4" />
           </Button>
-          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('close')} title={t('close')} onClick={close}>
+          <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('close')} title={t('close')} onClick={onClose}>
             <X className="size-4" />
           </Button>
         </div>
@@ -263,11 +346,13 @@ function AiChatPanel({ context }: { context: ChatContext }) {
         <div className="max-h-40 shrink-0 overflow-y-auto border-b border-border">
           {chats.length === 0 ? <p className="px-3 py-2 text-sm text-muted-foreground">{t('aiNoChats')}</p> : null}
           {chats.map((chat) => (
-            <div key={chat.id} className={`flex items-center gap-1 px-2 py-1 ${chat.id === activeId ? 'bg-accent' : ''}`}>
-              <button type="button" className="h-8 min-w-0 flex-1 truncate px-1 text-left text-sm hover:bg-accent" onClick={() => openChat(chat.id)}>
+            <div key={chat.id} className={cn('flex items-center gap-1 px-2 py-1', chat.id === activeId ? 'bg-accent' : '')}>
+              <button type="button" className="h-8 min-w-0 flex-1 truncate px-1 text-left text-sm hover:bg-accent" onClick={() => onOpenChat(chat.id)}>
                 {chat.title || t('aiChatTitle')}
               </button>
-              <Button type="button" variant="ghost" className="h-7 px-2" aria-label={t('aiDeleteChat')} onClick={() => deleteChat(chat.id)}>{t('delete')}</Button>
+              <Button type="button" variant="ghost" className="h-7 px-2" aria-label={t('aiDeleteChat')} onClick={() => onDeleteChat(chat.id)}>
+                {t('delete')}
+              </Button>
             </div>
           ))}
         </div>
@@ -275,26 +360,30 @@ function AiChatPanel({ context }: { context: ChatContext }) {
       <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
         {lines.map((line, index) => (
           <div key={`${line.role}:${index}`} className={`flex ${line.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`flex max-w-[92%] flex-col gap-2 border border-border px-2 py-1.5 ${line.role === 'user' ? 'bg-accent' : 'bg-card'}`}>
+            <div className={cn('flex max-w-[92%] flex-col gap-2 border border-border px-2 py-1.5', line.role === 'user' ? 'bg-accent' : 'bg-card')}>
               <p className="whitespace-pre-wrap text-sm">{line.content}</p>
-              {line.role === 'assistant' ? line.highlights?.filter((item) => item.tableId !== context.tableId).map((item) => (
-                <Link key={`${item.tableId}:${item.label}`} className="text-sm underline" to={`/projects/${item.projectId}/tables/${item.tableId}`}>
-                  {item.label || t('aiOtherTables')}
-                </Link>
-              )) : null}
-              {line.role === 'assistant' ? line.proposals?.map((proposal) =>
-                proposal.kind === 'cells' ? (
-                  <ProposalCard
-                    key={`${proposal.tableId}:${proposal.changes.map((change) => change.rowId + change.columnId).join(',')}`}
-                    proposal={proposal}
-                    pending={applying === index}
-                    onApply={() => void apply(index, proposal)}
-                    onCancel={() => commit(activeId, lines.map((item, itemIndex) => (itemIndex === index ? { ...item, proposals: item.proposals?.filter((entry) => entry !== proposal) } : item)))}
-                  />
-                ) : (
-                  <FormulaNote key={proposal.expression} proposal={proposal} />
-                ),
-              ) : null}
+              {line.role === 'assistant'
+                ? line.highlights?.filter((item) => item.tableId !== context.tableId).map((item) => (
+                    <Link key={`${item.tableId}:${item.label}`} className="text-sm underline" to={`/projects/${item.projectId}/tables/${item.tableId}`}>
+                      {item.label || t('aiOtherTables')}
+                    </Link>
+                  ))
+                : null}
+              {line.role === 'assistant'
+                ? line.proposals?.map((proposal) =>
+                    proposal.kind === 'cells' ? (
+                      <ProposalCard
+                        key={`${proposal.tableId}:${proposal.changes.map((change) => change.rowId + change.columnId).join(',')}`}
+                        proposal={proposal}
+                        pending={applying === index}
+                        onApply={() => void onApply(index, proposal)}
+                        onCancel={() => onCancelProposal(index, proposal)}
+                      />
+                    ) : (
+                      <FormulaNote key={proposal.expression} proposal={proposal} />
+                    ),
+                  )
+                : null}
             </div>
           </div>
         ))}
@@ -304,25 +393,21 @@ function AiChatPanel({ context }: { context: ChatContext }) {
         className="flex shrink-0 gap-2 border-t border-border p-3"
         onSubmit={(event) => {
           event.preventDefault()
-          void send()
+          onSend()
         }}
       >
         <input
           aria-label={t('aiChatPlaceholder')}
           className="h-9 min-w-0 flex-1 border border-border bg-card px-2 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => onDraftChange(event.target.value)}
           placeholder={t('aiChatPlaceholder')}
         />
-        <Button type="submit" disabled={pending || !draft.trim()}>{t('aiSend')}</Button>
+        <Button type="submit" disabled={pending || !draft.trim()}>
+          {t('aiSend')}
+        </Button>
       </form>
-      <button
-        type="button"
-        aria-label={t('formulaResize')}
-        data-ai-resize=""
-        className="absolute right-0 bottom-0 size-4 cursor-nwse-resize border-r-2 border-b-2 border-muted-foreground"
-      />
-    </section>
+    </>
   )
 }
 
@@ -337,8 +422,12 @@ function ProposalCard({ proposal, pending, onApply, onCancel }: { proposal: AiCe
         </p>
       ))}
       <div className="flex gap-2">
-        <Button type="button" disabled={pending} onClick={onApply}>{t('aiApply')}</Button>
-        <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>{t('cancel')}</Button>
+        <Button type="button" disabled={pending} onClick={onApply}>
+          {t('aiApply')}
+        </Button>
+        <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>
+          {t('cancel')}
+        </Button>
       </div>
     </div>
   )
