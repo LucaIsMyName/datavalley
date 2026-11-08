@@ -17,6 +17,7 @@ import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
 import { mergeMediaIntoCell } from './media-cell'
 import { NotesBlockEditor } from './notes'
 import { NotesRowFields } from './notes-row-fields'
+import { RecordMail } from './record-mail'
 import { mergeColumnOption } from './select-options-utils'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { useRowCellEdit } from './use-row-cell-edit'
@@ -232,15 +233,15 @@ export function RecordPage() {
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">{t('linkedRecords')}</h2>
         {cache?.links.length ? (
-          <ul className="flex flex-col">
+          <ul className="flex w-full gap-2">
             {cache.links.map((link) => (
-              <li key={`${link.tableId}:${link.rowId}:${link.columnName}`} className="border-t border-border">
+              <li key={`${link.tableId}:${link.rowId}:${link.columnName}`} className="border border-border">
                 <Link
                   to={`/projects/${projectId}/tables/${link.tableId}/rows/${link.rowId}`}
-                  className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 py-1.5 text-sm sm:flex-row sm:items-center sm:gap-2"
+                  className="flex  min-w-0 gap-0.5 px-2 py-1.5 text-sm sm:gap-2"
                 >
-                  <span className="text-muted-foreground">{link.columnName || link.tableName}</span>
-                  <span className="min-w-0 truncate font-medium">{link.title}</span>
+                  <span className="text-muted-foreground col-span-1">{link.columnName || link.tableName}</span>
+                  <span className="min-w-0 truncate font-medium col-span-2">{link.title}</span>
                 </Link>
               </li>
             ))}
@@ -249,6 +250,7 @@ export function RecordPage() {
           <p className="text-sm text-muted-foreground">{t('linkedRecordsEmpty')}</p>
         )}
       </section>
+      <RecordMail rowId={row.id} readOnly={readOnly} />
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">{t('fieldHistory')}</h2>
         {history.isLoading && !history.data ? <LoadingBlock variant="rows" /> : null}

@@ -2574,6 +2574,50 @@ const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/col
 })
 ```
 
+### `GET /api/v1/rows/{rowId}/mail`
+
+Get mail
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/mail")
+```
+
+### `POST /api/v1/rows/{rowId}/mail`
+
+Create a mail
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/mail", {
+  method: "POST",
+  body: JSON.stringify({
+    "to": "to",
+    "subject": "subject",
+    "body": "body"
+  }),
+})
+```
+
 ## Formulas
 
 ### `POST /api/v1/formulas/validate`
@@ -3274,5 +3318,98 @@ None
 await api.ensureCsrf()
 const result = await api.request("/integrations/00000000-0000-4000-8000-000072a04899/webhook", {
   method: "POST",
+})
+```
+
+## Mail
+
+### `GET /api/v1/mail/templates`
+
+List templates
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/mail/templates")
+```
+
+### `POST /api/v1/mail/templates`
+
+Create a template
+
+**Path**
+
+None
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/mail/templates", {
+  method: "POST",
+  body: JSON.stringify({
+    "name": "name",
+    "subject": "subject",
+    "body": "body"
+  }),
+})
+```
+
+### `PATCH /api/v1/mail/templates/{templateId}`
+
+Update a template
+
+**Path**
+
+- `templateId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/mail/templates/00000000-0000-4000-8000-00004db99f35", {
+  method: "PATCH",
+  body: JSON.stringify({
+    "name": "name",
+    "subject": "subject",
+    "body": "body"
+  }),
+})
+```
+
+### `DELETE /api/v1/mail/templates/{templateId}`
+
+Delete a template
+
+**Path**
+
+- `templateId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/mail/templates/00000000-0000-4000-8000-00004db99f35", {
+  method: "DELETE",
 })
 ```

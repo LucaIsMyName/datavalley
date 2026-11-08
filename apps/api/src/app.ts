@@ -17,6 +17,7 @@ import { createRateLimiter } from './security/rate-limit.js'
 import { registerAiRoutes } from './modules/ai/routes.js'
 import { passwordChangeGate, registerAuthRoutes, sessionCookie } from './modules/auth/routes.js'
 import { registerDataRoutes } from './modules/data/routes.js'
+import { registerMailRoutes } from './modules/mail/routes.js'
 import { subjectFromSession } from './modules/auth/service.js'
 import { ensurePlugins, subjectFromApiKey } from './modules/platform/service.js'
 import { registerConnectorRoutes, registerProjectConnectorRoutes } from './modules/connectors/routes.js'
@@ -128,6 +129,7 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
       registerSearchRoutes(api, db)
       registerAiRoutes(api, db, env, apiKeyRateLimiter)
       registerDataRoutes(api, db, env)
+      registerMailRoutes(api, db, env)
     },
     { prefix: '/api/v1' },
   )

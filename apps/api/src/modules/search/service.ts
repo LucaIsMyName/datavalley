@@ -52,6 +52,7 @@ const pageRoutes: { id: string; href: string; admin: boolean; titles: Record<Loc
   { id: 'api-keys', href: '/settings/api-keys', admin: true, titles: { en: 'API keys', de: 'API-Schlüssel' } },
   { id: 'audit', href: '/settings/audit', admin: true, titles: { en: 'Audit log', de: 'Protokoll' } },
   { id: 'ai', href: '/settings/ai', admin: true, titles: { en: 'AI', de: 'KI' } },
+  { id: 'mail', href: '/settings/mail', admin: true, titles: { en: 'Mail templates', de: 'E-Mail-Vorlagen' } },
   { id: 'docs-use', href: '/doc/use', admin: false, titles: { en: 'User guide', de: 'Benutzerhandbuch' } },
   { id: 'docs-develop', href: '/doc/develop', admin: false, titles: { en: 'Developer guide', de: 'Entwicklerhandbuch' } },
   { id: 'docs-api', href: '/doc/api', admin: false, titles: { en: 'API reference', de: 'API-Referenz' } },

@@ -13,6 +13,7 @@ function SettingsNav({ className }: { className?: string }) {
           { to: '/settings/api-keys', key: 'apiKeys' },
           { to: '/settings/audit', key: 'audit' },
           { to: '/settings/ai', key: 'ai' },
+          { to: '/settings/mail', key: 'mailTemplates' },
         ]
       : []),
   ]

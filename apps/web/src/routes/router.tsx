@@ -59,6 +59,7 @@ const UsersPage = route(() => import('../features/settings/admin-pages'), 'Users
 const ApiKeysPage = route(() => import('../features/settings/admin-pages'), 'ApiKeysPage')
 const AuditPage = route(() => import('../features/settings/admin-pages'), 'AuditPage')
 const AiPage = route(() => import('../features/settings/ai-page'), 'AiPage')
+const MailTemplatesPage = route(() => import('../features/settings/mail-page'), 'MailTemplatesPage')
 
 function RequireAuth() {
   const location = useLocation()
@@ -144,6 +145,7 @@ export const router = createBrowserRouter([
                           { path: 'api-keys', element: <ApiKeysPage /> },
                           { path: 'audit', element: <AuditPage /> },
                           { path: 'ai', element: <AiPage /> },
+                          { path: 'mail', element: <MailTemplatesPage /> },
                         ],
                       },
                     ],

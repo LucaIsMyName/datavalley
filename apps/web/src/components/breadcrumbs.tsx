@@ -64,6 +64,7 @@ export function useCrumbs(): Crumb[] {
     '/settings/api-keys': 'apiKeys',
     '/settings/audit': 'audit',
     '/settings/ai': 'ai',
+    '/settings/mail': 'mailTemplates',
   }
   if (settings[pathname]) {
     return [

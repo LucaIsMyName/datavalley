@@ -229,6 +229,30 @@ export const tableCells = pgTable('table_cells', {
     ...timestamps,
   })
 
+export const mailTemplates = pgTable('mail_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  subject: text('subject').notNull().default(''),
+  body: text('body').notNull().default(''),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+})
+
+export const mailMessages = pgTable('mail_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+  relatedRowId: uuid('related_row_id').references(() => tableRows.id, { onDelete: 'set null' }),
+  templateId: uuid('template_id').references(() => mailTemplates.id, { onDelete: 'set null' }),
+  actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+  toAddress: text('to_address').notNull(),
+  subject: text('subject').notNull(),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const fieldHistory = pgTable('field_history', {
   id: uuid('id').primaryKey().defaultRandom(),
   tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
