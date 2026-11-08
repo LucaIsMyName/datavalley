@@ -210,6 +210,39 @@ export function nextBlockType(current: NoteBlockType): NoteBlockType {
   return 'paragraph'
 }
 
+export type EnterResult = { kind: 'replace' | 'insert'; block: NoteBlock }
+
+/** Enter on a blank list item becomes a paragraph. A filled item keeps the list. */
+export function enterFromBlock(block: NoteBlock): EnterResult {
+  const list = block.type === 'bullet' || block.type === 'numbered' || block.type === 'todo'
+  if (list && block.text.trim() === '') {
+    return { kind: 'replace', block: { id: block.id, type: 'paragraph', text: '' } }
+  }
+  const followType = nextBlockType(block.type)
+  const created: NoteBlock = { id: newBlockId(), type: followType, text: '' }
+  if (followType === 'todo') created.checked = false
+  return { kind: 'insert', block: created }
+}
+
+export function clampMenuPosition(input: {
+  x: number
+  y: number
+  width: number
+  height: number
+  viewportWidth: number
+  viewportHeight: number
+  margin?: number
+}): { left: number; top: number; maxHeight: number } {
+  const margin = input.margin ?? 8
+  const maxHeight = Math.max(0, Math.min(input.height, input.viewportHeight - margin * 2))
+  const left = Math.max(margin, Math.min(input.x, input.viewportWidth - margin - input.width))
+  const top =
+    input.y + input.height <= input.viewportHeight - margin
+      ? input.y
+      : Math.max(margin, input.viewportHeight - margin - maxHeight)
+  return { left, top, maxHeight }
+}
+
 export type ShortcutResult = { block: NoteBlock; consumed: boolean }
 
 /** Apply block-level markdown shortcuts when the user types at the start of a line. */

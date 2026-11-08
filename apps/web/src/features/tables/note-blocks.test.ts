@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyBlockShortcutOnInput,
+  clampMenuPosition,
+  enterFromBlock,
   insertBlock,
   parseInlineMarkdown,
   parseNotes,
@@ -46,6 +48,56 @@ describe('applyBlockShortcutOnInput', () => {
     const result = applyBlockShortcutOnInput(block, '## ')
     expect(result.block.type).toBe('heading')
     expect(result.block.level).toBe(2)
+  })
+})
+
+describe('enterFromBlock', () => {
+  it('turns a blank list item into a paragraph', () => {
+    for (const type of ['bullet', 'numbered', 'todo'] as const) {
+      const result = enterFromBlock({ id: 'a', type, text: '   ' })
+      expect(result.kind).toBe('replace')
+      expect(result.block).toEqual({ id: 'a', type: 'paragraph', text: '' })
+    }
+  })
+
+  it('inserts another item when the list line has text', () => {
+    const bullet = enterFromBlock({ id: 'a', type: 'bullet', text: 'item' })
+    expect(bullet.kind).toBe('insert')
+    expect(bullet.block.type).toBe('bullet')
+    expect(bullet.block.text).toBe('')
+    const paragraph = enterFromBlock({ id: 'a', type: 'paragraph', text: 'hello' })
+    expect(paragraph.kind).toBe('insert')
+    expect(paragraph.block.type).toBe('paragraph')
+  })
+})
+
+describe('clampMenuPosition', () => {
+  it('moves a menu that would pass the bottom back into the viewport', () => {
+    const placed = clampMenuPosition({
+      x: 40,
+      y: 560,
+      width: 176,
+      height: 470,
+      viewportWidth: 800,
+      viewportHeight: 600,
+    })
+    expect(placed.top + placed.maxHeight).toBeLessThanOrEqual(600 - 8)
+    expect(placed.top).toBeGreaterThanOrEqual(8)
+    expect(placed.maxHeight).toBe(470)
+  })
+
+  it('caps a menu taller than the viewport', () => {
+    const placed = clampMenuPosition({
+      x: 40,
+      y: 400,
+      width: 176,
+      height: 900,
+      viewportWidth: 800,
+      viewportHeight: 600,
+    })
+    expect(placed.maxHeight).toBe(600 - 16)
+    expect(placed.top).toBe(8)
+    expect(placed.top + placed.maxHeight).toBeLessThanOrEqual(600 - 8)
   })
 })
 

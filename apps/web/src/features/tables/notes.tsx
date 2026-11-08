@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useQueryClient } from '@tanstack/react-query'
 import type { CatalogItem, Column, MediaFile, RowRecord } from '@datavalley/api-client'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -18,9 +19,9 @@ import type { TableReadOnlyReason } from './table-read-only'
 import { useRowCellEdit } from './use-row-cell-edit'
 import {
   applyBlockShortcutOnInput,
+  clampMenuPosition,
+  enterFromBlock,
   insertBlock,
-  newBlockId,
-  nextBlockType,
   parseInlineMarkdown,
   parseNotes,
   removeBlock,
@@ -238,7 +239,23 @@ export function NotesBlockEditor({
   const [blocks, setBlocks] = useState(() => parseNotes(markdown))
   const [activeId, setActiveId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ blockId: string; x: number; y: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const blocksRef = useRef(blocks)
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!el || !menu) return
+    const placed = clampMenuPosition({
+      x: menu.x,
+      y: menu.y,
+      width: el.offsetWidth,
+      height: el.scrollHeight,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    })
+    el.style.left = `${placed.left}px`
+    el.style.top = `${placed.top}px`
+    el.style.maxHeight = `${placed.maxHeight}px`
+  }, [menu])
   useEffect(() => {
     if (!menu) return
     function close(event: Event) {
@@ -305,11 +322,14 @@ export function NotesBlockEditor({
 
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      const followType = nextBlockType(block.type)
-      const created: NoteBlock = { id: newBlockId(), type: followType, text: '' }
-      if (followType === 'todo') created.checked = false
-      commit(insertBlock(blocksRef.current, index + 1, created))
-      setActiveId(created.id)
+      const result = enterFromBlock(block)
+      if (result.kind === 'replace') {
+        commit(blocksRef.current.map((item) => (item.id === id ? result.block : item)))
+        setActiveId(result.block.id)
+        return
+      }
+      commit(insertBlock(blocksRef.current, index + 1, result.block))
+      setActiveId(result.block.id)
       return
     }
 
@@ -325,9 +345,7 @@ export function NotesBlockEditor({
   function openMenu(blockId: string, event: MouseEvent) {
     if (readOnly) return
     event.preventDefault()
-    const left = Math.min(event.clientX, window.innerWidth - 192)
-    const top = Math.min(event.clientY, window.innerHeight - 280)
-    setMenu({ blockId, x: Math.max(8, left), y: Math.max(8, top) })
+    setMenu({ blockId, x: event.clientX, y: event.clientY })
   }
 
   function turnInto(id: string, target: TurnIntoType) {
@@ -382,28 +400,32 @@ export function NotesBlockEditor({
             />
         </div>
       ))}
-      {menu && !readOnly ? (
-        <div
-          data-notes-block-menu=""
-          className="fixed z-[60] max-h-80 min-w-44 overflow-auto border border-border bg-card p-1 shadow-md"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          {TURN_INTO_OPTIONS.map((option) => (
-            <button
-              key={option.labelKey}
-              type="button"
-              className="flex min-h-9 w-full items-center px-2 text-left text-sm hover:bg-accent"
-              onClick={() => {
-                turnInto(menu.blockId, option.type)
-                setMenu(null)
-              }}
+      {menu && !readOnly
+        ? createPortal(
+            <div
+              ref={menuRef}
+              data-notes-block-menu=""
+              className="fixed z-[60] min-w-44 overflow-auto border border-border bg-card p-1 shadow-md"
+              style={{ left: menu.x, top: menu.y }}
+              onMouseDown={(event) => event.preventDefault()}
             >
-              {t(option.labelKey)}
-            </button>
-          ))}
-        </div>
-      ) : null}
+              {TURN_INTO_OPTIONS.map((option) => (
+                <button
+                  key={option.labelKey}
+                  type="button"
+                  className="flex min-h-9 w-full items-center px-2 text-left text-sm hover:bg-accent"
+                  onClick={() => {
+                    turnInto(menu.blockId, option.type)
+                    setMenu(null)
+                  }}
+                >
+                  {t(option.labelKey)}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }
