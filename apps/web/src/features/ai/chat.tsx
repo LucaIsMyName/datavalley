@@ -316,8 +316,8 @@ function AiChatPanelBody({
   return (
     <>
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>
-          {title}
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={historyOpen ? t('aiChats') : title}>
+          {historyOpen ? t('aiChats') : title}
         </h2>
         <div className="flex shrink-0 items-center">
           <Button type="button" variant="ghost" className="h-7 w-7 p-0" aria-label={t('aiNewChat')} title={t('aiNewChat')} onClick={onStartNew}>
@@ -343,7 +343,7 @@ function AiChatPanelBody({
         </div>
       </div>
       {historyOpen ? (
-        <div className="max-h-40 shrink-0 overflow-y-auto border-b border-border">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {chats.length === 0 ? <p className="px-3 py-2 text-sm text-muted-foreground">{t('aiNoChats')}</p> : null}
           {chats.map((chat) => (
             <div key={chat.id} className={cn('flex items-center gap-1 px-2 py-1', chat.id === activeId ? 'bg-accent' : '')}>
@@ -356,57 +356,60 @@ function AiChatPanelBody({
             </div>
           ))}
         </div>
-      ) : null}
-      <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-        {lines.map((line, index) => (
-          <div key={`${line.role}:${index}`} className={`flex ${line.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={cn('flex max-w-[92%] flex-col gap-2 border border-border px-2 py-1.5', line.role === 'user' ? 'bg-accent' : 'bg-card')}>
-              <p className="whitespace-pre-wrap text-sm">{line.content}</p>
-              {line.role === 'assistant'
-                ? line.highlights?.filter((item) => item.tableId !== context.tableId).map((item) => (
-                    <Link key={`${item.tableId}:${item.label}`} className="text-sm underline" to={`/projects/${item.projectId}/tables/${item.tableId}`}>
-                      {item.label || t('aiOtherTables')}
-                    </Link>
-                  ))
-                : null}
-              {line.role === 'assistant'
-                ? line.proposals?.map((proposal) =>
-                    proposal.kind === 'cells' ? (
-                      <ProposalCard
-                        key={`${proposal.tableId}:${proposal.changes.map((change) => change.rowId + change.columnId).join(',')}`}
-                        proposal={proposal}
-                        pending={applying === index}
-                        onApply={() => void onApply(index, proposal)}
-                        onCancel={() => onCancelProposal(index, proposal)}
-                      />
-                    ) : (
-                      <FormulaNote key={proposal.expression} proposal={proposal} />
-                    ),
-                  )
-                : null}
-            </div>
+      ) : (
+        <>
+          <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+            {lines.map((line, index) => (
+              <div key={`${line.role}:${index}`} className={`flex ${line.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={cn('flex max-w-[92%] flex-col gap-2 border border-border px-2 py-1.5', line.role === 'user' ? 'bg-accent' : 'bg-card')}>
+                  <p className="whitespace-pre-wrap text-sm">{line.content}</p>
+                  {line.role === 'assistant'
+                    ? line.highlights?.filter((item) => item.tableId !== context.tableId).map((item) => (
+                        <Link key={`${item.tableId}:${item.label}`} className="text-sm underline" to={`/projects/${item.projectId}/tables/${item.tableId}`}>
+                          {item.label || t('aiOtherTables')}
+                        </Link>
+                      ))
+                    : null}
+                  {line.role === 'assistant'
+                    ? line.proposals?.map((proposal) =>
+                        proposal.kind === 'cells' ? (
+                          <ProposalCard
+                            key={`${proposal.tableId}:${proposal.changes.map((change) => change.rowId + change.columnId).join(',')}`}
+                            proposal={proposal}
+                            pending={applying === index}
+                            onApply={() => void onApply(index, proposal)}
+                            onCancel={() => onCancelProposal(index, proposal)}
+                          />
+                        ) : (
+                          <FormulaNote key={proposal.expression} proposal={proposal} />
+                        ),
+                      )
+                    : null}
+                </div>
+              </div>
+            ))}
+            {pending ? <p className="text-sm text-muted-foreground">{t('aiThinking')}</p> : null}
           </div>
-        ))}
-        {pending ? <p className="text-sm text-muted-foreground">{t('aiThinking')}</p> : null}
-      </div>
-      <form
-        className="flex shrink-0 gap-2 border-t border-border p-3"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSend()
-        }}
-      >
-        <input
-          aria-label={t('aiChatPlaceholder')}
-          className="h-9 min-w-0 flex-1 border border-border bg-card px-2 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
-          placeholder={t('aiChatPlaceholder')}
-        />
-        <Button type="submit" disabled={pending || !draft.trim()}>
-          {t('aiSend')}
-        </Button>
-      </form>
+          <form
+            className="flex shrink-0 gap-2 border-t border-border p-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              onSend()
+            }}
+          >
+            <input
+              aria-label={t('aiChatPlaceholder')}
+              className="h-9 min-w-0 flex-1 border border-border bg-card px-2 text-sm outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              placeholder={t('aiChatPlaceholder')}
+            />
+            <Button type="submit" disabled={pending || !draft.trim()}>
+              {t('aiSend')}
+            </Button>
+          </form>
+        </>
+      )}
     </>
   )
 }
