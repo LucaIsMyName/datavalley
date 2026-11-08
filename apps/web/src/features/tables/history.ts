@@ -1,6 +1,7 @@
 import type { Column, RowRecord } from '@datavalley/api-client'
 import { createUndoStack, type FormatRule, type UndoCommand } from '@datavalley/shared'
 import { api } from '../../lib/api'
+import { rowFromVersionConflict } from './version-conflict'
 
 const LIMIT = 10
 
@@ -92,7 +93,7 @@ export function historyFlags(tableId: string) {
   return { canUndo: snap.undo.length > 0, canRedo: snap.redo.length > 0 }
 }
 
-async function sendPatch(patch: Patch) {
+async function requestPatch(patch: Patch) {
   const result = await api.request<{ row: RowRecord }>(`/rows/${patch.rowId}`, {
     method: 'PATCH',
     body: JSON.stringify({
@@ -104,6 +105,16 @@ async function sendPatch(patch: Patch) {
     }),
   })
   return result.row.version
+}
+
+async function sendPatch(patch: Patch) {
+  try {
+    return await requestPatch(patch)
+  } catch (error) {
+    const fresh = rowFromVersionConflict(error)
+    if (!fresh) throw error
+    return requestPatch({ ...patch, version: fresh.version })
+  }
 }
 
 async function rowVersions(tableId: string) {

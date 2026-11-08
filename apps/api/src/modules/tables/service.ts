@@ -47,6 +47,7 @@ import {
 import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } from './resolve.js'
 import { seedDemoTable } from './template.js'
 import { publishRealtime, publishTableSignal } from '../realtime/publish.js'
+import { visibleColumns } from '../rows/visible-columns.js'
 
 function relationConfig(
   stored: unknown,
@@ -583,7 +584,9 @@ export async function getTable(db: AppDatabase, subject: Subject, tableId: strin
     ...presentTable(shell),
     mirrorSource,
     connector: await loadTableConnector(db, shell.id),
-    columns: (await loadColumns(db, physical.id)).map((column) => presentColumn(column)),
+    columns: (
+      await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
+    ).map((column) => presentColumn(column)),
     tags,
     statuses,
   }

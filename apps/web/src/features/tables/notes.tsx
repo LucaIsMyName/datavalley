@@ -6,9 +6,10 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
-import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { mapCachedRows, readCachedRow } from './cache'
+import { showEditError } from './grid-edit'
+import { notesAfterFailure, saveNotes } from './notes-save'
 import { applyStashedNotes } from '../realtime/apply'
 import { setNotesEditing, takeStashedNotes } from '../realtime/editing'
 import { PresenceChip } from '../realtime/presence-chip'
@@ -520,11 +521,7 @@ export function NotesDrawer({
       apply: () => undefined,
       commit: async (draft) => {
         const current = readCachedRow(queryClient, tableId, rowId)
-        const result = await api.request<{ row: RowRecord }>(`/rows/${rowId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ version: current?.version ?? version, cells: {}, notes: draft }),
-        })
-        return result.row
+        return saveNotes(queryClient, tableId, rowId, current?.version ?? version, draft)
       },
       accept: (saved) => {
         takeStashedNotes(saved.id)
@@ -533,7 +530,14 @@ export function NotesDrawer({
           item.id === saved.id ? { ...item, notes: saved.notes, version: saved.version } : item,
         )
       },
-      rollback: () => {
+      rollback: (reason) => {
+        const outcome = notesAfterFailure(reason, baseline.current)
+        if (outcome.conflict) {
+          baseline.current = outcome.notes
+          setText(outcome.notes)
+          showEditError(t('versionConflict'))
+          return
+        }
         setText(baseline.current)
         mapCachedRows(queryClient, tableId, (item) =>
           item.id === rowId ? { ...item, notes: baseline.current } : item,

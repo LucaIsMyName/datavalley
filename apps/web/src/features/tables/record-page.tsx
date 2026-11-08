@@ -15,8 +15,10 @@ import { applyStashedNotes } from '../realtime/apply'
 import { setNotesEditing, takeStashedNotes } from '../realtime/editing'
 import { reportPresence } from '../realtime/presence-store'
 import { mapCachedRows, patchCachedTable, readCachedRow } from './cache'
+import { showEditError } from './grid-edit'
 import { mergeMediaIntoCell } from './media-cell'
 import { NotesBlockEditor } from './notes'
+import { notesAfterFailure, saveNotes } from './notes-save'
 import { NotesRowFields } from './notes-row-fields'
 import { RecordMail } from './record-mail'
 import { RecordPrivacy } from './record-privacy'
@@ -168,11 +170,7 @@ export function RecordPage() {
       apply: () => undefined,
       commit: async (draft) => {
         const current = readCachedRow(queryClient, tableId, row.id)
-        const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ version: current?.version ?? version, cells: {}, notes: draft }),
-        })
-        return result.row
+        return saveNotes(queryClient, tableId, row.id, current?.version ?? version, draft)
       },
       accept: (saved) => {
         takeStashedNotes(saved.id)
@@ -181,7 +179,16 @@ export function RecordPage() {
           item.id === saved.id ? { ...item, notes: saved.notes, version: saved.version } : item,
         )
       },
-      rollback: () => setNotes(notesBaseline.current),
+      rollback: (reason) => {
+        const outcome = notesAfterFailure(reason, notesBaseline.current)
+        if (outcome.conflict) {
+          notesBaseline.current = outcome.notes
+          setNotes(outcome.notes)
+          showEditError(t('versionConflict'))
+          return
+        }
+        setNotes(notesBaseline.current)
+      },
     })
   }
 

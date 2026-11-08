@@ -4071,6 +4071,13 @@
                       "maxLength": 36,
                       "type": "string"
                     }
+                  },
+                  "versions": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
                   }
                 }
               }

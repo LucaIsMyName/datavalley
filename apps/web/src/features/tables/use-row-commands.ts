@@ -1,5 +1,5 @@
 import { showEditError } from './grid-edit'
-import { type Column, type RowRecord, type MediaFile } from '@datavalley/api-client'
+import { ApiClientError, type Column, type MediaFile, type RowRecord } from '@datavalley/api-client'
 import { type PointerEvent as ReactPointerEvent } from 'react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
@@ -345,13 +345,23 @@ export function useRowCommands(scope: Scope) {
     const ordered = rows.filter((row: any) => checked.includes(row.id))
     if (ordered.length < 2) return
     const source = ordered[0].cells[columnId] ?? null
-    const previous = ordered
-      .slice(1)
-      .map((row: any) => ({ rowId: row.id, value: row.cells[columnId] ?? null }))
-    await api.request(`/tables/${tableId}/fill`, {
-      method: 'POST',
-      body: JSON.stringify({ columnId, rowIds: ordered.map((row: any) => row.id) }),
-    })
+    const targets = ordered.slice(1)
+    const previous = targets.map((row: any) => ({ rowId: row.id, value: row.cells[columnId] ?? null }))
+    const versions = Object.fromEntries(targets.map((row: any) => [row.id, row.version ?? 1]))
+    try {
+      await api.request(`/tables/${tableId}/fill`, {
+        method: 'POST',
+        body: JSON.stringify({ columnId, rowIds: ordered.map((row: any) => row.id), versions }),
+      })
+    } catch (error) {
+      if (error instanceof ApiClientError && error.code === 'version_conflict') {
+        showEditError(t('versionConflict'))
+        return
+      }
+      const message = editFailureMessage(error, t('error'))
+      if (message) showEditError(message)
+      return
+    }
     const fresh = await fetchRows()
     pushCommand(tableId, {
       kind: 'patch',

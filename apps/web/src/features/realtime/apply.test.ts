@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query'
 import type { RowRecord } from '@datavalley/api-client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyRealtimeEvent, applyRemoteRow, applyStashedCell } from './apply.js'
-import { clearCellEditing, setCellEditing } from './editing.js'
+import { clearCellEditing, setCellEditing, setNotesEditing } from './editing.js'
 
 function seed(client: QueryClient) {
   const row = {
@@ -78,9 +78,48 @@ describe('remote row apply', () => {
     })
     expect(readName(client)?.cells.name).toBe('Ada')
     expect(readName(client)?.cells.city).toBe('Paris')
+    expect(readName(client)?.version).toBe(1)
     clearCellEditing()
     applyStashedCell(client, 'table-1', 'row-1', 'name')
     expect(readName(client)?.cells.name).toBe('Grace')
+  })
+
+  it('advances the version when the remote edit is a different cell', () => {
+    const client = new QueryClient()
+    seed(client)
+    setCellEditing('row-1', 'name')
+    applyRemoteRow(client, 'table-1', {
+      id: 'row-1',
+      position: 'a0',
+      version: 4,
+      color: null,
+      notes: '',
+      rowNumber: 1,
+      cells: { name: 'Ada', city: 'Paris' },
+      backgrounds: {},
+    })
+    expect(readName(client)?.version).toBe(4)
+    expect(readName(client)?.cells.city).toBe('Paris')
+    clearCellEditing()
+  })
+
+  it('keeps the local version when remote notes differ during an edit', () => {
+    const client = new QueryClient()
+    seed(client)
+    setNotesEditing('row-1', true)
+    applyRemoteRow(client, 'table-1', {
+      id: 'row-1',
+      position: 'a0',
+      version: 5,
+      color: null,
+      notes: 'theirs',
+      rowNumber: 1,
+      cells: { name: 'Ada', city: 'London' },
+      backgrounds: {},
+    })
+    expect(readName(client)?.notes).toBe('')
+    expect(readName(client)?.version).toBe(1)
+    setNotesEditing('row-1', false)
   })
 
   it('leaves a row that is not loaded alone', () => {

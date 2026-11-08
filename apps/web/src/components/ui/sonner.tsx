@@ -9,18 +9,18 @@ const toastVars = {
   '--border-radius': '0',
   '--normal-bg': toastSurface,
   '--normal-text': toastInk,
-  '--normal-border': toastInk,
+  '--normal-border': 'var(--border)',
   '--success-bg': toastSurface,
   '--success-border': toastInk,
   '--success-text': toastInk,
   '--info-bg': toastSurface,
-  '--info-border': toastInk,
+  '--info-border': 'var(--border)',
   '--info-text': toastInk,
   '--warning-bg': toastSurface,
-  '--warning-border': toastInk,
+  '--warning-border': 'var(--border)',
   '--warning-text': toastInk,
   '--error-bg': toastSurface,
-  '--error-border': toastInk,
+  '--error-border': 'var(--border)',
   '--error-text': toastInk,
 } as CSSProperties
 
@@ -31,7 +31,8 @@ function useResolvedTheme(): 'light' | 'dark' {
     document.documentElement.classList.contains('dark') ? 'dark' : 'light',
   )
   useEffect(() => {
-    const sync = () => setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
+    const sync = () =>
+      setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
     sync()
     const observer = new MutationObserver(sync)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
@@ -53,7 +54,9 @@ export function Toaster() {
       icons={{
         success: <CircleCheck className={iconClass} style={{ color: 'var(--swatch-green-fg)' }} />,
         error: <CircleX className={iconClass} style={{ color: 'var(--danger)' }} />,
-        warning: <TriangleAlert className={iconClass} style={{ color: 'var(--swatch-amber-fg)' }} />,
+        warning: (
+          <TriangleAlert className={iconClass} style={{ color: 'var(--swatch-amber-fg)' }} />
+        ),
         info: <Info className={iconClass} style={{ color: 'var(--swatch-blue-fg)' }} />,
         loading: <LoaderCircle className={`${iconClass} animate-spin`} />,
       }}

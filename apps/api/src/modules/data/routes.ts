@@ -5,9 +5,9 @@ import * as dataSchema from './schema.js'
 import type { FilterNode, FormatRule } from '@datavalley/shared'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { relations, relationRecords, userFavorites } from '../../database/schema.js'
+import { relations, userFavorites } from '../../database/schema.js'
 import { listFavoriteHits, listRecentHits } from './library.js'
-import { badRequest, conflict, notFound, unauthorized } from '../../errors.js'
+import { badRequest, notFound, unauthorized } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import {
@@ -41,7 +41,7 @@ import {
   updateTable,
   updateTag,
 } from '../tables/service.js'
-import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
+import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, linkRelationRecord, listRows, moveRow, patchRow } from '../rows/service.js'
 import { findDuplicateRows } from '../rows/duplicates.js'
 import { listFieldHistory } from '../rows/history.js'
 import { exportPerson, removePerson } from '../rows/privacy.js'
@@ -317,7 +317,12 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.post('/tables/:tableId/fill', { schema: { body: dataSchema.fillDownBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    await fillDown(db, request.subject, (request.params as { tableId: string }).tableId, request.body as { columnId: string; rowIds: string[] })
+    await fillDown(
+      db,
+      request.subject,
+      (request.params as { tableId: string }).tableId,
+      request.body as { columnId: string; rowIds: string[]; versions?: Record<string, number> },
+    )
     return { ok: true }
   })
   app.post('/tables/:tableId/tags', async (request) => {
@@ -476,14 +481,8 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.post('/relations/:id/records', async (request) => {
     if (!request.subject) throw unauthorized()
-    const [relation] = await db.select().from(relations).where(eq(relations.id, (request.params as { id: string }).id)).limit(1)
-    if (!relation) throw notFound()
     const body = request.body as { fromRowId: string; toRowId: string }
-    await requireTable(db, request.subject, relation.fromTableId, 'edit')
-    const [target] = await db.select().from(relationRecords).where(and(eq(relationRecords.relationId, relation.id), eq(relationRecords.toRowId, body.toRowId)))
-    if ((relation.cardinality === 'one_to_one' || relation.cardinality === 'one_to_many') && target) throw conflict('That record is already linked')
-    await db.insert(relationRecords).values({ relationId: relation.id, fromRowId: body.fromRowId, toRowId: body.toRowId })
-    return { ok: true }
+    return linkRelationRecord(db, request.subject, (request.params as { id: string }).id, body.fromRowId, body.toRowId)
   })
   app.get('/favorites', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -668,5 +667,3 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     return { jobId: job.id }
   })
 }
-
-void conflict

@@ -100,6 +100,7 @@ export const rowIdsBody = Type.Object({
 export const fillDownBody = Type.Object({
   columnId: uuid,
   rowIds: Type.Array(uuid, { minItems: 1 }),
+  versions: Type.Optional(Type.Record(Type.String(), Type.Integer({ minimum: 0 }))),
 })
 
 export const catalogNameBody = Type.Object({

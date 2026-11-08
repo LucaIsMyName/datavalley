@@ -54,23 +54,9 @@ import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput }
 import { createStageFollowUps } from './stage-task.js'
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
+import { visibleColumns } from './visible-columns.js'
 
-export async function visibleColumns(
-  db: AppDatabase,
-  subject: Subject,
-  tableId: string,
-  projectId: string,
-  columns: LoadedColumn[],
-) {
-  const grants = await resolveGrants(db, subject)
-  return columns.filter((column) =>
-    allows(subject, grants, 'view', {
-      type: 'column',
-      id: column.id,
-      parents: { table: tableId, project: projectId },
-    }),
-  )
-}
+export { visibleColumns } from './visible-columns.js'
 
 async function assertRow(
   db: AppDatabase,
@@ -1238,7 +1224,7 @@ export async function fillDown(
   db: AppDatabase,
   subject: Subject,
   tableId: string,
-  input: { columnId: string; rowIds: string[] },
+  input: { columnId: string; rowIds: string[]; versions?: Record<string, number> },
 ) {
   if (input.rowIds.length < 2) throw badRequest('Choose at least two rows')
   const table = await requireEditableTable(db, subject, tableId, 'edit')
@@ -1246,19 +1232,73 @@ export async function fillDown(
   const columns = await loadColumns(db, dataTableId)
   const column = columns.find((item) => item.id === input.columnId)
   if (!column) throw badRequest('Unknown column')
-  const source = await cellsFor(db, [input.rowIds[0]])
+  const grants = await resolveGrants(db, subject)
+  if (
+    !allows(subject, grants, 'edit', {
+      type: 'column',
+      id: column.id,
+      parents: { table: dataTableId, project: table.projectId },
+    })
+  ) {
+    throw notFound()
+  }
+  const { row: sourceRow } = await assertRow(db, subject, input.rowIds[0], 'view')
+  if (sourceRow.tableId !== dataTableId) throw notFound()
+  const source = await cellsFor(db, [sourceRow.id])
   const sourceCell = source.find((cell) => cell.columnId === column.id)
   const value = readCell(column, sourceCell)
-  for (const rowId of input.rowIds.slice(1)) {
-    const { row } = await assertRow(db, subject, rowId, 'edit')
-    if (row.tableId !== dataTableId) throw notFound()
-    await writeCell(db, dataTableId, rowId, column, value)
-    await db
-      .update(tableRows)
-      .set({ version: row.version + 1, updatedAt: new Date() })
-      .where(eq(tableRows.id, rowId))
-  }
+  await db.transaction(async (tx) => {
+    const database = tx as unknown as AppDatabase
+    for (const rowId of input.rowIds.slice(1)) {
+      const { row } = await assertRow(database, subject, rowId, 'edit')
+      if (row.tableId !== dataTableId) throw notFound()
+      const expected = input.versions?.[rowId] ?? row.version
+      const updated = await database
+        .update(tableRows)
+        .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
+        .where(and(eq(tableRows.id, row.id), eq(tableRows.version, expected)))
+        .returning()
+      if (updated.length === 0) {
+        const [stillThere] = await database
+          .select()
+          .from(tableRows)
+          .where(eq(tableRows.id, row.id))
+          .limit(1)
+        if (!stillThere) throw notFound()
+        if (stillThere.version !== expected) {
+          const current = await presentRowRecord(database, subject, dataTableId, table.projectId, row.id)
+          throw versionConflict(undefined, { row: current, rowId: row.id })
+        }
+        throw notFound()
+      }
+      await writeCell(database, dataTableId, row.id, column, value)
+    }
+  })
   await publishTableSignal(db, subject.id, table.id, 'rows.changed')
+}
+
+export async function linkRelationRecord(
+  db: AppDatabase,
+  subject: Subject,
+  relationId: string,
+  fromRowId: string,
+  toRowId: string,
+) {
+  const [relation] = await db.select().from(relations).where(eq(relations.id, relationId)).limit(1)
+  if (!relation) throw notFound()
+  const { row: fromRow } = await assertRow(db, subject, fromRowId, 'edit')
+  if (fromRow.tableId !== relation.fromTableId) throw notFound()
+  const { row: target } = await assertRow(db, subject, toRowId, 'view')
+  if (target.tableId !== relation.toTableId) throw notFound()
+  const [existing] = await db
+    .select()
+    .from(relationRecords)
+    .where(and(eq(relationRecords.relationId, relation.id), eq(relationRecords.toRowId, target.id)))
+  if ((relation.cardinality === 'one_to_one' || relation.cardinality === 'one_to_many') && existing) {
+    throw conflict('That record is already linked')
+  }
+  await db.insert(relationRecords).values({ relationId: relation.id, fromRowId: fromRow.id, toRowId: target.id })
+  return { ok: true as const }
 }
 
 export async function footer(

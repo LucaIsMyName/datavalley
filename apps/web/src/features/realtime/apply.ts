@@ -14,6 +14,12 @@ import {
 const ROWS_INVALIDATE_MS = 200
 const rowsInvalidateTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+function sameCell(left: unknown, right: unknown) {
+  if (Object.is(left, right)) return true
+  if (left == null || right == null || typeof left !== 'object' || typeof right !== 'object') return false
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 function scheduleRowsInvalidation(queryClient: QueryClient, tableId: string) {
   const existing = rowsInvalidateTimers.get(tableId)
   if (existing) clearTimeout(existing)
@@ -35,8 +41,10 @@ export function applyRemoteRow(queryClient: QueryClient, tableId: string, row: R
     if (item.id !== row.id) return item
     found = true
     const cells = { ...item.cells }
+    let held = false
     for (const [columnId, value] of Object.entries(row.cells)) {
       if (isCellEditing(row.id, columnId)) {
+        if (!sameCell(value, item.cells[columnId])) held = true
         stashRemoteCell(row.id, columnId, value)
         continue
       }
@@ -44,13 +52,14 @@ export function applyRemoteRow(queryClient: QueryClient, tableId: string, row: R
     }
     let notes = row.notes
     if (isNotesEditing(row.id)) {
+      if (row.notes !== item.notes) held = true
       stashRemoteNotes(row.id, row.notes)
       notes = item.notes
     }
     return {
       ...item,
       position: row.position,
-      version: Math.max(item.version, row.version),
+      version: held ? item.version : Math.max(item.version, row.version),
       color: row.color,
       notes,
       rowNumber: row.rowNumber,
