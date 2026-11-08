@@ -67,7 +67,7 @@ function SavedPreviewCard({
         ) : null}
       </div>
       {loading ? (
-        <LoadingBlock />
+        <LoadingBlock variant="rows" />
       ) : error ? (
         <ErrorState message={error.message} />
       ) : (
@@ -100,7 +100,7 @@ export function DashboardPage() {
       title={t('dashboard')}
       actions={user?.role === 'admin' ? <ProjectAdminActions openCreate={openCreate} openImport={openImport} /> : null}
     >
-      {projects.isLoading && !projects.data ? <LoadingBlock /> : null}
+      {projects.isLoading && !projects.data ? <LoadingBlock variant="cards" /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
       {projectsReady ? (
         <section aria-labelledby="dashboard-projects-heading" className="flex flex-col gap-3">
@@ -154,7 +154,7 @@ export function RecentPage() {
   })
   return (
     <Page title={t('recent')}>
-      {recents.isLoading ? <LoadingBlock /> : null}
+      {recents.isLoading ? <LoadingBlock variant="rows" /> : null}
       {recents.isError ? <ErrorState message={(recents.error as Error).message} /> : null}
       {!recents.isLoading && !recents.isError && (recents.data?.recents.length ?? 0) === 0 ? (
         <EmptyState title={t('recentEmpty')} body={t('recentEmptyBody')} />
@@ -183,7 +183,7 @@ export function FavoritesPage() {
   })
   return (
     <Page title={t('favorites')}>
-      {favorites.isLoading ? <LoadingBlock /> : null}
+      {favorites.isLoading ? <LoadingBlock variant="rows" /> : null}
       {favorites.isError ? <ErrorState message={(favorites.error as Error).message} /> : null}
       {!favorites.isLoading && !favorites.isError && (favorites.data?.favorites.length ?? 0) === 0 ? (
         <EmptyState title={t('favoritesEmpty')} body={t('favoritesEmptyBody')} />

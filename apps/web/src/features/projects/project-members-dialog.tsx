@@ -75,7 +75,7 @@ export function ProjectMembersDialog({
             <ul className="mt-3 min-h-8 text-sm">
               {members.isLoading ? (
                 <li>
-                  <LoadingBlock />
+                  <LoadingBlock variant="rows" />
                 </li>
               ) : null}
               {members.data && members.data.members.length === 0 ? (

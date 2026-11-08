@@ -138,7 +138,7 @@ export function MediaPage() {
         onDrop={onDrop}
       >
         <p className="text-center text-sm text-muted-foreground">{t('mediaDropHint')}</p>
-        {mediaQuery.isLoading ? <LoadingBlock /> : null}
+        {mediaQuery.isLoading ? <LoadingBlock variant="table" /> : null}
         {mediaQuery.isError ? <ErrorState message={(mediaQuery.error as Error).message} /> : null}
         {showEmpty ? <EmptyState title={t('mediaEmpty')} body={t('mediaEmptyBody')} /> : null}
         {showGrid ? (

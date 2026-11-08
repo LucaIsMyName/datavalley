@@ -99,7 +99,7 @@ export function MediaLibraryDialog({
             ))}
           </div>
           <div className="min-h-0 flex-1 overflow-auto border border-border">
-            {mediaQuery.isLoading ? <LoadingBlock /> : null}
+            {mediaQuery.isLoading ? <LoadingBlock variant="table" /> : null}
             {mediaQuery.isError ? (
               <p className="p-3 text-sm text-danger">{(mediaQuery.error as Error).message}</p>
             ) : null}

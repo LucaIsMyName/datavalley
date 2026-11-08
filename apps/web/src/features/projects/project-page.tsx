@@ -119,7 +119,7 @@ export function ProjectPage() {
   if (project.isLoading || tables.isLoading)
     return (
       <Page title={t('projects')}>
-        <LoadingBlock />
+        <LoadingBlock variant="table" />
       </Page>
     )
   if (project.isError)

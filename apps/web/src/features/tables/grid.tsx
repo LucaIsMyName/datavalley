@@ -1228,7 +1228,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
   if (tableQuery.isLoading || rowsQuery.isLoading)
     return (
       <section className="p-4 md:p-6">
-        <LoadingBlock />
+        <LoadingBlock variant="table" />
       </section>
     )
   if (tableQuery.isError || rowsQuery.isError || !table) {

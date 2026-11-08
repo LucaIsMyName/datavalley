@@ -43,7 +43,7 @@ export function IntegrationsPage() {
     <Page title={t('integrations')}>
       <DataConnectorsSection />
       <h2 className="mb-3 mt-8 text-sm font-semibold">{t('builtinPlugins')}</h2>
-      {plugins.isLoading ? <LoadingBlock /> : null}
+      {plugins.isLoading ? <LoadingBlock variant="cards" /> : null}
       {plugins.isError ? <ErrorState message={(plugins.error as Error).message} /> : null}
       {plugins.data && plugins.data.plugins.length === 0 ? (
         <EmptyState title={t('emptyIntegrations')} body={t('emptyIntegrations')} />

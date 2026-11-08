@@ -99,7 +99,7 @@ export function DataConnectorsSection() {
           {t('createConnector')}
         </Button>
       </div>
-      {connectors.isLoading ? <LoadingBlock /> : null}
+      {connectors.isLoading ? <LoadingBlock variant="cards" /> : null}
       {connectors.isError ? <ErrorState message={(connectors.error as Error).message} /> : null}
       {connectors.data && connectors.data.connectors.length === 0 ? (
         <EmptyState title={t('emptyConnectors')} body={t('emptyConnectorsHint')} />

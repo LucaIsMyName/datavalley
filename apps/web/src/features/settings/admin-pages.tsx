@@ -277,7 +277,7 @@ export function UsersPage() {
           </form>
         ) : null}
       </AppDialog>
-      {users.isLoading ? <LoadingBlock /> : null}
+      {users.isLoading ? <LoadingBlock variant="rows" /> : null}
       {users.isError ? <ErrorState message={(users.error as Error).message} /> : null}
       {users.data && users.data.users.length === 0 ? (
         <EmptyState title={t('emptyUsers')} body={t('emptyUsers')} />
@@ -413,7 +413,7 @@ export function ApiKeysPage() {
       ) : (
         <div className="min-h-0" />
       )}
-      {keys.isLoading ? <LoadingBlock /> : null}
+      {keys.isLoading ? <LoadingBlock variant="rows" /> : null}
       {keys.data && keys.data.apiKeys.length === 0 ? (
         <EmptyState title={t('emptyApiKeys')} body={t('emptyApiKeys')} />
       ) : null}
@@ -482,7 +482,7 @@ export function AuditPage() {
   })
   return (
     <Page title={t('audit')}>
-      {audit.isLoading ? <LoadingBlock /> : null}
+      {audit.isLoading ? <LoadingBlock variant="table" /> : null}
       {audit.isError ? <ErrorState message={(audit.error as Error).message} /> : null}
       {audit.data && audit.data.entries.length === 0 ? (
         <EmptyState title={t('emptyAudit')} body={t('emptyAudit')} />

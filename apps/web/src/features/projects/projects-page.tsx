@@ -37,7 +37,7 @@ export function ProjectsPage() {
       title={t('projects')}
       actions={user?.role === 'admin' ? <ProjectAdminActions openCreate={openCreate} openImport={openImport} /> : null}
     >
-      {projects.isLoading && !projects.data ? <LoadingBlock /> : null}
+      {projects.isLoading && !projects.data ? <LoadingBlock variant="cards" /> : null}
       {projects.isError ? <ErrorState message={(projects.error as Error).message} /> : null}
       {projects.data && projects.data.projects.length === 0 ? (
         <EmptyState
