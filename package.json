@@ -1,9 +1,18 @@
 {
   "name": "datavalley",
-  "version": "0.0.144",
+  "version": "0.0.145",
   "private": true,
   "type": "module",
   "description": "Self-hosted modular CRM",
+  "keywords": [
+    "crm",
+    "self-hosted",
+    "modular",
+    "database",
+    "data",
+    "warehouse",
+    "ai integration"
+  ],
   "workspaces": [
     "apps/*",
     "packages/*"

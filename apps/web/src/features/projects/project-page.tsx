@@ -693,14 +693,30 @@ function TableTabBadge({ table }: { table: Pick<TableRecord, 'mirrorOfTableId' |
   const { t } = useTranslation()
   if (table.mirrorOfTableId) {
     return (
-      <Badge className="shrink-0 normal-case" color="slate" image={<RefreshCw />}>
+      <Badge
+        className="shrink-0 normal-case"
+        color="slate"
+        image={
+          <div className="bg-muted-foreground/30 rounded-full h-full aspect-square flex items-center justify-center">
+            <RefreshCw size={10} />
+          </div>
+        }
+      >
         {t('syncedBadge')}
       </Badge>
     )
   }
   if (table.connector) {
     return (
-      <Badge className="shrink-0 normal-case" color="slate" image={<Link2 />}>
+      <Badge
+        className="shrink-0 normal-case"
+        color="slate"
+        image={
+          <div className="bg-muted-foreground/30 rounded-full h-full aspect-square flex items-center justify-center">
+            <Link2 size={10} />
+          </div>
+        }
+      >
         {t('connectorBadge')}
       </Badge>
     )

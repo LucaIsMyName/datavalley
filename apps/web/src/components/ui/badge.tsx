@@ -21,8 +21,8 @@ export function Badge({
         'inline-flex rounded-full border border-border/50 font-mono text-xs font-medium',
         image
           ? imageSide === 'right'
-            ? 'relative h-full items-stretch overflow-hidden py-0 pr-0 pl-2'
-            : 'relative h-full items-stretch overflow-hidden py-0 pr-2 pl-0'
+            ? 'relative h-full items-stretch overflow-hidden py-0 pr-0 pl-2 gap-1'
+            : 'relative h-full items-stretch overflow-hidden py-0 pr-2 pl-0 gap-1'
           : 'items-center px-2 py-0.5',
         className,
       )}
