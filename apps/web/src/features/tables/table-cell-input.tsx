@@ -38,6 +38,7 @@ export function TableCellInput({
   onMediaUploading,
   onMediaCommit,
   onDateMode,
+  mediaIdleActions = false,
   showDuplicateHint = false,
   relationIcon,
 }: {
@@ -69,6 +70,7 @@ export function TableCellInput({
   onMediaUploading?: boolean
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
   onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void
+  mediaIdleActions?: boolean
   showDuplicateHint?: boolean
   relationIcon?: string
 }) {
@@ -161,6 +163,7 @@ export function TableCellInput({
       onMediaUploading={onMediaUploading}
       onMediaCommit={onMediaCommit}
       onDateMode={onDateMode}
+      mediaIdleActions={mediaIdleActions}
     />
     {showDuplicateHint ? (
       <DuplicateHint

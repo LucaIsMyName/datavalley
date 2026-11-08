@@ -1,7 +1,7 @@
 import { matchPath } from 'react-router'
 
 export function projectRouteParams(pathname: string) {
-  const table = matchPath({ path: '/projects/:projectId/tables/:tableId', end: true }, pathname)
+  const table = matchPath({ path: '/projects/:projectId/tables/:tableId', end: false }, pathname)
   if (table?.params.projectId) {
     return { projectId: table.params.projectId, tableId: table.params.tableId ?? '' }
   }

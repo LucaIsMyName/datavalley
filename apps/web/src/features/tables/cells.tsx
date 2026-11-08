@@ -78,6 +78,7 @@ export function CellEditor({
   onMediaUploading,
   onMediaCommit,
   onDateMode,
+  mediaIdleActions,
 }: {
   column: Column
   row: RowRecord
@@ -102,6 +103,7 @@ export function CellEditor({
   onMediaUploading?: boolean
   onMediaCommit?: (value: { fileIds: string[] } | null) => Promise<void>
   onDateMode?: (patch: { range?: boolean; includeTime?: boolean }) => void
+  mediaIdleActions?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const editLabel = t('editColumn', { name: column.name })
@@ -118,6 +120,7 @@ export function CellEditor({
         value={row.cells[column.id]}
         active={active}
         uploading={Boolean(onMediaUploading)}
+        idleActions={mediaIdleActions}
         onCommit={async (value) => {
           if (!onMediaCommit) throw new Error('Media save is unavailable')
           await onMediaCommit(value)

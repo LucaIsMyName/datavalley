@@ -77,10 +77,53 @@ export function MediaCellBadges({
   )
 }
 
+function MediaActionButtons({
+  uploading,
+  onRequestUpload,
+  onOpenLibrary,
+}: {
+  uploading: boolean
+  onRequestUpload: () => void
+  onOpenLibrary: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button
+        type="button"
+        variant="outline"
+        className="size-7 shrink-0 p-0"
+        aria-label={t('mediaUpload')}
+        disabled={uploading}
+        onClick={(event) => {
+          event.stopPropagation()
+          onRequestUpload()
+        }}
+      >
+        <Upload className="size-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="size-7 shrink-0 p-0"
+        aria-label={t('mediaLibrary')}
+        disabled={uploading}
+        onClick={(event) => {
+          event.stopPropagation()
+          onOpenLibrary()
+        }}
+      >
+        <Library className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
 export function MediaEditor({
   value,
   active,
   uploading,
+  idleActions = false,
   onCommit,
   onOpen,
   onActivate,
@@ -91,6 +134,7 @@ export function MediaEditor({
   value: unknown
   active: boolean
   uploading: boolean
+  idleActions?: boolean
   onCommit: (value: { fileIds: string[] } | null) => Promise<void>
   onOpen: () => void
   onActivate: () => void
@@ -124,24 +168,33 @@ export function MediaEditor({
   if (!active) {
     const ids = readFileIds(value)
     return (
-      <div
-        className="flex h-full w-full min-w-0 items-center gap-1"
-        onClick={onOpen}
-        onDoubleClick={(event) => {
-          event.preventDefault()
-          onActivate()
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
+      <div className="flex h-full w-full min-w-0 items-center gap-1">
+        <div
+          className="flex min-w-0 flex-1 items-center"
+          onClick={onOpen}
+          onDoubleClick={(event) => {
             event.preventDefault()
             onActivate()
-          }
-        }}
-        role="button"
-        tabIndex={0}
-        aria-label={t('mediaAttach')}
-      >
-        <MediaCellBadges fileIds={ids} onOpenFile={onPreviewFile} onRemoveFile={removeFromCell} />
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              onActivate()
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={t('mediaAttach')}
+        >
+          <MediaCellBadges fileIds={ids} onOpenFile={onPreviewFile} onRemoveFile={removeFromCell} />
+        </div>
+        {idleActions ? (
+          <MediaActionButtons
+            uploading={uploading}
+            onRequestUpload={onRequestUpload}
+            onOpenLibrary={() => onOpenLibrary(ids)}
+          />
+        ) : null}
       </div>
     )
   }
@@ -155,34 +208,11 @@ export function MediaEditor({
         {draft.length === 0 ? <Paperclip className="size-4 shrink-0 text-muted-foreground" /> : null}
         <MediaCellBadges fileIds={draft} onOpenFile={onPreviewFile} onRemoveFile={removeFromCell} />
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        <Button
-          type="button"
-          variant="outline"
-          className="size-7 shrink-0 p-0"
-          aria-label={t('mediaUpload')}
-          disabled={uploading}
-          onClick={(event) => {
-            event.stopPropagation()
-            onRequestUpload()
-          }}
-        >
-          <Upload className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="size-7 shrink-0 p-0"
-          aria-label={t('mediaLibrary')}
-          disabled={uploading}
-          onClick={(event) => {
-            event.stopPropagation()
-            onOpenLibrary(draft)
-          }}
-        >
-          <Library className="size-3.5" />
-        </Button>
-      </div>
+      <MediaActionButtons
+        uploading={uploading}
+        onRequestUpload={onRequestUpload}
+        onOpenLibrary={() => onOpenLibrary(draft)}
+      />
       {error ? (
         <span className="sr-only" role="alert">
           {error}

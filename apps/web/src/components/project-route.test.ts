@@ -13,4 +13,8 @@ describe('projectRouteParams', () => {
   it('reads project and table ids on a table route', () => {
     expect(projectRouteParams('/projects/p1/tables/t1')).toEqual({ projectId: 'p1', tableId: 't1' })
   })
+
+  it('keeps the project and table on a record route', () => {
+    expect(projectRouteParams('/projects/p1/tables/t1/rows/r1')).toEqual({ projectId: 'p1', tableId: 't1' })
+  })
 })

@@ -70,79 +70,86 @@ export function NotesRowFields({
   })
 
   return (
-    <dl className="shrink-0 space-y-1 border-b border-border pb-3 text-sm">
-      {columns.map((column) => {
-        const active = editingColumnId === column.id
-        const invalid = cellEdit.invalidFor(row.id, column.id)
-        const dateEditing = active && isDateColumnType(column.type)
-        function activateColumn() {
-          activateTableCell({
-            row: liveRow,
-            column,
-            readOnly,
-            onOpenFormula: (targetRow, targetColumn) =>
-              onOpenFormula(targetRow.id, targetColumn.id, targetColumn.name),
-            onBeginEdit: (columnId) => setEditingColumnId(columnId),
-          })
-        }
+    <div className="shrink-0 border border-border">
+      <table className="w-full border-collapse text-sm">
+        <tbody>
+          {columns.map((column) => {
+            const active = editingColumnId === column.id
+            const invalid = cellEdit.invalidFor(row.id, column.id)
+            const dateEditing = active && isDateColumnType(column.type)
+            function activateColumn() {
+              activateTableCell({
+                row: liveRow,
+                column,
+                readOnly,
+                onOpenFormula: (targetRow, targetColumn) =>
+                  onOpenFormula(targetRow.id, targetColumn.id, targetColumn.name),
+                onBeginEdit: (columnId) => setEditingColumnId(columnId),
+              })
+            }
 
-        return (
-          <div key={column.id} className="flex min-w-0 flex-col">
-          <div className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[minmax(0,38%)_1fr] sm:gap-2">
-            <dt className="min-w-0 truncate font-medium text-muted-foreground">
-              <ColumnTitle
-                name={column.name}
-                type={column.type}
-                className="w-full truncate text-left font-medium text-muted-foreground"
-              />
-            </dt>
-            <dd
-              className={`relative flex min-h-9 min-w-0 items-center sm:h-9 ${column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${
-                column.type === 'number' || column.type === 'currency' || column.type === 'formula' || column.type === 'lookup'
-                  ? 'font-mono'
-                  : ''
-              }`}
-            >
-              <TableCellInput
-                column={column}
-                row={liveRow}
-                active={active}
-                tableId={tableId}
-                tags={tags}
-                statuses={statuses}
-                members={members}
-                relationRows={targetRows.data?.rows ?? []}
-                relationIcon={
-                  column.type === 'relation'
-                    ? tables.find((item) => item.id === String(column.config.toTableId ?? ''))?.icon
-                    : undefined
-                }
-                readOnly={readOnly}
-                invalid={invalid}
-                onScheduleCell={cellEdit.scheduleCell}
-                onClearInvalid={(rowId, columnId) => cellEdit.clearInvalid(`cell:${rowId}:${columnId}`)}
-                onDeactivate={(key) => {
-                  setEditingColumnId((current) =>
-                    current && key === `${row.id}:${current}` ? null : current,
-                  )
-                }}
-                onActivate={activateColumn}
-                onOpen={activateColumn}
-                onCreated={onCreated}
-                onOptionChange={onOptionChange}
-                onMediaLibrary={(existingIds) => onMediaLibrary(row.id, column.id, existingIds)}
-                onMediaPreview={(file) => onMediaPreview(file, row.id, column.id)}
-                onMediaRequestUpload={() => onMediaRequestUpload(row.id, column.id)}
-                onMediaUploading={mediaUploadingKey === `${row.id}:${column.id}`}
-                onMediaCommit={(value) => cellEdit.applyMediaCell(liveRow, column, value)}
-                onDateMode={(patch) => onDateMode(column, patch)}
-              />
-            </dd>
-          </div>
-          <DuplicateHint tableId={tableId} column={column} rowId={row.id} value={liveRow.cells[column.id]} />
-          </div>
-        )
-      })}
-    </dl>
+            return (
+              <tr key={column.id} className="border-b border-border last:border-b-0">
+                <th className="h-11 w-[38%] border-r border-border px-2 text-left align-middle font-medium text-muted-foreground">
+                  <ColumnTitle
+                    name={column.name}
+                    type={column.type}
+                    className="w-full truncate text-left font-medium text-muted-foreground"
+                  />
+                </th>
+                <td
+                  className={`relative px-2 align-middle ${
+                    column.type === 'media' ? 'overflow-x-auto overflow-y-hidden' : dateEditing ? 'overflow-visible' : 'overflow-hidden'
+                  } ${
+                    column.type === 'number' || column.type === 'currency' || column.type === 'formula' || column.type === 'lookup'
+                      ? 'font-mono'
+                      : ''
+                  }`}
+                >
+                  <div className="flex min-h-9 min-w-0 items-center">
+                    <TableCellInput
+                      column={column}
+                      row={liveRow}
+                      active={active}
+                      tableId={tableId}
+                      tags={tags}
+                      statuses={statuses}
+                      members={members}
+                      relationRows={targetRows.data?.rows ?? []}
+                      relationIcon={
+                        column.type === 'relation'
+                          ? tables.find((item) => item.id === String(column.config.toTableId ?? ''))?.icon
+                          : undefined
+                      }
+                      readOnly={readOnly}
+                      invalid={invalid}
+                      onScheduleCell={cellEdit.scheduleCell}
+                      onClearInvalid={(rowId, columnId) => cellEdit.clearInvalid(`cell:${rowId}:${columnId}`)}
+                      onDeactivate={(key) => {
+                        setEditingColumnId((current) =>
+                          current && key === `${row.id}:${current}` ? null : current,
+                        )
+                      }}
+                      onActivate={activateColumn}
+                      onOpen={activateColumn}
+                      onCreated={onCreated}
+                      onOptionChange={onOptionChange}
+                      onMediaLibrary={(existingIds) => onMediaLibrary(row.id, column.id, existingIds)}
+                      onMediaPreview={(file) => onMediaPreview(file, row.id, column.id)}
+                      onMediaRequestUpload={() => onMediaRequestUpload(row.id, column.id)}
+                      onMediaUploading={mediaUploadingKey === `${row.id}:${column.id}`}
+                      onMediaCommit={(value) => cellEdit.applyMediaCell(liveRow, column, value)}
+                      onDateMode={(patch) => onDateMode(column, patch)}
+                      mediaIdleActions={!readOnly}
+                    />
+                  </div>
+                  <DuplicateHint tableId={tableId} column={column} rowId={row.id} value={liveRow.cells[column.id]} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
