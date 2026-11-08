@@ -7,7 +7,7 @@ import { allows, assertCan, resolveGrants, replaceGrants } from '../../security/
 import { invalidateGrantsCache } from '../../security/grants-cache.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
-import { seedCustomers, seedStarter } from '../tables/template.js'
+import { seedCrm, seedCustomers, seedStarter } from '../tables/template.js'
 import { publishRealtime } from '../realtime/publish.js'
 
 type ProjectTableStats = { tableCount: number; latestTableEdit: Date | null }
@@ -76,7 +76,7 @@ export async function listProjects(db: AppDatabase, subject: Subject, includeArc
 export async function createProject(
   db: AppDatabase,
   subject: Subject,
-  input: { name: string; template?: 'blank' | 'customers' },
+  input: { name: string; template?: 'blank' | 'customers' | 'crm' },
 ) {
   if (!subject.user) throw notFound()
   if (subject.role !== 'admin') throw new AppError(403, 'forbidden', 'Admin access is required')
@@ -98,8 +98,12 @@ export async function createProject(
         effect: 'allow' as const,
       })),
     )
-    await seedStarter(tx as unknown as AppDatabase, project.id, subject.id)
-    if (input.template === 'customers') await seedCustomers(tx as unknown as AppDatabase, project.id, subject.id)
+    if (input.template === 'crm') {
+      await seedCrm(tx as unknown as AppDatabase, project.id, subject.id)
+    } else {
+      await seedStarter(tx as unknown as AppDatabase, project.id, subject.id)
+      if (input.template === 'customers') await seedCustomers(tx as unknown as AppDatabase, project.id, subject.id)
+    }
     await writeAudit(tx as unknown as AppDatabase, subject, { action: 'project.create', resourceType: 'project', resourceId: project.id })
     const stats = await projectTableStats(tx as unknown as AppDatabase, [project.id])
     invalidateGrantsCache(subject)

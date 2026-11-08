@@ -106,12 +106,29 @@ export function sanitizeTableDisplay(value: unknown): TableDisplayState {
   }
 }
 
+function keptKanban(clean: TableDisplayState, columns: DisplayColumn[], statusColumnId: string | null) {
+  const known = new Set(columns.map((column) => column.id))
+  return {
+    statusColumnId,
+    cardColumnIds: clean.kanban.cardColumnIds.filter((id) => known.has(id) && id !== statusColumnId),
+    statusOrder: clean.kanban.statusOrder,
+  }
+}
+
 export function normalizeTableDisplay(value: unknown, columns: DisplayColumn[]): TableDisplayState {
   const clean = sanitizeTableDisplay(value)
   const dimensions = new Set(columns.filter((column) => isChartDimensionType(column.type)).map((column) => column.id))
   const values = new Set(columns.filter((column) => isChartValueType(column.type)).map((column) => column.id))
   const known = new Set(columns.map((column) => column.id))
   const dateColumnId = clean.timeline.dateColumnId && columns.some((column) => column.id === clean.timeline.dateColumnId && isDateColumnType(column.type)) ? clean.timeline.dateColumnId : null
+  const statusColumnId =
+    clean.kanban.statusColumnId &&
+    columns.some(
+      (column) =>
+        column.id === clean.kanban.statusColumnId && (column.type === 'select' || column.type === 'status'),
+    )
+      ? clean.kanban.statusColumnId
+      : null
   return {
     ...clean,
     chart: {
@@ -124,5 +141,6 @@ export function normalizeTableDisplay(value: unknown, columns: DisplayColumn[]):
       dateColumnId,
       titleColumnIds: clean.timeline.titleColumnIds.filter((id) => known.has(id) && id !== dateColumnId),
     },
+    kanban: keptKanban(clean, columns, statusColumnId),
   }
 }

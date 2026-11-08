@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { generateKeyBetween } from 'fractional-indexing'
 import type { AppDatabase } from '../../database/client.js'
-import { columnOptions, tableCells, tableColumns, tableRows, tables } from '../../database/schema.js'
+import { columnOptions, relationRecords, relations, tableCells, tableColumns, tableRows, tables } from '../../database/schema.js'
+import { defaultColumnIcon } from '../../column-types/index.js'
 
 async function nextPosition(db: AppDatabase, projectId: string) {
   const existing = await db
@@ -67,6 +68,202 @@ export async function seedCustomers(db: AppDatabase, projectId: string, userId: 
     await db.insert(columnOptions).values({ columnId: status.id, label, position: optionPos, color: null })
   }
   return table.id
+}
+
+async function insertTable(db: AppDatabase, projectId: string, userId: string, name: string, description: string) {
+  const [table] = await db
+    .insert(tables)
+    .values({
+      projectId,
+      name,
+      description,
+      position: await nextPosition(db, projectId),
+      createdBy: userId,
+    })
+    .returning()
+  return table
+}
+
+async function insertColumn(
+  db: AppDatabase,
+  tableId: string,
+  position: string | null,
+  input: {
+    name: string
+    type: string
+    config?: Record<string, unknown>
+    options?: { label: string; color: string }[]
+  },
+) {
+  const next = generateKeyBetween(position, null)
+  const [column] = await db
+    .insert(tableColumns)
+    .values({
+      tableId,
+      name: input.name,
+      type: input.type,
+      position: next,
+      config: { icon: defaultColumnIcon(input.type), ...(input.config ?? {}) },
+    })
+    .returning()
+  let optionPos: string | null = null
+  for (const option of input.options ?? []) {
+    optionPos = generateKeyBetween(optionPos, null)
+    await db.insert(columnOptions).values({
+      columnId: column.id,
+      label: option.label,
+      color: option.color,
+      position: optionPos,
+    })
+  }
+  return { column, position: next }
+}
+
+async function relate(
+  db: AppDatabase,
+  fromTableId: string,
+  toTableId: string,
+  columnId: string,
+) {
+  const [relation] = await db
+    .insert(relations)
+    .values({
+      fromTableId,
+      toTableId,
+      fromColumnId: columnId,
+      cardinality: 'many_to_one',
+      onDelete: 'restrict',
+    })
+    .returning()
+  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  const config = { ...(column.config as Record<string, unknown>), relationId: relation.id, toTableId }
+  await db.update(tableColumns).set({ config }).where(eq(tableColumns.id, columnId))
+  return relation.id
+}
+
+async function insertRow(
+  db: AppDatabase,
+  tableId: string,
+  userId: string,
+  position: string | null,
+  rowNumber: number,
+) {
+  const next = generateKeyBetween(position, null)
+  const [row] = await db
+    .insert(tableRows)
+    .values({ tableId, position: next, rowNumber, createdBy: userId })
+    .returning()
+  await db.update(tables).set({ nextRowNumber: rowNumber + 1 }).where(eq(tables.id, tableId))
+  return { row, position: next }
+}
+
+export async function seedCrm(db: AppDatabase, projectId: string, userId: string) {
+  const companies = await insertTable(db, projectId, userId, 'Companies', 'Accounts you sell to')
+  const people = await insertTable(db, projectId, userId, 'People', 'Contacts at those companies')
+  const deals = await insertTable(db, projectId, userId, 'Deals', 'Pipeline of opportunities')
+
+  let companyPos: string | null = null
+  const companyName = await insertColumn(db, companies.id, companyPos, { name: 'Name', type: 'text' })
+  companyPos = companyName.position
+  const companyDomain = await insertColumn(db, companies.id, companyPos, { name: 'Domain', type: 'url' })
+
+  let personPos: string | null = null
+  const personName = await insertColumn(db, people.id, personPos, { name: 'Name', type: 'text' })
+  personPos = personName.position
+  const personMail = await insertColumn(db, people.id, personPos, { name: 'Email', type: 'mail' })
+  personPos = personMail.position
+  const personCompany = await insertColumn(db, people.id, personPos, { name: 'Company', type: 'relation' })
+  const personRelation = await relate(db, people.id, companies.id, personCompany.column.id)
+
+  let dealPos: string | null = null
+  const dealName = await insertColumn(db, deals.id, dealPos, { name: 'Name', type: 'text' })
+  dealPos = dealName.position
+  const stage = await insertColumn(db, deals.id, dealPos, {
+    name: 'Stage',
+    type: 'select',
+    options: [
+      { label: 'New', color: 'slate' },
+      { label: 'Qualified', color: 'blue' },
+      { label: 'Proposal', color: 'amber' },
+      { label: 'Won', color: 'green' },
+      { label: 'Lost', color: 'red' },
+    ],
+  })
+  dealPos = stage.position
+  const amount = await insertColumn(db, deals.id, dealPos, {
+    name: 'Amount',
+    type: 'number',
+    config: { icon: 'Coins', variant: 'money', currency: 'EUR' },
+  })
+  dealPos = amount.position
+  const closeDate = await insertColumn(db, deals.id, dealPos, { name: 'Close date', type: 'date' })
+  dealPos = closeDate.position
+  const owner = await insertColumn(db, deals.id, dealPos, { name: 'Owner', type: 'user' })
+  dealPos = owner.position
+  const dealCompany = await insertColumn(db, deals.id, dealPos, { name: 'Company', type: 'relation' })
+  dealPos = dealCompany.position
+  const dealRelation = await relate(db, deals.id, companies.id, dealCompany.column.id)
+  const dealPerson = await insertColumn(db, deals.id, dealPos, { name: 'Person', type: 'relation' })
+  const personDealRelation = await relate(db, deals.id, people.id, dealPerson.column.id)
+
+  const companyRow = await insertRow(db, companies.id, userId, null, 1)
+  await db.insert(tableCells).values([
+    { tableId: companies.id, rowId: companyRow.row.id, columnId: companyName.column.id, valueText: 'Northwind' },
+    { tableId: companies.id, rowId: companyRow.row.id, columnId: companyDomain.column.id, valueText: 'https://northwind.example' },
+  ])
+  const personRow = await insertRow(db, people.id, userId, null, 1)
+  await db.insert(tableCells).values([
+    { tableId: people.id, rowId: personRow.row.id, columnId: personName.column.id, valueText: 'Ada Lovelace' },
+    { tableId: people.id, rowId: personRow.row.id, columnId: personMail.column.id, valueText: 'ada@northwind.example' },
+    {
+      tableId: people.id,
+      rowId: personRow.row.id,
+      columnId: personCompany.column.id,
+      valueJsonb: { rowId: companyRow.row.id },
+    },
+  ])
+  await db.insert(relationRecords).values({
+    relationId: personRelation,
+    fromRowId: personRow.row.id,
+    toRowId: companyRow.row.id,
+  })
+  const stageOptions = await db.select().from(columnOptions).where(eq(columnOptions.columnId, stage.column.id))
+  const qualified = stageOptions.find((option) => option.label === 'Qualified')
+  const dealRow = await insertRow(db, deals.id, userId, null, 1)
+  await db.insert(tableCells).values([
+    { tableId: deals.id, rowId: dealRow.row.id, columnId: dealName.column.id, valueText: 'Website' },
+    {
+      tableId: deals.id,
+      rowId: dealRow.row.id,
+      columnId: stage.column.id,
+      valueJsonb: { optionId: qualified?.id ?? null },
+    },
+    { tableId: deals.id, rowId: dealRow.row.id, columnId: amount.column.id, valueNumber: '12000' },
+    { tableId: deals.id, rowId: dealRow.row.id, columnId: closeDate.column.id, valueText: '2026-12-01' },
+    {
+      tableId: deals.id,
+      rowId: dealRow.row.id,
+      columnId: owner.column.id,
+      valueJsonb: { userIds: [userId] },
+    },
+    {
+      tableId: deals.id,
+      rowId: dealRow.row.id,
+      columnId: dealCompany.column.id,
+      valueJsonb: { rowId: companyRow.row.id },
+    },
+    {
+      tableId: deals.id,
+      rowId: dealRow.row.id,
+      columnId: dealPerson.column.id,
+      valueJsonb: { rowId: personRow.row.id },
+    },
+  ])
+  await db.insert(relationRecords).values([
+    { relationId: dealRelation, fromRowId: dealRow.row.id, toRowId: companyRow.row.id },
+    { relationId: personDealRelation, fromRowId: dealRow.row.id, toRowId: personRow.row.id },
+  ])
+  return { companies: companies.id, people: people.id, deals: deals.id }
 }
 
 const demoRows = [

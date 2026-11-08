@@ -37,6 +37,7 @@ const DashboardPage = route(homePages, 'DashboardPage')
 const ProjectsPage = route(() => import('../features/projects/projects-page'), 'ProjectsPage')
 const ProjectPage = route(() => import('../features/projects/project-page'), 'ProjectPage')
 const TablePage = route(() => import('../features/tables/page'), 'TablePage')
+const RecordPage = route(() => import('../features/tables/record-page'), 'RecordPage')
 const RecentPage = route(homePages, 'RecentPage')
 const FavoritesPage = route(homePages, 'FavoritesPage')
 const DocsLayout = route(docsLayout, 'DocsLayout')
@@ -111,7 +112,10 @@ export const router = createBrowserRouter([
                   {
                     path: '/projects/:projectId',
                     element: <ProjectPage />,
-                    children: [{ path: 'tables/:tableId', element: <TablePage /> }],
+                    children: [
+                      { path: 'tables/:tableId', element: <TablePage /> },
+                      { path: 'tables/:tableId/rows/:rowId', element: <RecordPage /> },
+                    ],
                   },
                   { path: '/recent', element: <RecentPage /> },
                   { path: '/favorites', element: <FavoritesPage /> },

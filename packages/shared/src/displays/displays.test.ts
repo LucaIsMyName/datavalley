@@ -169,6 +169,22 @@ describe('display state', () => {
     expect(display.kanban).toEqual(defaultTableDisplay().kanban)
   })
 
+  it('keeps a select column as the kanban status and drops other card fields', () => {
+    const display = normalizeTableDisplay(
+      {
+        mode: 'kanban',
+        kanban: { statusColumnId: 'stage', cardColumnIds: ['name', 'missing', 'stage', 'amount'], statusOrder: ['opt'] },
+      },
+      [
+        { id: 'name', type: 'text' },
+        { id: 'amount', type: 'number' },
+        { id: 'stage', type: 'select' },
+      ],
+    )
+    expect(display.mode).toBe('kanban')
+    expect(display.kanban).toEqual({ statusColumnId: 'stage', cardColumnIds: ['name', 'amount'], statusOrder: ['opt'] })
+  })
+
   it('drops a date column used as a timeline title', () => {
     const display = normalizeTableDisplay(
       { timeline: { dateColumnId: 'when', titleColumnIds: ['when', 'name'] } },

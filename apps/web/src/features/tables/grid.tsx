@@ -59,6 +59,7 @@ import { sync } from '../../lib/sync'
 import {
   invalidateFooter,
   invalidateOtherRowQueries,
+  mapCachedRows,
   patchCachedTable,
   readCachedRow,
 } from './cache'
@@ -83,6 +84,7 @@ import { registerTableMenu } from './table-menu'
 import { ConnectConnectorDialog } from './connect-connector-dialog'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { ChartView } from './chart-view'
+import { KanbanView } from './kanban-view'
 import { TimelineView } from './timeline-view'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import { historyFlags, redoTable, undoTable } from './history'
@@ -332,7 +334,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     })
   }, [editing, rows, selected.column, selected.row, table?.name, tableId, visible])
   useEffect(() => {
-    if (display.mode !== 'chart' && display.mode !== 'timeline') return
+    if (display.mode !== 'chart' && display.mode !== 'timeline' && display.mode !== 'kanban') return
     if (rowsQuery.isError || rowsQuery.isFetchingNextPage || !rowsQuery.hasNextPage) return
     if (rows.length >= displayRowCap) return
     void rowsQuery.fetchNextPage()
@@ -1016,11 +1018,20 @@ export function TableScreen({ tableId }: { tableId: string }) {
       find: (el: HTMLElement) => setPopover({ kind: 'find', ...viewportAnchorFrom(el) }),
       exportCsv: () => void exportCsv(),
       importCsv: () => setCsvImportOpen(true),
-      displayMode: (display.mode === 'chart' || display.mode === 'timeline'
+      displayMode: (display.mode === 'chart' || display.mode === 'timeline' || display.mode === 'kanban'
         ? display.mode
-        : 'grid') as 'grid' | 'chart' | 'timeline',
-      setDisplayMode: (mode: 'grid' | 'chart' | 'timeline') =>
-        setDisplay((current) => (current.mode === mode ? current : { ...current, mode })),
+        : 'grid') as 'grid' | 'chart' | 'timeline' | 'kanban',
+      setDisplayMode: (mode: 'grid' | 'chart' | 'timeline' | 'kanban') =>
+        setDisplay((current) => {
+          if (current.mode === mode) return current
+          if (mode !== 'kanban' || current.kanban.statusColumnId) return { ...current, mode }
+          const statusColumn = columns.find((column) => column.type === 'select' || column.type === 'status')
+          return {
+            ...current,
+            mode,
+            kanban: { ...current.kanban, statusColumnId: statusColumn?.id ?? null },
+          }
+        }),
       views: (views.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
@@ -1052,7 +1063,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       onSync: () => void syncConnector(),
       onConnect: () => setConnectOpen(true),
     }
-  }, [activeViewId, display.mode, table, tableId, t, views.data?.views, lockPending, syncPending])
+  }, [activeViewId, columns, display.mode, table, tableId, t, views.data?.views, lockPending, syncPending])
 
   useRegisterTableToolbar(toolbarActions)
 
@@ -1343,6 +1354,39 @@ export function TableScreen({ tableId }: { tableId: string }) {
             onWrite={(row, column, value) => {
               scheduleCell(row, column, value, 0)
               void sync.flush(`cell:${row.id}:${column.id}`)
+            }}
+          />
+        ) : display.mode === 'kanban' ? (
+          <KanbanView
+            projectId={projectId}
+            tableId={tableId}
+            columns={columns}
+            rows={rows}
+            statuses={table.statuses ?? []}
+            members={membersQuery.data?.members ?? []}
+            kanban={display.kanban}
+            readOnly={dataReadOnly}
+            onChange={(kanban) => setDisplay((current) => ({ ...current, kanban }))}
+            onMove={(row, statusId) => {
+              const column = columns.find((item) => item.id === display.kanban.statusColumnId)
+              if (!column) return
+              const current = readCachedRow(queryClient, tableId, row.id) ?? row
+              void api
+                .request<{ row: RowRecord }>(`/rows/${row.id}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({
+                    version: current.version,
+                    cells: { [column.id]: statusId },
+                  }),
+                })
+                .then((result) => {
+                  mapCachedRows(queryClient, tableId, (item) =>
+                    item.id === row.id ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } } : item,
+                  )
+                })
+                .catch((error: unknown) => {
+                  toast.error(error instanceof Error ? error.message : t('error'))
+                })
             }}
           />
         ) : (

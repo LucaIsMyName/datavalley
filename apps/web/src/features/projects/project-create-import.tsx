@@ -24,7 +24,7 @@ export function useProjectCreateImport() {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [projectName, setProjectName] = useState('')
-  const [customers, setCustomers] = useState(false)
+  const [template, setTemplate] = useState<'blank' | 'customers' | 'crm'>('blank')
   const [createError, setCreateError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importName, setImportName] = useState('')
@@ -35,7 +35,7 @@ export function useProjectCreateImport() {
   const nameInput = useRef<HTMLInputElement>(null)
 
   const create = useMutation({
-    mutationFn: (input: { name: string; template?: 'customers' }) =>
+    mutationFn: (input: { name: string; template?: 'customers' | 'crm' }) =>
       api.request<{ project: Project }>('/projects', {
         method: 'POST',
         body: JSON.stringify(input),
@@ -60,7 +60,7 @@ export function useProjectCreateImport() {
 
   const openCreate = () => {
     setProjectName('')
-    setCustomers(false)
+    setTemplate('blank')
     setCreateError('')
     setCreating(true)
   }
@@ -92,7 +92,7 @@ export function useProjectCreateImport() {
                 const name = projectName.trim()
                 if (!name) return
                 setCreateError('')
-                create.mutate({ name, template: customers ? 'customers' : undefined })
+                create.mutate({ name, ...(template === 'blank' ? {} : { template }) })
               }}
             >
               <Label htmlFor="new-project-name">{t('name')}</Label>
@@ -109,10 +109,18 @@ export function useProjectCreateImport() {
               >
                 <Checkbox
                   id="project-customers-template"
-                  checked={customers}
-                  onCheckedChange={(next) => setCustomers(next === true)}
+                  checked={template === 'customers'}
+                  onCheckedChange={(next) => setTemplate(next === true ? 'customers' : 'blank')}
                 />
                 {t('customersTemplate')}
+              </label>
+              <label htmlFor="project-crm-template" className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  id="project-crm-template"
+                  checked={template === 'crm'}
+                  onCheckedChange={(next) => setTemplate(next === true ? 'crm' : 'blank')}
+                />
+                {t('crmTemplate')}
               </label>
               {createError ? (
                 <p role="alert" className="text-sm text-danger">

@@ -204,7 +204,7 @@ async function rowHits(db: AppDatabase, subject: Subject, query: string, tablesI
       id: cell.row_id,
       title,
       subtitle: `${table.name} · ${cell.column_name}`,
-      href: `/projects/${table.projectId}/tables/${table.id}?row=${cell.row_id}&column=${cell.column_id}`,
+      href: `/projects/${table.projectId}/tables/${table.id}/rows/${cell.row_id}`,
     })
     if (hits.length === LIMIT) break
   }

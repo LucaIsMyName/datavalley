@@ -4,6 +4,7 @@ import {
   CalendarRange,
   ChartColumn,
   Check,
+  Kanban,
   Copy,
   Download,
   Link2,
@@ -41,8 +42,8 @@ export type TableToolbarActions = {
   find: (anchor: HTMLElement) => void
   exportCsv: () => void
   importCsv: () => void
-  displayMode: 'grid' | 'chart' | 'timeline'
-  setDisplayMode: (mode: 'grid' | 'chart' | 'timeline') => void
+  displayMode: 'grid' | 'chart' | 'timeline' | 'kanban'
+  setDisplayMode: (mode: 'grid' | 'chart' | 'timeline' | 'kanban') => void
   views: TableToolbarView[]
   saveView: (anchor: HTMLElement) => void
   duplicateTable: () => void
@@ -157,6 +158,8 @@ export function TableToolbarRow() {
             <ChartColumn className="size-4" />
           ) : actions.displayMode === 'timeline' ? (
             <CalendarRange className="size-4" />
+          ) : actions.displayMode === 'kanban' ? (
+            <Kanban className="size-4" />
           ) : (
             <Table2 className="size-4" />
           )}
@@ -167,7 +170,7 @@ export function TableToolbarRow() {
             align="start"
             sideOffset={4}
           >
-            {(['grid', 'chart', 'timeline'] as const).map((mode) => (
+            {(['grid', 'chart', 'timeline', 'kanban'] as const).map((mode) => (
               <DropdownMenu.Item
                 key={mode}
                 className="flex min-h-9 cursor-pointer items-center justify-between gap-3 px-2 text-sm outline-none data-[highlighted]:bg-accent"
@@ -178,7 +181,9 @@ export function TableToolbarRow() {
                     ? 'displayGrid'
                     : mode === 'chart'
                       ? 'displayChart'
-                      : 'displayTimeline',
+                      : mode === 'timeline'
+                        ? 'displayTimeline'
+                        : 'displayKanban',
                 )}
                 {actions.displayMode === mode ? <Check className="size-3.5" aria-hidden /> : null}
               </DropdownMenu.Item>

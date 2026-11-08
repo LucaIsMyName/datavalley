@@ -143,7 +143,7 @@ describe('search', () => {
     expect(rowHit.json().rows).toContainEqual(expect.objectContaining({
       id: rowId,
       title: 'Acme Widgets',
-      href: `/projects/${projectId}/tables/${tableId}?row=${rowId}&column=${customerId}`,
+      href: `/projects/${projectId}/tables/${tableId}/rows/${rowId}`,
     }))
     const numberHit = await session.inject({ method: 'GET', url: '/api/v1/search?q=42' })
     expect(numberHit.json().rows.map((hit: { id: string }) => hit.id)).toContain(rowId)

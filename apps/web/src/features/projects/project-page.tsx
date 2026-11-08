@@ -63,7 +63,8 @@ function rememberTableName(
 
 export function ProjectPage() {
   const { projectId = '' } = useParams()
-  const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
+  const tableMatch = useMatch({ path: '/projects/:projectId/tables/:tableId', end: false })
+  const recordMatch = useMatch('/projects/:projectId/tables/:tableId/rows/:rowId')
   const tableId = tableMatch?.params.tableId ?? ''
   const { t } = useTranslation()
   const user = useSession((state) => state.user)
@@ -603,7 +604,7 @@ export function ProjectPage() {
             </button>
           </div>
         </header>
-        {tableId && tableRows.length > 0 ? (
+        {tableId && tableRows.length > 0 && !recordMatch ? (
           <div className="flex shrink-0 mx-4 md:mx-6 border-t border-l border-r border-border">
             <TableToolbarRow />
           </div>

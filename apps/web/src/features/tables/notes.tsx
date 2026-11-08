@@ -227,7 +227,7 @@ const TURN_INTO_OPTIONS: { type: TurnIntoType; labelKey: string }[] = [
   { type: 'divider', labelKey: 'notesBlockDivider' },
 ]
 
-function NotesBlockEditor({
+export function NotesBlockEditor({
   rowId,
   markdown,
   readOnly,

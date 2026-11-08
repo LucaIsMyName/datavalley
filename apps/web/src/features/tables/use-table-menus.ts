@@ -290,6 +290,12 @@ export function useTableMenus(scope: Scope) {
       dataReadOnly
         ? [
             {
+              id: 'record',
+              label: t('openRecord'),
+              icon: ArrowUpRight,
+              onSelect: () => navigate(`/projects/${projectId}/tables/${tableId}/rows/${row.id}`),
+            },
+            {
               id: 'notes',
               label: t('notes'),
               icon: ArrowUpRight,
@@ -306,6 +312,12 @@ export function useTableMenus(scope: Scope) {
             },
           ]
         : [
+            {
+              id: 'record',
+              label: t('openRecord'),
+              icon: ArrowUpRight,
+              onSelect: () => navigate(`/projects/${projectId}/tables/${tableId}/rows/${row.id}`),
+            },
             {
               id: 'notes',
               label: t('notes'),

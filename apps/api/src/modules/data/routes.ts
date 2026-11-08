@@ -41,7 +41,7 @@ import {
   updateTable,
   updateTag,
 } from '../tables/service.js'
-import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
+import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, listRows, moveRow, patchRow } from '../rows/service.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { canonicalizeFormatRules, compileCondition, evaluateStored, fillFormulas, formulaCatalog, formulaDependenciesFor, previewFormula, readCellFormula, saveFormula } from '../formulas/service.js'
 import { requireTable } from '../tables/service.js'
@@ -239,6 +239,10 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     if (!request.subject) throw unauthorized()
     const body = request.body as { rowId: string; beforeId?: string; afterId?: string }
     return { row: await moveRow(db, request.subject, (request.params as { tableId: string }).tableId, body.rowId, body) }
+  })
+  app.get('/rows/:rowId/record', async (request) => {
+    if (!request.subject) throw unauthorized()
+    return getRecord(db, request.subject, (request.params as { rowId: string }).rowId)
   })
   app.patch('/rows/:rowId', { schema: { body: dataSchema.patchRowBody } }, async (request) => {
     if (!request.subject) throw unauthorized()

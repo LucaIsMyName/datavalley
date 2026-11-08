@@ -13,6 +13,7 @@ import {
   relations,
   relationRecords,
   tableCells,
+  tableColumns,
   tableRows,
   tableStatuses,
   tableTags,
@@ -29,7 +30,7 @@ import {
 } from '../../column-types/index.js'
 import { assertMediaReadable, loadMediaFile } from '../platform/media-access.js'
 import { badRequest, conflict, notFound, versionConflict } from '../../errors.js'
-import { allows, resolveGrants } from '../../security/access.js'
+import { allows, assertCan, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, evaluateFormulasForRows } from '../formulas/service.js'
@@ -173,6 +174,139 @@ async function presentRowRecord(
     presentRows(visible, [fresh], stored),
   )
   return presented
+}
+
+export type RecordLink = {
+  tableId: string
+  tableName: string
+  rowId: string
+  title: string
+  columnName: string
+}
+
+async function recordTitles(db: AppDatabase, rowIds: string[]) {
+  const titles = new Map<string, string>()
+  if (rowIds.length === 0) return titles
+  const rows = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
+  const tableIds = [...new Set(rows.map((row) => row.tableId))]
+  const columns = await db.select().from(tableColumns).where(inArray(tableColumns.tableId, tableIds))
+  const cells = await db.select().from(tableCells).where(inArray(tableCells.rowId, rowIds))
+  for (const row of rows) {
+    const textColumns = columns
+      .filter((column) => column.tableId === row.tableId && ['text', 'mail', 'url'].includes(column.type))
+      .sort((left, right) => (left.position < right.position ? -1 : 1))
+    const title = textColumns
+      .map((column) => cells.find((cell) => cell.rowId === row.id && cell.columnId === column.id)?.valueText)
+      .find((value) => value)
+    titles.set(row.id, title || `#${row.rowNumber}`)
+  }
+  return titles
+}
+
+export async function getRecord(db: AppDatabase, subject: Subject, rowId: string) {
+  const [stored] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
+  if (!stored) throw notFound()
+  const { shell, physical } = await resolveTableContext(db, subject, stored.tableId, 'view')
+  await assertCan(db, subject, 'view', {
+    type: 'row',
+    id: rowId,
+    parents: { table: shell.id, project: shell.projectId },
+  })
+  const columns = await visibleColumns(
+    db,
+    subject,
+    shell.id,
+    shell.projectId,
+    await loadColumns(db, physical.id),
+  )
+  const row = await presentRowRecord(db, subject, physical.id, shell.projectId, rowId)
+  const grants = await resolveGrants(db, subject)
+  const candidates: { tableId: string; rowId: string; columnName: string }[] = []
+  for (const column of columns) {
+    if (column.type !== 'relation') continue
+    const targetId = row.cells[column.id]
+    if (typeof targetId !== 'string' || targetId.length === 0) continue
+    candidates.push({ tableId: String(column.config.toTableId ?? ''), rowId: targetId, columnName: column.name })
+  }
+  const incoming = await db
+    .select({
+      relationId: relationRecords.relationId,
+      fromRowId: relationRecords.fromRowId,
+    })
+    .from(relationRecords)
+    .where(eq(relationRecords.toRowId, rowId))
+  if (incoming.length > 0) {
+    const relationIds = [...new Set(incoming.map((link) => link.relationId))]
+    const relationRows = await db.select().from(relations).where(inArray(relations.id, relationIds))
+    const columnIds = relationRows
+      .map((relation) => relation.fromColumnId)
+      .filter((id): id is string => Boolean(id))
+    const fromColumns = columnIds.length
+      ? await db.select().from(tableColumns).where(inArray(tableColumns.id, columnIds))
+      : []
+    for (const link of incoming) {
+      const relation = relationRows.find((item) => item.id === link.relationId)
+      if (!relation || relation.fromTableId === physical.id) continue
+      const column = fromColumns.find((item) => item.id === relation.fromColumnId)
+      candidates.push({
+        tableId: relation.fromTableId,
+        rowId: link.fromRowId,
+        columnName: column?.name ?? '',
+      })
+    }
+  }
+  const linkedRows = candidates.length
+    ? await db
+        .select()
+        .from(tableRows)
+        .where(
+          inArray(
+            tableRows.id,
+            candidates.map((item) => item.rowId),
+          ),
+        )
+    : []
+  const linkedTables = linkedRows.length
+    ? await db
+        .select()
+        .from(tables)
+        .where(
+          inArray(
+            tables.id,
+            [...new Set(linkedRows.map((item) => item.tableId))],
+          ),
+        )
+    : []
+  const titles = await recordTitles(
+    db,
+    linkedRows.map((item) => item.id),
+  )
+  const links: RecordLink[] = []
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    const linked = linkedRows.find((item) => item.id === candidate.rowId)
+    const table = linkedTables.find((item) => item.id === linked?.tableId)
+    if (!linked || !table) continue
+    const key = `${table.id}:${linked.id}:${candidate.columnName}`
+    if (seen.has(key)) continue
+    if (
+      !allows(subject, grants, 'view', {
+        type: 'row',
+        id: linked.id,
+        parents: { table: table.id, project: table.projectId },
+      })
+    )
+      continue
+    seen.add(key)
+    links.push({
+      tableId: table.id,
+      tableName: table.name,
+      rowId: linked.id,
+      title: titles.get(linked.id) ?? `#${linked.rowNumber}`,
+      columnName: candidate.columnName,
+    })
+  }
+  return { row, tableId: shell.id, links }
 }
 
 async function attachFormulaValues<T extends { id: string; cells: Record<string, unknown> }>(
