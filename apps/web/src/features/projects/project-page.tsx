@@ -537,11 +537,7 @@ export function ProjectPage() {
                           reportPresence({ focus: null, editing: false, draft: null })
                         }}
                       />
-                      {table.mirrorOfTableId ? (
-                        <Badge className="shrink-0 normal-case" color="slate">
-                          {t('syncedBadge')}
-                        </Badge>
-                      ) : null}
+                      <TableTabBadge table={table} />
                     </div>
                   ) : (
                     <Link
@@ -549,11 +545,7 @@ export function ProjectPage() {
                       className="inline-flex max-w-[min(20rem,calc(100vw-12rem))] min-w-0 items-center gap-1.5 text-sm font-medium"
                     >
                       <span className="truncate">{table.name}</span>
-                      {table.mirrorOfTableId ? (
-                        <Badge className="shrink-0 normal-case" color="slate">
-                          {t('syncedBadge')}
-                        </Badge>
-                      ) : null}
+                      <TableTabBadge table={table} />
                     </Link>
                   )}
                 </div>
@@ -650,4 +642,23 @@ export function ProjectPage() {
       </section>
     </TableToolbarProvider>
   )
+}
+
+function TableTabBadge({ table }: { table: Pick<TableRecord, 'mirrorOfTableId' | 'connector'> }) {
+  const { t } = useTranslation()
+  if (table.mirrorOfTableId) {
+    return (
+      <Badge className="shrink-0 normal-case" color="slate">
+        {t('syncedBadge')}
+      </Badge>
+    )
+  }
+  if (table.connector) {
+    return (
+      <Badge className="shrink-0 normal-case" color="slate">
+        {t('connectorBadge')}
+      </Badge>
+    )
+  }
+  return null
 }

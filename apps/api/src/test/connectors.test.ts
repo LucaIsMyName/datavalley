@@ -151,6 +151,11 @@ describe('connectors', () => {
       name: 'Feed',
       lastSyncAt: null,
     })
+    const listed = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const listedTable = (listed.json().tables as { id: string; connector: { name: string } | null }[]).find(
+      (item) => item.id === tableId,
+    )
+    expect(listedTable?.connector?.name).toBe('Feed')
 
     const blocked = await session.inject({
       method: 'PATCH',
@@ -173,6 +178,11 @@ describe('connectors', () => {
 
     const unbound = await session.inject({ method: 'GET', url: `/api/v1/tables/${tableId}` })
     expect(unbound.json().table.connector).toBeNull()
+    const listedAgain = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const unboundListed = (listedAgain.json().tables as { id: string; connector: { name: string } | null }[]).find(
+      (item) => item.id === tableId,
+    )
+    expect(unboundListed?.connector).toBeNull()
 
     const patched = await session.inject({
       method: 'PATCH',

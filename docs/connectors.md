@@ -9,7 +9,7 @@ Data connectors fetch HTTP feeds (JSON, CSV, XML, or HTML) and sync mapped field
 
 Connectors do **not** create tables by themselves. When you create a table, choose **From connector** to create columns from the connector mapping and start an initial sync.
 
-A table linked to a connector is read-only. Scheduled syncs and **Sync** on that table overwrite mapped cells. **Disconnect** removes the link: the table becomes editable and stops receiving connector updates. **Connect connector** on an editable table links a connector again (columns must match by name) and syncs. That sync can overwrite values in mapped cells. Row identity from the previous link is kept, so reconnecting updates those rows instead of appending duplicates.
+A table linked to a connector is read-only, and its tab shows a Connector badge. Scheduled syncs and **Sync** on that table overwrite mapped cells. **Disconnect** removes the link: the table becomes editable and stops receiving connector updates. **Connect connector** on an editable table links a connector again (columns must match by name) and syncs. That sync can overwrite values in mapped cells. Row identity from the previous link is kept, so reconnecting updates those rows instead of appending duplicates.
 
 ## Configuration
 

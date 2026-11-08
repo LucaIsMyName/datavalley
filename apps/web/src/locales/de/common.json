@@ -248,6 +248,7 @@
   "noConnectorsForTable": "Für dieses Projekt sind keine Connectors verfügbar.",
   "syncedTable": "Synchronisierte Ansicht",
   "syncedBadge": "Sync",
+  "connectorBadge": "Connector",
   "mirrorBanner": "Gespiegelt aus {{project}} / {{table}}. Daten sind hier schreibgeschützt.",
   "mirrorSourceProject": "Quellprojekt",
   "mirrorSourceTable": "Quelltabelle",

@@ -248,6 +248,7 @@
   "noConnectorsForTable": "No connectors available for this project.",
   "syncedTable": "Synced view",
   "syncedBadge": "Synced",
+  "connectorBadge": "Connector",
   "mirrorBanner": "Mirrored from {{project}} / {{table}}. Data is read-only here.",
   "mirrorSourceProject": "Source project",
   "mirrorSourceTable": "Source table",

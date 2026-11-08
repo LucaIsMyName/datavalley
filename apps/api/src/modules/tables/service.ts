@@ -39,6 +39,7 @@ import type { Subject } from '../../security/subject.js'
 import {
   assertNoConnectorBinding,
   loadTableConnector,
+  loadTableConnectors,
   tableHasConnectorBinding,
   CONNECTOR_BOUND_MESSAGE,
 } from '../connectors/guard.js'
@@ -339,7 +340,11 @@ export async function listTables(db: AppDatabase, subject: Subject, projectId: s
       // Hidden tables stay out of the list.
     }
   }
-  return visible
+  const connectors = await loadTableConnectors(
+    db,
+    visible.map((table) => table.id),
+  )
+  return visible.map((table) => ({ ...table, connector: connectors.get(table.id) ?? null }))
 }
 
 export async function createTable(
