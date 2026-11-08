@@ -1,6 +1,30 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Bookmark, CalendarRange, ChartColumn, Check, Copy, Download, Lock, LockOpen, MoreHorizontal, Search, Table2, Trash2, Upload } from 'lucide-react'
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  Bookmark,
+  CalendarRange,
+  ChartColumn,
+  Check,
+  Copy,
+  Download,
+  Link2,
+  Lock,
+  LockOpen,
+  MoreHorizontal,
+  RefreshCw,
+  Search,
+  Table2,
+  Trash2,
+  Upload,
+} from 'lucide-react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
 
@@ -25,8 +49,12 @@ export type TableToolbarActions = {
   deleteTable: () => void
   locked: boolean
   isMirror: boolean
+  connectorBound: boolean
+  syncPending: boolean
   lockPending: boolean
   onToggleLock: () => void
+  onSync: () => void
+  onConnect: () => void
 }
 
 const TableToolbarContext = createContext<{
@@ -59,7 +87,20 @@ export function TableToolbarRow() {
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto">
-      {!actions.isMirror ? (
+      {actions.connectorBound ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="size-9 shrink-0 px-0"
+          aria-label={t('syncConnectorTable')}
+          title={t('syncConnectorTable')}
+          disabled={actions.syncPending}
+          onClick={() => actions.onSync()}
+        >
+          <RefreshCw className="size-4" />
+        </Button>
+      ) : null}
+      {!actions.isMirror && !actions.connectorBound ? (
         <Button
           type="button"
           variant="ghost"
@@ -93,7 +134,7 @@ export function TableToolbarRow() {
       >
         <Download className="size-4" />
       </Button>
-      {!actions.isMirror && !actions.locked ? (
+      {!actions.isMirror && !actions.locked && !actions.connectorBound ? (
         <Button
           type="button"
           variant="ghost"
@@ -112,17 +153,33 @@ export function TableToolbarRow() {
           aria-label={t('display')}
           title={t('display')}
         >
-          {actions.displayMode === 'chart' ? <ChartColumn className="size-4" /> : actions.displayMode === 'timeline' ? <CalendarRange className="size-4" /> : <Table2 className="size-4" />}
+          {actions.displayMode === 'chart' ? (
+            <ChartColumn className="size-4" />
+          ) : actions.displayMode === 'timeline' ? (
+            <CalendarRange className="size-4" />
+          ) : (
+            <Table2 className="size-4" />
+          )}
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content className="z-50 min-w-44 border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
+          <DropdownMenu.Content
+            className="z-50 min-w-44 border border-border bg-card p-1 shadow-md"
+            align="start"
+            sideOffset={4}
+          >
             {(['grid', 'chart', 'timeline'] as const).map((mode) => (
               <DropdownMenu.Item
                 key={mode}
                 className="flex min-h-9 cursor-pointer items-center justify-between gap-3 px-2 text-sm outline-none data-[highlighted]:bg-accent"
                 onSelect={() => actions.setDisplayMode(mode)}
               >
-                {t(mode === 'grid' ? 'displayGrid' : mode === 'chart' ? 'displayChart' : 'displayTimeline')}
+                {t(
+                  mode === 'grid'
+                    ? 'displayGrid'
+                    : mode === 'chart'
+                      ? 'displayChart'
+                      : 'displayTimeline',
+                )}
                 {actions.displayMode === mode ? <Check className="size-3.5" aria-hidden /> : null}
               </DropdownMenu.Item>
             ))}
@@ -140,7 +197,11 @@ export function TableToolbarRow() {
           <Bookmark className="size-4" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content className="z-50 min-w-44 border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
+          <DropdownMenu.Content
+            className="z-50 min-w-44 border border-border bg-card p-1 shadow-md"
+            align="start"
+            sideOffset={4}
+          >
             {actions.views.length === 0 ? (
               <p className="px-2 py-1.5 text-sm text-muted-foreground">{t('noViews')}</p>
             ) : (
@@ -209,7 +270,20 @@ export function TableToolbarRow() {
           </Button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content className="z-50 min-w-44 border border-border bg-card p-1 shadow-md" align="start" sideOffset={4}>
+          <DropdownMenu.Content
+            className="z-50 min-w-44 border border-border bg-card p-1 shadow-md"
+            align="start"
+            sideOffset={4}
+          >
+            {!actions.isMirror && !actions.locked && !actions.connectorBound ? (
+              <DropdownMenu.Item
+                className="flex min-h-9 cursor-pointer items-center gap-2 px-2 text-sm outline-none data-[highlighted]:bg-accent"
+                onSelect={() => actions.onConnect()}
+              >
+                <Link2 className="size-3.5 shrink-0" aria-hidden />
+                {t('connectConnector')}
+              </DropdownMenu.Item>
+            ) : null}
             {!actions.isMirror && !actions.locked ? (
               <DropdownMenu.Item
                 className="flex min-h-9 cursor-pointer items-center gap-2 px-2 text-sm outline-none data-[highlighted]:bg-accent"

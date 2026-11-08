@@ -5,7 +5,13 @@ import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
-import { invalidateFooter, invalidateOtherRowQueries, mapCachedRows, readCachedRow, replaceCachedRows } from './cache'
+import {
+  invalidateFooter,
+  invalidateOtherRowQueries,
+  mapCachedRows,
+  readCachedRow,
+  replaceCachedRows,
+} from './cache'
 import { rowFromVersionConflict } from './version-conflict'
 import { columnFeedsFooter } from './grid-edit'
 import { cellFormatError } from './cell-format'
@@ -66,7 +72,13 @@ export function useRowCellEdit({
   }, [])
 
   const warnReadOnlyEdit = useCallback(() => {
-    showEditError(readOnlyReason === 'locked' ? t('lockedTableBanner') : t('error'))
+    showEditError(
+      readOnlyReason === 'locked'
+        ? t('lockedTableBanner')
+        : readOnlyReason === 'connector'
+          ? t('connectorTableReadOnly')
+          : t('error'),
+    )
   }, [readOnlyReason, t])
 
   const invalidFor = useCallback(
@@ -93,7 +105,12 @@ export function useRowCellEdit({
         return
       }
       clearInvalid(key)
-      if (column.type === 'text' || column.type === 'long_text' || column.type === 'url' || column.type === 'mail') {
+      if (
+        column.type === 'text' ||
+        column.type === 'long_text' ||
+        column.type === 'url' ||
+        column.type === 'mail'
+      ) {
         reportPresence({
           tableId,
           focus: { kind: 'cell', tableId, rowId: row.id, columnId },
@@ -151,7 +168,9 @@ export function useRowCellEdit({
           if (saved !== previous) {
             pushCommand(tableId, {
               kind: 'patch',
-              undo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: previous } }],
+              undo: [
+                { rowId: row.id, version: result.row.version, cells: { [columnId]: previous } },
+              ],
               redo: [{ rowId: row.id, version: result.row.version, cells: { [columnId]: saved } }],
             })
             const footer = queryClient.getQueryData<{
@@ -190,7 +209,16 @@ export function useRowCellEdit({
         },
       })
     },
-    [clearInvalid, i18n.language, onRefreshRows, queryClient, readOnly, t, tableId, warnReadOnlyEdit],
+    [
+      clearInvalid,
+      i18n.language,
+      onRefreshRows,
+      queryClient,
+      readOnly,
+      t,
+      tableId,
+      warnReadOnlyEdit,
+    ],
   )
 
   const commitMediaCell = useCallback(

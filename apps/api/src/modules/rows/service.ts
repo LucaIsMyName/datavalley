@@ -1,15 +1,39 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { csvTable, normalizeCsvDelimiter, toCsv, type FilterNode, type FormatRule } from '@datavalley/shared'
+import {
+  csvTable,
+  normalizeCsvDelimiter,
+  toCsv,
+  type FilterNode,
+  type FormatRule,
+} from '@datavalley/shared'
 import type { AppDatabase } from '../../database/client.js'
-import { formulas, projectMembers, relations, relationRecords, tableCells, tableRows, tableStatuses, tableTags, tables, users } from '../../database/schema.js'
+import {
+  formulas,
+  projectMembers,
+  relations,
+  relationRecords,
+  tableCells,
+  tableRows,
+  tableStatuses,
+  tableTags,
+  tables,
+  users,
+} from '../../database/schema.js'
 import { normalizeMediaCellValue } from '@datavalley/shared'
-import { coerceImport, isWritable, parseCell, readCell, type CellWrite } from '../../column-types/index.js'
+import {
+  coerceImport,
+  isWritable,
+  parseCell,
+  readCell,
+  type CellWrite,
+} from '../../column-types/index.js'
 import { assertMediaReadable, loadMediaFile } from '../platform/media-access.js'
 import { badRequest, conflict, notFound, versionConflict } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, evaluateFormulasForRows } from '../formulas/service.js'
+import { assertNoConnectorBinding } from '../connectors/guard.js'
 import { assertTableDataEditable } from '../tables/resolve.js'
 import {
   ensureTextColumns,
@@ -23,24 +47,49 @@ import {
 import { footerFor, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 
-export async function visibleColumns(db: AppDatabase, subject: Subject, tableId: string, projectId: string, columns: LoadedColumn[]) {
+export async function visibleColumns(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  projectId: string,
+  columns: LoadedColumn[],
+) {
   const grants = await resolveGrants(db, subject)
   return columns.filter((column) =>
-    allows(subject, grants, 'view', { type: 'column', id: column.id, parents: { table: tableId, project: projectId } }),
+    allows(subject, grants, 'view', {
+      type: 'column',
+      id: column.id,
+      parents: { table: tableId, project: projectId },
+    }),
   )
 }
 
-async function assertRow(db: AppDatabase, subject: Subject, rowId: string, action: 'view' | 'edit' | 'delete') {
+async function assertRow(
+  db: AppDatabase,
+  subject: Subject,
+  rowId: string,
+  action: 'view' | 'edit' | 'delete',
+) {
   const [row] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
   if (!row) throw notFound()
-  const table = await requireTable(db, subject, row.tableId, action === 'view' ? 'view' : action === 'delete' ? 'delete' : 'edit')
-  if (action !== 'view') assertTableDataEditable(table)
+  const table = await requireTable(
+    db,
+    subject,
+    row.tableId,
+    action === 'view' ? 'view' : action === 'delete' ? 'delete' : 'edit',
+  )
+  if (action !== 'view') {
+    assertTableDataEditable(table)
+    await assertNoConnectorBinding(db, table.id)
+  }
   const grants = await resolveGrants(db, subject)
-  if (!allows(subject, grants, action === 'delete' ? 'delete' : action === 'edit' ? 'edit' : 'view', {
-    type: 'row',
-    id: row.id,
-    parents: { table: table.id, project: table.projectId },
-  })) {
+  if (
+    !allows(subject, grants, action === 'delete' ? 'delete' : action === 'edit' ? 'edit' : 'view', {
+      type: 'row',
+      id: row.id,
+      parents: { table: table.id, project: table.projectId },
+    })
+  ) {
     throw notFound()
   }
   return { row, table, grants }
@@ -53,7 +102,14 @@ async function cellsFor(db: AppDatabase, rowIds: string[]) {
 
 function presentRows(
   columns: LoadedColumn[],
-  page: { id: string; position: string; version: number; color?: string | null; notes?: string | null; rowNumber?: number | null }[],
+  page: {
+    id: string
+    position: string
+    version: number
+    color?: string | null
+    notes?: string | null
+    rowNumber?: number | null
+  }[],
   cells: (typeof tableCells.$inferSelect)[],
 ) {
   const byKey = new Map(cells.map((cell) => [`${cell.rowId}:${cell.columnId}`, cell]))
@@ -63,19 +119,25 @@ function presentRows(
     const formats: Record<string, FormatRule[]> = {}
     for (const column of columns) {
       if (column.type === 'row_id') {
-        values[column.id] = column.config.style === 'uuid' ? row.id : row.rowNumber ?? null
+        values[column.id] = column.config.style === 'uuid' ? row.id : (row.rowNumber ?? null)
         continue
       }
       const cell = byKey.get(`${row.id}:${column.id}`)
-      values[column.id] = readCell(column, cell ? {
-        valueText: cell.valueText,
-        valueNumber: cell.valueNumber,
-        valueBool: cell.valueBool,
-        valueTimestamptz: cell.valueTimestamptz,
-        valueJsonb: cell.valueJsonb,
-      } : undefined)
+      values[column.id] = readCell(
+        column,
+        cell
+          ? {
+              valueText: cell.valueText,
+              valueNumber: cell.valueNumber,
+              valueBool: cell.valueBool,
+              valueTimestamptz: cell.valueTimestamptz,
+              valueJsonb: cell.valueJsonb,
+            }
+          : undefined,
+      )
       if (cell?.background) backgrounds[column.id] = cell.background
-      if (Array.isArray(cell?.formatRules) && cell.formatRules.length > 0) formats[column.id] = cell.formatRules as FormatRule[]
+      if (Array.isArray(cell?.formatRules) && cell.formatRules.length > 0)
+        formats[column.id] = cell.formatRules as FormatRule[]
     }
     return {
       id: row.id,
@@ -91,7 +153,13 @@ function presentRows(
   })
 }
 
-async function presentRowRecord(db: AppDatabase, subject: Subject, tableId: string, projectId: string, rowId: string) {
+async function presentRowRecord(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  projectId: string,
+  rowId: string,
+) {
   const [fresh] = await db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
   if (!fresh) throw notFound()
   const columns = await loadColumns(db, tableId)
@@ -152,10 +220,22 @@ export async function listRows(
   db: AppDatabase,
   subject: Subject,
   tableId: string,
-  input: { limit?: number; cursor?: string | null; sort?: SortSpec | null; filter?: FilterNode | null; q?: string | null },
+  input: {
+    limit?: number
+    cursor?: string | null
+    sort?: SortSpec | null
+    filter?: FilterNode | null
+    q?: string | null
+  },
 ) {
   const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
-  const columns = await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
+  const columns = await visibleColumns(
+    db,
+    subject,
+    shell.id,
+    shell.projectId,
+    await loadColumns(db, physical.id),
+  )
   const page = await queryRows(db, {
     tableId: physical.id,
     columns,
@@ -167,7 +247,10 @@ export async function listRows(
     filter: input.filter,
     q: input.q,
   })
-  const cells = await cellsFor(db, page.rows.map((row) => row.id))
+  const cells = await cellsFor(
+    db,
+    page.rows.map((row) => row.id),
+  )
   const rows = await attachFormulaValues(
     db,
     subject,
@@ -178,22 +261,39 @@ export async function listRows(
   return { rows, nextCursor: page.nextCursor, columns: columns.map((column) => column.id) }
 }
 
-async function assertReferences(db: AppDatabase, subject: Subject, tableId: string, projectId: string, column: LoadedColumn, input: unknown) {
+async function assertReferences(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  projectId: string,
+  column: LoadedColumn,
+  input: unknown,
+) {
   if (input == null || input === '') return
   if (column.type === 'tags' || column.type === 'user') {
     const ids = Array.isArray(input) ? input.map(String) : []
     if (ids.length === 0) return
     const unique = new Set(ids)
     if (column.type === 'tags') {
-      const found = await db.select({ id: tableTags.id }).from(tableTags).where(and(eq(tableTags.tableId, tableId), inArray(tableTags.id, ids)))
+      const found = await db
+        .select({ id: tableTags.id })
+        .from(tableTags)
+        .where(and(eq(tableTags.tableId, tableId), inArray(tableTags.id, ids)))
       if (found.length !== unique.size) throw badRequest('Unknown tag')
       return
     }
-    const found = await db.select({ userId: projectMembers.userId }).from(projectMembers).where(and(eq(projectMembers.projectId, projectId), inArray(projectMembers.userId, ids)))
+    const found = await db
+      .select({ userId: projectMembers.userId })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), inArray(projectMembers.userId, ids)))
     if (found.length !== unique.size) throw badRequest('Unknown user')
   }
   if (column.type === 'status') {
-    const [found] = await db.select({ id: tableStatuses.id }).from(tableStatuses).where(and(eq(tableStatuses.tableId, tableId), eq(tableStatuses.id, String(input)))).limit(1)
+    const [found] = await db
+      .select({ id: tableStatuses.id })
+      .from(tableStatuses)
+      .where(and(eq(tableStatuses.tableId, tableId), eq(tableStatuses.id, String(input))))
+      .limit(1)
     if (!found) throw badRequest('Unknown status')
   }
   if (column.type === 'media') {
@@ -207,7 +307,14 @@ async function assertReferences(db: AppDatabase, subject: Subject, tableId: stri
   }
 }
 
-async function writeCell(db: AppDatabase, tableId: string, rowId: string, column: LoadedColumn, value: unknown, background?: string | null) {
+async function writeCell(
+  db: AppDatabase,
+  tableId: string,
+  rowId: string,
+  column: LoadedColumn,
+  value: unknown,
+  background?: string | null,
+) {
   const [existing] = await db
     .select()
     .from(tableCells)
@@ -217,7 +324,10 @@ async function writeCell(db: AppDatabase, tableId: string, rowId: string, column
   const kept = background !== undefined ? background : (existing?.background ?? null)
   const rules = storedRules(existing?.formatRules)
   if (!parsed && !kept && rules.length === 0) {
-    if (existing) await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
+    if (existing)
+      await db
+        .delete(tableCells)
+        .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
     return
   }
   const record = {
@@ -252,7 +362,13 @@ async function writeCell(db: AppDatabase, tableId: string, rowId: string, column
   if (parsed && column.type === 'relation') await syncRelation(db, column, rowId, parsed)
 }
 
-async function setBackground(db: AppDatabase, tableId: string, rowId: string, columnId: string, background: string | null) {
+async function setBackground(
+  db: AppDatabase,
+  tableId: string,
+  rowId: string,
+  columnId: string,
+  background: string | null,
+) {
   const [existing] = await db
     .select()
     .from(tableCells)
@@ -260,11 +376,11 @@ async function setBackground(db: AppDatabase, tableId: string, rowId: string, co
     .limit(1)
   const hasValue = Boolean(
     existing &&
-      (existing.valueText != null ||
-        existing.valueNumber != null ||
-        existing.valueBool != null ||
-        existing.valueTimestamptz != null ||
-        existing.valueJsonb != null),
+    (existing.valueText != null ||
+      existing.valueNumber != null ||
+      existing.valueBool != null ||
+      existing.valueTimestamptz != null ||
+      existing.valueJsonb != null),
   )
   if (!existing) {
     if (!background) return
@@ -275,14 +391,23 @@ async function setBackground(db: AppDatabase, tableId: string, rowId: string, co
     await db.delete(tableCells).where(eq(tableCells.id, existing.id))
     return
   }
-  await db.update(tableCells).set({ background, updatedAt: new Date() }).where(eq(tableCells.id, existing.id))
+  await db
+    .update(tableCells)
+    .set({ background, updatedAt: new Date() })
+    .where(eq(tableCells.id, existing.id))
 }
 
 function storedRules(value: unknown) {
   return Array.isArray(value) ? value : []
 }
 
-async function setCellFormats(db: AppDatabase, tableId: string, rowId: string, columnId: string, rules: FormatRule[]) {
+async function setCellFormats(
+  db: AppDatabase,
+  tableId: string,
+  rowId: string,
+  columnId: string,
+  rules: FormatRule[],
+) {
   const [existing] = await db
     .select()
     .from(tableCells)
@@ -290,11 +415,11 @@ async function setCellFormats(db: AppDatabase, tableId: string, rowId: string, c
     .limit(1)
   const hasValue = Boolean(
     existing &&
-      (existing.valueText != null ||
-        existing.valueNumber != null ||
-        existing.valueBool != null ||
-        existing.valueTimestamptz != null ||
-        existing.valueJsonb != null),
+    (existing.valueText != null ||
+      existing.valueNumber != null ||
+      existing.valueBool != null ||
+      existing.valueTimestamptz != null ||
+      existing.valueJsonb != null),
   )
   if (!existing) {
     if (rules.length === 0) return
@@ -305,10 +430,18 @@ async function setCellFormats(db: AppDatabase, tableId: string, rowId: string, c
     await db.delete(tableCells).where(eq(tableCells.id, existing.id))
     return
   }
-  await db.update(tableCells).set({ formatRules: rules as never, updatedAt: new Date() }).where(eq(tableCells.id, existing.id))
+  await db
+    .update(tableCells)
+    .set({ formatRules: rules as never, updatedAt: new Date() })
+    .where(eq(tableCells.id, existing.id))
 }
 
-async function syncRelation(db: AppDatabase, column: LoadedColumn, rowId: string, parsed: CellWrite) {
+async function syncRelation(
+  db: AppDatabase,
+  column: LoadedColumn,
+  rowId: string,
+  parsed: CellWrite,
+) {
   const relationId = String(column.config.relationId ?? '')
   if (!relationId) return
   const [relation] = await db.select().from(relations).where(eq(relations.id, relationId)).limit(1)
@@ -318,16 +451,24 @@ async function syncRelation(db: AppDatabase, column: LoadedColumn, rowId: string
   const [target] = await db.select().from(tableRows).where(eq(tableRows.id, targetId)).limit(1)
   if (!target || target.tableId !== relation.toTableId) throw notFound()
   if (relation.cardinality === 'many_to_one' || relation.cardinality === 'one_to_one') {
-    await db.delete(relationRecords).where(and(eq(relationRecords.relationId, relation.id), eq(relationRecords.fromRowId, rowId)))
+    await db
+      .delete(relationRecords)
+      .where(and(eq(relationRecords.relationId, relation.id), eq(relationRecords.fromRowId, rowId)))
   }
   if (relation.cardinality === 'one_to_one' || relation.cardinality === 'one_to_many') {
     const existing = await db
       .select()
       .from(relationRecords)
-      .where(and(eq(relationRecords.relationId, relation.id), eq(relationRecords.toRowId, targetId)))
-    if (existing.some((record) => record.fromRowId !== rowId)) throw conflict('That record is already linked')
+      .where(
+        and(eq(relationRecords.relationId, relation.id), eq(relationRecords.toRowId, targetId)),
+      )
+    if (existing.some((record) => record.fromRowId !== rowId))
+      throw conflict('That record is already linked')
   }
-  await db.insert(relationRecords).values({ relationId: relation.id, fromRowId: rowId, toRowId: targetId }).onConflictDoNothing()
+  await db
+    .insert(relationRecords)
+    .values({ relationId: relation.id, fromRowId: rowId, toRowId: targetId })
+    .onConflictDoNothing()
 }
 
 export async function createRow(
@@ -353,11 +494,26 @@ export async function createRow(
       .set({ nextRowNumber: sql`${tables.nextRowNumber} + 1` })
       .where(eq(tables.id, dataTableId))
       .returning({ nextRowNumber: tables.nextRowNumber })
-    const [created] = await tx.insert(tableRows).values({ tableId: dataTableId, position, rowNumber: numbered.nextRowNumber - 1, createdBy: subject.id }).returning()
+    const [created] = await tx
+      .insert(tableRows)
+      .values({
+        tableId: dataTableId,
+        position,
+        rowNumber: numbered.nextRowNumber - 1,
+        createdBy: subject.id,
+      })
+      .returning()
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)
       if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
-      await assertReferences(tx as unknown as AppDatabase, subject, dataTableId, table.projectId, column, value)
+      await assertReferences(
+        tx as unknown as AppDatabase,
+        subject,
+        dataTableId,
+        table.projectId,
+        column,
+        value,
+      )
       await writeCell(tx as unknown as AppDatabase, dataTableId, created.id, column, value)
     }
     return created
@@ -395,7 +551,14 @@ export async function patchRow(
   db: AppDatabase,
   subject: Subject,
   rowId: string,
-  input: { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; formats?: Record<string, FormatRule[]>; notes?: string },
+  input: {
+    version: number
+    cells?: Record<string, unknown>
+    color?: string | null
+    backgrounds?: Record<string, string | null>
+    formats?: Record<string, FormatRule[]>
+    notes?: string
+  },
 ) {
   const { row, table, grants } = await assertRow(db, subject, rowId, 'edit')
   const cells = input.cells ?? {}
@@ -404,7 +567,13 @@ export async function patchRow(
   for (const columnId of columnIds) {
     const column = columns.find((item) => item.id === columnId)
     if (!column) throw badRequest('Unknown column')
-    if (!allows(subject, grants, 'edit', { type: 'column', id: column.id, parents: { table: table.id, project: table.projectId } })) {
+    if (
+      !allows(subject, grants, 'edit', {
+        type: 'column',
+        id: column.id,
+        parents: { table: table.id, project: table.projectId },
+      })
+    ) {
       throw notFound()
     }
   }
@@ -420,7 +589,11 @@ export async function patchRow(
       .where(and(eq(tableRows.id, row.id), eq(tableRows.version, input.version)))
       .returning()
     if (updated.length === 0) {
-      const [stillThere] = await tx.select().from(tableRows).where(eq(tableRows.id, row.id)).limit(1)
+      const [stillThere] = await tx
+        .select()
+        .from(tableRows)
+        .where(eq(tableRows.id, row.id))
+        .limit(1)
       if (!stillThere) throw notFound()
       if (stillThere.version !== input.version) {
         const current = await presentRowRecord(
@@ -436,7 +609,14 @@ export async function patchRow(
     }
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
-      await assertReferences(tx as unknown as AppDatabase, subject, table.id, table.projectId, column, value)
+      await assertReferences(
+        tx as unknown as AppDatabase,
+        subject,
+        table.id,
+        table.projectId,
+        column,
+        value,
+      )
       await writeCell(tx as unknown as AppDatabase, table.id, row.id, column, value)
     }
     for (const [columnId, background] of Object.entries(input.backgrounds ?? {})) {
@@ -447,9 +627,21 @@ export async function patchRow(
     for (const [columnId, rules] of Object.entries(input.formats ?? {})) {
       const column = columns.find((item) => item.id === columnId)
       if (!column) throw badRequest('Unknown column')
-      const prepared = await canonicalizeFormatRules(tx as unknown as AppDatabase, subject, table.id, rules)
-      if (prepared.some((rule) => !rule.expression)) throw badRequest('A cell condition needs a formula')
-      await setCellFormats(tx as unknown as AppDatabase, table.id, row.id, column.id, prepared.map((rule) => ({ ...rule, columnId })))
+      const prepared = await canonicalizeFormatRules(
+        tx as unknown as AppDatabase,
+        subject,
+        table.id,
+        rules,
+      )
+      if (prepared.some((rule) => !rule.expression))
+        throw badRequest('A cell condition needs a formula')
+      await setCellFormats(
+        tx as unknown as AppDatabase,
+        table.id,
+        row.id,
+        column.id,
+        prepared.map((rule) => ({ ...rule, columnId })),
+      )
     }
   })
   await writeAudit(db, subject, {
@@ -469,7 +661,12 @@ export async function patchRow(
     presentRows(visible, [fresh], stored),
   )
   publishRowUpdated(subject.id, table.projectId, table.id, presented)
-  publishRealtime(table.projectId, { type: 'rows.changed', actorId: subject.id, projectId: table.projectId, tableId: table.id })
+  publishRealtime(table.projectId, {
+    type: 'rows.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId: table.id,
+  })
   return presented
 }
 
@@ -477,12 +674,29 @@ export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string
   const { row, table } = await assertRow(db, subject, rowId, 'delete')
   const links = await db.select().from(relationRecords).where(eq(relationRecords.toRowId, row.id))
   if (links.length) {
-    const related = await db.select().from(relations).where(inArray(relations.id, links.map((link) => link.relationId)))
-    const blocking = related.filter((relation) => relation.onDelete === 'restrict' && links.some((link) => link.relationId === relation.id))
-    if (blocking.length) throw conflict('Other records still reference this row', { count: links.length })
+    const related = await db
+      .select()
+      .from(relations)
+      .where(
+        inArray(
+          relations.id,
+          links.map((link) => link.relationId),
+        ),
+      )
+    const blocking = related.filter(
+      (relation) =>
+        relation.onDelete === 'restrict' && links.some((link) => link.relationId === relation.id),
+    )
+    if (blocking.length)
+      throw conflict('Other records still reference this row', { count: links.length })
   }
   await db.delete(tableRows).where(eq(tableRows.id, row.id))
-  await writeAudit(db, subject, { action: 'row.delete', resourceType: 'row', resourceId: row.id, metadata: { count: 1 } })
+  await writeAudit(db, subject, {
+    action: 'row.delete',
+    resourceType: 'row',
+    resourceId: row.id,
+    metadata: { count: 1 },
+  })
   if (notify) await publishTableSignal(db, subject.id, table.id, 'rows.changed')
 }
 
@@ -506,13 +720,25 @@ export async function bulkPatch(
   for (const update of updates) {
     const row = rowById.get(update.rowId)
     if (!row || row.tableId !== dataTableId) throw notFound()
-    if (!allows(subject, grants, 'edit', { type: 'row', id: row.id, parents: { table: dataTableId, project: table.projectId } })) {
+    if (
+      !allows(subject, grants, 'edit', {
+        type: 'row',
+        id: row.id,
+        parents: { table: dataTableId, project: table.projectId },
+      })
+    ) {
       throw notFound()
     }
     for (const columnId of Object.keys(update.cells)) {
       const column = columnById.get(columnId)
       if (!column) throw badRequest('Unknown column')
-      if (!allows(subject, grants, 'edit', { type: 'column', id: column.id, parents: { table: dataTableId, project: table.projectId } })) {
+      if (
+        !allows(subject, grants, 'edit', {
+          type: 'column',
+          id: column.id,
+          parents: { table: dataTableId, project: table.projectId },
+        })
+      ) {
         throw notFound()
       }
     }
@@ -527,10 +753,20 @@ export async function bulkPatch(
         .where(and(eq(tableRows.id, row.id), eq(tableRows.version, update.version)))
         .returning()
       if (updated.length === 0) {
-        const [stillThere] = await database.select().from(tableRows).where(eq(tableRows.id, row.id)).limit(1)
+        const [stillThere] = await database
+          .select()
+          .from(tableRows)
+          .where(eq(tableRows.id, row.id))
+          .limit(1)
         if (!stillThere) throw notFound()
         if (stillThere.version !== update.version) {
-          const current = await presentRowRecord(database, subject, dataTableId, table.projectId, row.id)
+          const current = await presentRowRecord(
+            database,
+            subject,
+            dataTableId,
+            table.projectId,
+            row.id,
+          )
           throw versionConflict(undefined, { row: current, rowId: row.id })
         }
         throw notFound()
@@ -551,33 +787,71 @@ export async function bulkPatch(
   const fresh = await db.select().from(tableRows).where(inArray(tableRows.id, rowIds))
   const stored = await cellsFor(db, rowIds)
   const visible = await visibleColumns(db, subject, dataTableId, table.projectId, columns)
-  const presented = await attachFormulaValues(db, subject, dataTableId, visible, presentRows(visible, fresh, stored))
+  const presented = await attachFormulaValues(
+    db,
+    subject,
+    dataTableId,
+    visible,
+    presentRows(visible, fresh, stored),
+  )
   for (const row of presented) publishRowUpdated(subject.id, table.projectId, table.id, row)
-  publishRealtime(table.projectId, { type: 'rows.changed', actorId: subject.id, projectId: table.projectId, tableId: table.id })
+  publishRealtime(table.projectId, {
+    type: 'rows.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId: table.id,
+  })
   return presented
 }
 
-export async function bulkDelete(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {
+export async function bulkDelete(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  rowIds: string[],
+) {
   await requireEditableTable(db, subject, tableId, 'delete')
   for (const rowId of rowIds) await deleteRow(db, subject, rowId, false)
-  await writeAudit(db, subject, { action: 'row.bulk_delete', resourceType: 'table', resourceId: tableId, metadata: { count: rowIds.length } })
+  await writeAudit(db, subject, {
+    action: 'row.bulk_delete',
+    resourceType: 'table',
+    resourceId: tableId,
+    metadata: { count: rowIds.length },
+  })
   await publishTableSignal(db, subject.id, tableId, 'rows.changed')
 }
 
-export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: string, rowIds: string[]) {
+export async function duplicateRows(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  rowIds: string[],
+) {
   await requireEditableTable(db, subject, tableId, 'edit')
   const created: string[] = []
   for (const rowId of rowIds) {
     const { row } = await assertRow(db, subject, rowId, 'view')
     const cells = await cellsFor(db, [row.id])
     const copy = await createRow(db, subject, tableId, {}, {}, false)
-    if (row.color || row.notes) await db.update(tableRows).set({ color: row.color, notes: row.notes }).where(eq(tableRows.id, copy.id))
+    if (row.color || row.notes)
+      await db
+        .update(tableRows)
+        .set({ color: row.color, notes: row.notes })
+        .where(eq(tableRows.id, copy.id))
     const columns = await loadColumns(db, tableId)
     for (const cell of cells) {
       const column = columns.find((item) => item.id === cell.columnId)
       if (!column) continue
-      if (isWritable(column.type)) await writeCell(db, tableId, copy.id, column, readCell(column, cell), cell.background)
-      if (storedRules(cell.formatRules).length > 0) await setCellFormats(db, tableId, copy.id, column.id, storedRules(cell.formatRules) as FormatRule[])
+      if (isWritable(column.type))
+        await writeCell(db, tableId, copy.id, column, readCell(column, cell), cell.background)
+      if (storedRules(cell.formatRules).length > 0)
+        await setCellFormats(
+          db,
+          tableId,
+          copy.id,
+          column.id,
+          storedRules(cell.formatRules) as FormatRule[],
+        )
     }
     created.push(copy.id)
   }
@@ -585,7 +859,12 @@ export async function duplicateRows(db: AppDatabase, subject: Subject, tableId: 
   return created
 }
 
-export async function fillDown(db: AppDatabase, subject: Subject, tableId: string, input: { columnId: string; rowIds: string[] }) {
+export async function fillDown(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  input: { columnId: string; rowIds: string[] },
+) {
   if (input.rowIds.length < 2) throw badRequest('Choose at least two rows')
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
@@ -599,14 +878,28 @@ export async function fillDown(db: AppDatabase, subject: Subject, tableId: strin
     const { row } = await assertRow(db, subject, rowId, 'edit')
     if (row.tableId !== dataTableId) throw notFound()
     await writeCell(db, dataTableId, rowId, column, value)
-    await db.update(tableRows).set({ version: row.version + 1, updatedAt: new Date() }).where(eq(tableRows.id, rowId))
+    await db
+      .update(tableRows)
+      .set({ version: row.version + 1, updatedAt: new Date() })
+      .where(eq(tableRows.id, rowId))
   }
   await publishTableSignal(db, subject.id, table.id, 'rows.changed')
 }
 
-export async function footer(db: AppDatabase, subject: Subject, tableId: string, filter?: FilterNode | null) {
+export async function footer(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  filter?: FilterNode | null,
+) {
   const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
-  const columns = await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
+  const columns = await visibleColumns(
+    db,
+    subject,
+    shell.id,
+    shell.projectId,
+    await loadColumns(db, physical.id),
+  )
   const result: Record<string, unknown> = {}
   for (const column of columns) {
     if (column.hidden) continue
@@ -671,9 +964,16 @@ export async function importCsv(
   return { created, chunks, errors: chunks.filter((chunk) => chunk.error) }
 }
 
-export async function exportCsv(db: AppDatabase, subject: Subject, tableId: string, filter?: FilterNode | null) {
+export async function exportCsv(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  filter?: FilterNode | null,
+) {
   const { shell, physical } = await resolveTableContext(db, subject, tableId, 'export')
-  const columns = (await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))).filter((column) => !column.hidden)
+  const columns = (
+    await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
+  ).filter((column) => !column.hidden)
   const page = await queryRows(db, {
     tableId: physical.id,
     columns,
@@ -685,26 +985,48 @@ export async function exportCsv(db: AppDatabase, subject: Subject, tableId: stri
   const all = [...page.rows]
   let cursor = page.nextCursor
   while (cursor && all.length < 5000) {
-    const next = await queryRows(db, { tableId: physical.id, columns, subjectType: subject.kind, subjectId: subject.id, limit: 100, cursor, filter })
+    const next = await queryRows(db, {
+      tableId: physical.id,
+      columns,
+      subjectType: subject.kind,
+      subjectId: subject.id,
+      limit: 100,
+      cursor,
+      filter,
+    })
     all.push(...next.rows)
     cursor = next.nextCursor
   }
-  const cells = await cellsFor(db, all.map((row) => row.id))
+  const cells = await cellsFor(
+    db,
+    all.map((row) => row.id),
+  )
   const rendered = presentRows(columns, all, cells)
   const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, physical.id))
-  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, physical.id))
+  const statuses = await db
+    .select()
+    .from(tableStatuses)
+    .where(eq(tableStatuses.tableId, physical.id))
   const members = await db
     .select({ userId: projectMembers.userId, username: users.username })
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .where(eq(projectMembers.projectId, shell.projectId))
   const label = (column: LoadedColumn, value: unknown) => {
-    if (column.type === 'tags' && Array.isArray(value)) return value.map((id) => tags.find((tag) => tag.id === id)?.name ?? String(id)).join('|')
-    if (column.type === 'status' && typeof value === 'string') return statuses.find((status) => status.id === value)?.name ?? value
-    if (column.type === 'user' && Array.isArray(value)) return value.map((id) => members.find((member) => member.userId === id)?.username ?? String(id)).join('|')
+    if (column.type === 'tags' && Array.isArray(value))
+      return value.map((id) => tags.find((tag) => tag.id === id)?.name ?? String(id)).join('|')
+    if (column.type === 'status' && typeof value === 'string')
+      return statuses.find((status) => status.id === value)?.name ?? value
+    if (column.type === 'user' && Array.isArray(value))
+      return value
+        .map((id) => members.find((member) => member.userId === id)?.username ?? String(id))
+        .join('|')
     return display(value)
   }
-  const lines = [columns.map((column) => column.name), ...rendered.map((row) => columns.map((column) => label(column, row.cells[column.id])))]
+  const lines = [
+    columns.map((column) => column.name),
+    ...rendered.map((row) => columns.map((column) => label(column, row.cells[column.id]))),
+  ]
   return { csv: toCsv(lines), rowCount: rendered.length, truncated: Boolean(cursor) }
 }
 

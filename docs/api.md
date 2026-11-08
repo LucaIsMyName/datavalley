@@ -1259,6 +1259,27 @@ const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/b
 })
 ```
 
+### `DELETE /api/v1/tables/{tableId}/binding`
+
+Delete a binding
+
+**Path**
+
+- `tableId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+await api.ensureCsrf()
+const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989/binding", {
+  method: "DELETE",
+})
+```
+
 ### `GET /api/v1/tables/{tableId}`
 
 Get a table

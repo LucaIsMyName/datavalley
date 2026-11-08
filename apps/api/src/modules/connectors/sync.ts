@@ -24,6 +24,7 @@ import { writeAudit } from '../../security/audit.js'
 import { decryptString } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
 import { loadColumns, type LoadedColumn } from '../tables/service.js'
+import { publishTableSignal } from '../realtime/publish.js'
 import { assertTableDataEditable } from '../tables/resolve.js'
 import { fetchConnectorPayload, type ConnectorAuthConfig } from './fetch.js'
 import { connectorApiKey } from './service.js'
@@ -59,7 +60,9 @@ async function runConnectorSync(
   validateRetention(parse, connector.retention as { mode: string; missingAfterDays?: number })
   const bindings = await listBindings(db, input.connectorId, input.tableId)
   if (bindings.length === 0) {
-    throw badRequest('Connector has no linked tables. Create a table via “From connector” or link an existing table.')
+    throw badRequest(
+      'Connector has no linked tables. Create a table via “From connector” or link an existing table.',
+    )
   }
   const auth = connector.auth as ConnectorAuthConfig
   const apiKey = connectorApiKey(env, connector)
@@ -68,12 +71,26 @@ async function runConnectorSync(
   const mappedRows = extractRecordsFromPayload(format, body, parse)
   const jsonRecords = format === 'json' ? extractJsonRecords(JSON.parse(body), parse) : []
   const stats = { imported: 0, updated: 0, deleted: 0, bindings: bindings.length }
-  const actor = input.actorUserId ? ({ id: input.actorUserId, kind: 'user', role: 'admin', source: 'web', user: null } as Subject) : null
+  const actor = input.actorUserId
+    ? ({ id: input.actorUserId, kind: 'user', role: 'admin', source: 'web', user: null } as Subject)
+    : null
+  const actorId = input.actorUserId || connector.createdBy || 'system'
   for (const binding of bindings) {
-    const result = await syncBinding(db, connector.id, binding, mappedRows, jsonRecords, parse, format, actor)
+    const result = await syncBinding(
+      db,
+      connector.id,
+      binding,
+      mappedRows,
+      jsonRecords,
+      parse,
+      format,
+      actor,
+    )
     stats.imported += result.imported
     stats.updated += result.updated
     stats.deleted += result.deleted
+    await publishTableSignal(db, actorId, binding.tableId, 'rows.changed')
+    await publishTableSignal(db, actorId, binding.tableId, 'tables.changed')
   }
   if (input.syncJobId) {
     await db
@@ -111,29 +128,50 @@ async function syncBinding(
   const seenKeys = new Set<string>()
   let imported = 0
   let updated = 0
-  let rowPos: string | null = (
-    await db.select({ position: tableRows.position }).from(tableRows).where(eq(tableRows.tableId, table.id)).orderBy(asc(tableRows.position))
-  )
-    .map((row) => row.position)
-    .sort()
-    .at(-1) ?? null
+  let rowPos: string | null =
+    (
+      await db
+        .select({ position: tableRows.position })
+        .from(tableRows)
+        .where(eq(tableRows.tableId, table.id))
+        .orderBy(asc(tableRows.position))
+    )
+      .map((row) => row.position)
+      .sort()
+      .at(-1) ?? null
   await db.transaction(async (tx) => {
     for (let index = 0; index < mappedRows.length; index += 1) {
       const mapped = mappedRows[index]
       const rawRecord = format === 'json' ? jsonRecords[index] : mapped
       const externalKey =
-        (format === 'json' && parse.externalIdPath ? String(getValueAtPath(rawRecord, parse.externalIdPath) ?? '') : externalKeyFromMapped(mapped, parse)) ||
-        null
+        (format === 'json' && parse.externalIdPath
+          ? String(getValueAtPath(rawRecord, parse.externalIdPath) ?? '')
+          : externalKeyFromMapped(mapped, parse)) || null
       if (externalKey) seenKeys.add(externalKey)
       if (syncMode === 'upsert' && externalKey) {
         const [link] = await tx
           .select()
           .from(connectorRowLinks)
-          .where(and(eq(connectorRowLinks.tableId, table.id), eq(connectorRowLinks.externalKey, externalKey)))
+          .where(
+            and(
+              eq(connectorRowLinks.tableId, table.id),
+              eq(connectorRowLinks.externalKey, externalKey),
+            ),
+          )
           .limit(1)
         if (link) {
-          await writeMappedCells(tx as unknown as AppDatabase, table.id, link.rowId, columns, columnMap, mapped)
-          await tx.update(connectorRowLinks).set({ lastSeenAt: new Date() }).where(eq(connectorRowLinks.id, link.id))
+          await writeMappedCells(
+            tx as unknown as AppDatabase,
+            table.id,
+            link.rowId,
+            columns,
+            columnMap,
+            mapped,
+          )
+          await tx
+            .update(connectorRowLinks)
+            .set({ lastSeenAt: new Date() })
+            .where(eq(connectorRowLinks.id, link.id))
           updated += 1
           continue
         }
@@ -146,11 +184,25 @@ async function syncBinding(
         .returning({ nextRowNumber: tables.nextRowNumber })
       const [row] = await tx
         .insert(tableRows)
-        .values({ tableId: table.id, position: rowPos, rowNumber: numbered.nextRowNumber - 1, createdBy: actor?.id ?? null })
+        .values({
+          tableId: table.id,
+          position: rowPos,
+          rowNumber: numbered.nextRowNumber - 1,
+          createdBy: actor?.id ?? null,
+        })
         .returning()
-      await writeMappedCells(tx as unknown as AppDatabase, table.id, row.id, columns, columnMap, mapped)
+      await writeMappedCells(
+        tx as unknown as AppDatabase,
+        table.id,
+        row.id,
+        columns,
+        columnMap,
+        mapped,
+      )
       if (externalKey && syncMode === 'upsert') {
-        await tx.insert(connectorRowLinks).values({ tableId: table.id, externalKey, rowId: row.id, lastSeenAt: new Date() })
+        await tx
+          .insert(connectorRowLinks)
+          .values({ tableId: table.id, externalKey, rowId: row.id, lastSeenAt: new Date() })
       }
       imported += 1
     }
@@ -163,7 +215,12 @@ async function syncBinding(
   }
   await db
     .update(tableConnectorBindings)
-    .set({ lastSyncAt: new Date(), lastSyncStatus: 'completed', lastError: null, updatedAt: new Date() })
+    .set({
+      lastSyncAt: new Date(),
+      lastSyncStatus: 'completed',
+      lastError: null,
+      updatedAt: new Date(),
+    })
     .where(eq(tableConnectorBindings.id, binding.id))
   return { imported, updated, deleted }
 }
@@ -181,11 +238,15 @@ async function writeMappedCells(
     if (!column || column.type === 'formula' || column.type === 'row_id') continue
     const raw = mapped[fieldKey] ?? ''
     if (raw === '') {
-      await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
+      await db
+        .delete(tableCells)
+        .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
       continue
     }
     const parsed = parseCell(column, raw)
-    await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
+    await db
+      .delete(tableCells)
+      .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
     if (!parsed) continue
     await db.insert(tableCells).values({
       tableId,
@@ -201,18 +262,34 @@ async function writeMappedCells(
   }
 }
 
-async function applyRetention(db: AppDatabase, tableId: string, seenKeys: Set<string>, missingAfterDays: number) {
+async function applyRetention(
+  db: AppDatabase,
+  tableId: string,
+  seenKeys: Set<string>,
+  missingAfterDays: number,
+) {
   const cutoff = new Date(Date.now() - missingAfterDays * 86_400_000)
-  const links = await db.select().from(connectorRowLinks).where(eq(connectorRowLinks.tableId, tableId))
+  const links = await db
+    .select()
+    .from(connectorRowLinks)
+    .where(eq(connectorRowLinks.tableId, tableId))
   const doomed = links.filter((link) => !seenKeys.has(link.externalKey) && link.lastSeenAt < cutoff)
   if (doomed.length === 0) return 0
   const rowIds = doomed.map((link) => link.rowId)
-  await db.delete(connectorRowLinks).where(inArray(connectorRowLinks.id, doomed.map((link) => link.id)))
+  await db.delete(connectorRowLinks).where(
+    inArray(
+      connectorRowLinks.id,
+      doomed.map((link) => link.id),
+    ),
+  )
   await db.delete(tableRows).where(inArray(tableRows.id, rowIds))
   return rowIds.length
 }
 
-function validateRetention(parse: ConnectorParseConfig, retention: { mode: string; missingAfterDays?: number }) {
+function validateRetention(
+  parse: ConnectorParseConfig,
+  retention: { mode: string; missingAfterDays?: number },
+) {
   if (retention.mode === 'drop_missing' && !parse.externalIdPath) {
     throw badRequest('Retention requires an external id field in the connector mapping')
   }
@@ -223,9 +300,17 @@ async function listBindings(db: AppDatabase, connectorId: string, tableId?: stri
     return db
       .select()
       .from(tableConnectorBindings)
-      .where(and(eq(tableConnectorBindings.connectorId, connectorId), eq(tableConnectorBindings.tableId, tableId)))
+      .where(
+        and(
+          eq(tableConnectorBindings.connectorId, connectorId),
+          eq(tableConnectorBindings.tableId, tableId),
+        ),
+      )
   }
-  return db.select().from(tableConnectorBindings).where(eq(tableConnectorBindings.connectorId, connectorId))
+  return db
+    .select()
+    .from(tableConnectorBindings)
+    .where(eq(tableConnectorBindings.connectorId, connectorId))
 }
 
 async function loadConnector(db: AppDatabase, id: string) {

@@ -56,7 +56,12 @@ import { EmptyState, ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { sync } from '../../lib/sync'
-import { invalidateFooter, invalidateOtherRowQueries, patchCachedTable, readCachedRow } from './cache'
+import {
+  invalidateFooter,
+  invalidateOtherRowQueries,
+  patchCachedTable,
+  readCachedRow,
+} from './cache'
 import { ConditionalDialog } from './conditional-dialog'
 import { CsvImportDialog } from './csv-import-dialog'
 import { cellWritable as isColumnWritable, displayCellValue } from './cell-display'
@@ -75,6 +80,7 @@ import { NotesDrawer } from './notes'
 import { MEDIA_UPLOAD_ACCEPT } from '../../lib/media'
 import { mergeColumnOption } from './select-options-utils'
 import { registerTableMenu } from './table-menu'
+import { ConnectConnectorDialog } from './connect-connector-dialog'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { ChartView } from './chart-view'
 import { TimelineView } from './timeline-view'
@@ -104,6 +110,14 @@ const EMPTY_RULES: FormatRule[] = []
 const EMPTY_TAGS: CatalogItem[] = []
 const EMPTY_MEMBERS: { userId: string; username: string }[] = []
 const ROWS_STALE_MS = 30_000
+
+function formatConnectorSync(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    date,
+  )
+}
 
 type PopoverState = {
   kind:
@@ -223,6 +237,9 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const readOnlyReason = tableReadOnlyReason(table)
   const cellWritable = (column: Column) => !dataReadOnly && writable(column)
   const [lockPending, setLockPending] = useState(false)
+  const [syncPending, setSyncPending] = useState(false)
+  const [connectOpen, setConnectOpen] = useState(false)
+  const [connectPending, setConnectPending] = useState(false)
   const columns = table?.columns ?? EMPTY_COLUMNS
   const visible = useMemo(() => columns.filter((column) => !column.hidden), [columns])
   const rules = (table?.formatRules ?? EMPTY_RULES) as FormatRule[]
@@ -950,6 +967,49 @@ export function TableScreen({ tableId }: { tableId: string }) {
     ],
   )
 
+  async function syncConnector() {
+    const connectorId = table?.connector?.id
+    if (!connectorId || syncPending) return
+    setSyncPending(true)
+    try {
+      await api.request(`/connectors/${connectorId}/sync`, {
+        method: 'POST',
+        body: JSON.stringify({ tableId }),
+      })
+      toast.success(t('connectorSyncQueued'))
+      await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+      await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('error'))
+    } finally {
+      setSyncPending(false)
+    }
+  }
+
+  async function disconnectConnector() {
+    await api.request(`/tables/${tableId}/binding`, { method: 'DELETE' })
+    toast.success(t('connectorDisconnected'))
+    await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+  }
+
+  async function connectConnector(connectorId: string) {
+    setConnectPending(true)
+    try {
+      await api.request(`/connectors/${connectorId}/bind-table`, {
+        method: 'POST',
+        body: JSON.stringify({ tableId }),
+      })
+      toast.success(t('connectorConnected'))
+      setConnectOpen(false)
+      await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
+      await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('error'))
+    } finally {
+      setConnectPending(false)
+    }
+  }
+
   const toolbarActions = useMemo(() => {
     if (!table) return null
     return {
@@ -985,10 +1045,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
         }),
       locked: Boolean(table.lockedAt),
       isMirror: Boolean(table.mirrorOfTableId),
+      connectorBound: Boolean(table.connector),
+      syncPending,
       lockPending,
       onToggleLock: () => void toggleTableLock(),
+      onSync: () => void syncConnector(),
+      onConnect: () => setConnectOpen(true),
     }
-  }, [activeViewId, display.mode, table, tableId, t, views.data?.views, lockPending])
+  }, [activeViewId, display.mode, table, tableId, t, views.data?.views, lockPending, syncPending])
 
   useRegisterTableToolbar(toolbarActions)
 
@@ -1224,6 +1288,30 @@ export function TableScreen({ tableId }: { tableId: string }) {
               table: table.mirrorSource.tableName,
             })}
           </p>
+        ) : readOnlyReason === 'connector' && table.connector ? (
+          <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            <p>
+              {t('connectorTableBanner', { name: table.connector.name })}
+              {table.connector.lastSyncAt
+                ? ` ${t('connectorLastSync', { time: formatConnectorSync(table.connector.lastSyncAt) })}`
+                : ''}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 shrink-0"
+              onClick={() =>
+                setConfirm({
+                  title: t('disconnectConnectorTitle'),
+                  body: t('disconnectConnectorWarning'),
+                  confirmLabel: t('disconnectConnector'),
+                  run: disconnectConnector,
+                })
+              }
+            >
+              {t('disconnectConnector')}
+            </Button>
+          </div>
         ) : readOnlyReason === 'locked' ? (
           <p className="border-b border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
             {t('lockedTableBanner')}
@@ -1608,7 +1696,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
                               <Button type="button" onClick={() => void insertRow()}>
                                 {t('addRow')}
                               </Button>
-                              <Button type="button" variant="outline" onClick={() => setCsvImportOpen(true)}>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setCsvImportOpen(true)}
+                              >
                                 {t('import')}
                               </Button>
                             </>
@@ -1648,12 +1740,11 @@ export function TableScreen({ tableId }: { tableId: string }) {
                     : null
                   const inFill = Boolean(
                     fill &&
-                      virtualRow.index >= Math.min(fill.from, fill.to) &&
-                      virtualRow.index <= Math.max(fill.from, fill.to),
+                    virtualRow.index >= Math.min(fill.from, fill.to) &&
+                    virtualRow.index <= Math.max(fill.from, fill.to),
                   )
                   const columnSpotlight = Boolean(
-                    spotlight?.columnId &&
-                      (spotlight.rowId === row.id || !spotlight.rowId),
+                    spotlight?.columnId && (spotlight.rowId === row.id || !spotlight.rowId),
                   )
                   return (
                     <GridBodyRow
@@ -1670,7 +1761,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       editingColumnId={editingColumnId}
                       checked={checked.includes(row.id)}
                       fillColumnId={inFill && fill ? fill.columnId : null}
-                      spotlightColumnId={columnSpotlight ? spotlight?.columnId ?? null : null}
+                      spotlightColumnId={columnSpotlight ? (spotlight?.columnId ?? null) : null}
                       spotlightRow={Boolean(spotlight?.rowId === row.id && !spotlight.columnId)}
                       aiRow={aiMarks.tableId === tableId && aiMarks.rowIds.includes(row.id)}
                       aiColumnKey={aiColumnKey(aiMarks, tableId, row.id)}
@@ -2012,6 +2103,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
           }}
         />
       ) : null}
+      <ConnectConnectorDialog
+        open={connectOpen}
+        projectId={projectId}
+        pending={connectPending}
+        onClose={() => setConnectOpen(false)}
+        onConfirm={(connectorId) => void connectConnector(connectorId)}
+      />
       <ConfirmDialog
         open={Boolean(confirm)}
         title={confirm?.title ?? ''}

@@ -29,8 +29,13 @@ export class DatavalleyClient {
     if (init.body && !(init.body instanceof FormData) && !headers.has('content-type')) {
       headers.set('content-type', 'application/json')
     }
-    if (init.method && init.method !== 'GET' && init.method !== 'HEAD') headers.set('csrf-token', this.csrfToken)
-    const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers, credentials: 'include' })
+    if (init.method && init.method !== 'GET' && init.method !== 'HEAD')
+      headers.set('csrf-token', this.csrfToken)
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...init,
+      headers,
+      credentials: 'include',
+    })
     const text = await response.text()
     const data = text ? JSON.parse(text) : {}
     if (!response.ok) throw new ApiClientError(response.status, data)
@@ -92,6 +97,14 @@ export type MirrorSource = {
   projectName: string
 }
 
+export type TableConnectorLink = {
+  id: string
+  name: string
+  lastSyncAt: string | null
+  lastSyncStatus: string | null
+  lastError: string | null
+}
+
 export type TableRecord = {
   id: string
   projectId: string
@@ -106,6 +119,7 @@ export type TableRecord = {
   lockedAt: string | null
   mirrorOfTableId: string | null
   mirrorSource?: MirrorSource | null
+  connector?: TableConnectorLink | null
   columns?: Column[]
   tags?: CatalogItem[]
   statuses?: CatalogItem[]

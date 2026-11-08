@@ -14,6 +14,7 @@ import {
   patchTableBinding,
   previewConnector,
   queueConnectorSync,
+  unbindTable,
   updateConnector,
 } from './service.js'
 import {
@@ -43,58 +44,130 @@ export function registerConnectorRoutes(app: FastifyInstance, db: AppDatabase, e
 
   app.get('/connectors/:id', { schema: { params: connectorIdParams } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    return { connector: await getConnector(db, request.subject, (request.params as { id: string }).id) }
+    return {
+      connector: await getConnector(db, request.subject, (request.params as { id: string }).id),
+    }
   })
 
-  app.patch('/connectors/:id', { schema: { params: connectorIdParams, body: patchConnectorBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    return { connector: await updateConnector(db, env, request.subject, (request.params as { id: string }).id, request.body as never) }
-  })
+  app.patch(
+    '/connectors/:id',
+    { schema: { params: connectorIdParams, body: patchConnectorBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      return {
+        connector: await updateConnector(
+          db,
+          env,
+          request.subject,
+          (request.params as { id: string }).id,
+          request.body as never,
+        ),
+      }
+    },
+  )
 
   app.delete('/connectors/:id', { schema: { params: connectorIdParams } }, async (request) => {
     if (!request.subject) throw unauthorized()
     return deleteConnector(db, request.subject, (request.params as { id: string }).id)
   })
 
-  app.post('/connectors/:id/preview', { schema: { params: connectorIdParams, body: previewConnectorBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = (request.body ?? {}) as { limit?: number }
-    return previewConnector(db, env, request.subject, (request.params as { id: string }).id, body.limit ?? 10)
-  })
+  app.post(
+    '/connectors/:id/preview',
+    { schema: { params: connectorIdParams, body: previewConnectorBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = (request.body ?? {}) as { limit?: number }
+      return previewConnector(
+        db,
+        env,
+        request.subject,
+        (request.params as { id: string }).id,
+        body.limit ?? 10,
+      )
+    },
+  )
 
-  app.post('/connectors/:id/sync', { schema: { params: connectorIdParams, body: syncConnectorBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = (request.body ?? {}) as { tableId?: string }
-    return queueConnectorSync(db, env, request.subject, (request.params as { id: string }).id, body.tableId)
-  })
+  app.post(
+    '/connectors/:id/sync',
+    { schema: { params: connectorIdParams, body: syncConnectorBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = (request.body ?? {}) as { tableId?: string }
+      return queueConnectorSync(
+        db,
+        env,
+        request.subject,
+        (request.params as { id: string }).id,
+        body.tableId,
+      )
+    },
+  )
 
-  app.post('/connectors/:id/bind-table', { schema: { params: connectorIdParams, body: bindConnectorBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const params = request.params as { id: string }
-    const body = request.body as { tableId: string }
-    return bindConnectorToTable(db, env, request.subject, params.id, body.tableId)
-  })
+  app.post(
+    '/connectors/:id/bind-table',
+    { schema: { params: connectorIdParams, body: bindConnectorBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const params = request.params as { id: string }
+      const body = request.body as { tableId: string }
+      return bindConnectorToTable(db, env, request.subject, params.id, body.tableId)
+    },
+  )
 
   app.get('/connectors/:id/history', { schema: { params: connectorIdParams } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    return { jobs: await connectorHistory(db, request.subject, (request.params as { id: string }).id) }
+    return {
+      jobs: await connectorHistory(db, request.subject, (request.params as { id: string }).id),
+    }
   })
 
   app.get('/tables/:tableId/binding', { schema: { params: tableIdParams } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    return { binding: await getTableBinding(db, request.subject, (request.params as { tableId: string }).tableId) }
+    return {
+      binding: await getTableBinding(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+      ),
+    }
   })
 
-  app.patch('/tables/:tableId/binding', { schema: { params: tableIdParams, body: patchBindingBody } }, async (request) => {
+  app.patch(
+    '/tables/:tableId/binding',
+    { schema: { params: tableIdParams, body: patchBindingBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      return {
+        binding: await patchTableBinding(
+          db,
+          request.subject,
+          (request.params as { tableId: string }).tableId,
+          request.body as never,
+        ),
+      }
+    },
+  )
+
+  app.delete('/tables/:tableId/binding', { schema: { params: tableIdParams } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    return { binding: await patchTableBinding(db, request.subject, (request.params as { tableId: string }).tableId, request.body as never) }
+    return unbindTable(db, request.subject, (request.params as { tableId: string }).tableId)
   })
 }
 
 export function registerProjectConnectorRoutes(app: FastifyInstance, db: AppDatabase, env: Env) {
-  app.post('/projects/:projectId/tables/from-connector', { schema: { body: fromConnectorBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const params = request.params as { projectId: string }
-    return createTableFromConnector(db, env, request.subject, params.projectId, request.body as never)
-  })
+  app.post(
+    '/projects/:projectId/tables/from-connector',
+    { schema: { body: fromConnectorBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const params = request.params as { projectId: string }
+      return createTableFromConnector(
+        db,
+        env,
+        request.subject,
+        params.projectId,
+        request.body as never,
+      )
+    },
+  )
 }

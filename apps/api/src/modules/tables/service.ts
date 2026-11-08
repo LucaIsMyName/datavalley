@@ -23,11 +23,25 @@ import {
   userRecentItems,
   userTableState,
 } from '../../database/schema.js'
-import { columnTypeIds, defaultColumnIcon, nextTagColor, parseCell, readCell, type CellWrite, type ColumnShape } from '../../column-types/index.js'
+import {
+  columnTypeIds,
+  defaultColumnIcon,
+  nextTagColor,
+  parseCell,
+  readCell,
+  type CellWrite,
+  type ColumnShape,
+} from '../../column-types/index.js'
 import { badRequest, conflict, notFound } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
+import {
+  assertNoConnectorBinding,
+  loadTableConnector,
+  tableHasConnectorBinding,
+  CONNECTOR_BOUND_MESSAGE,
+} from '../connectors/guard.js'
 import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } from './resolve.js'
 import { seedDemoTable } from './template.js'
 import { publishRealtime, publishTableSignal } from '../realtime/publish.js'
@@ -42,9 +56,21 @@ export type LoadedColumn = ColumnShape & {
 }
 
 export async function loadColumns(db: AppDatabase, tableId: string): Promise<LoadedColumn[]> {
-  const columns = await db.select().from(tableColumns).where(eq(tableColumns.tableId, tableId)).orderBy(asc(tableColumns.position))
+  const columns = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.tableId, tableId))
+    .orderBy(asc(tableColumns.position))
   if (columns.length === 0) return []
-  const options = await db.select().from(columnOptions).where(inArray(columnOptions.columnId, columns.map((column) => column.id)))
+  const options = await db
+    .select()
+    .from(columnOptions)
+    .where(
+      inArray(
+        columnOptions.columnId,
+        columns.map((column) => column.id),
+      ),
+    )
   return columns.map((column) => ({
     id: column.id,
     tableId: column.tableId,
@@ -59,7 +85,12 @@ export async function loadColumns(db: AppDatabase, tableId: string): Promise<Loa
     options: options
       .filter((option) => option.columnId === column.id)
       .sort((a, b) => (a.position < b.position ? -1 : 1))
-      .map((option) => ({ id: option.id, label: option.label, color: option.color, position: option.position })),
+      .map((option) => ({
+        id: option.id,
+        label: option.label,
+        color: option.color,
+        position: option.position,
+      })),
   }))
 }
 
@@ -97,10 +128,19 @@ export function presentTable(table: typeof tables.$inferSelect) {
   }
 }
 
-export async function requireTable(db: AppDatabase, subject: Subject, tableId: string, action: Action) {
+export async function requireTable(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  action: Action,
+) {
   const [table] = await db.select().from(tables).where(eq(tables.id, tableId)).limit(1)
   if (!table) throw notFound()
-  await assertCan(db, subject, action, { type: 'table', id: table.id, parents: { project: table.projectId } })
+  await assertCan(db, subject, action, {
+    type: 'table',
+    id: table.id,
+    parents: { project: table.projectId },
+  })
   return table
 }
 
@@ -118,9 +158,15 @@ export async function resolveTableContext(
   return { shell, physical, isMirror: true as const }
 }
 
-export async function requireEditableTable(db: AppDatabase, subject: Subject, tableId: string, action: Action) {
+export async function requireEditableTable(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  action: Action,
+) {
   const table = await requireTable(db, subject, tableId, action)
   assertTableDataEditable(table)
+  await assertNoConnectorBinding(db, table.id)
   return table
 }
 
@@ -133,8 +179,17 @@ export async function lockTable(db: AppDatabase, subject: Subject, tableId: stri
     .set({ lockedAt: new Date(), updatedAt: new Date() })
     .where(eq(tables.id, tableId))
     .returning()
-  await writeAudit(db, subject, { action: 'table.lock', resourceType: 'table', resourceId: tableId })
-  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+  await writeAudit(db, subject, {
+    action: 'table.lock',
+    resourceType: 'table',
+    resourceId: tableId,
+  })
+  publishRealtime(table.projectId, {
+    type: 'tables.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId,
+  })
   return presentTable(updated)
 }
 
@@ -146,8 +201,17 @@ export async function unlockTable(db: AppDatabase, subject: Subject, tableId: st
     .set({ lockedAt: null, updatedAt: new Date() })
     .where(eq(tables.id, tableId))
     .returning()
-  await writeAudit(db, subject, { action: 'table.unlock', resourceType: 'table', resourceId: tableId })
-  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+  await writeAudit(db, subject, {
+    action: 'table.unlock',
+    resourceType: 'table',
+    resourceId: tableId,
+  })
+  publishRealtime(table.projectId, {
+    type: 'tables.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId,
+  })
   return presentTable(updated)
 }
 
@@ -176,8 +240,18 @@ export async function createTableMirror(
           createdBy: subject.id,
         })
         .returning()
-      await writeAudit(db, subject, { action: 'table.mirror', resourceType: 'table', resourceId: table.id, metadata: { sourceTableId: source.id } })
-      publishRealtime(hostProjectId, { type: 'tables.changed', actorId: subject.id, projectId: hostProjectId, tableId: table.id })
+      await writeAudit(db, subject, {
+        action: 'table.mirror',
+        resourceType: 'table',
+        resourceId: table.id,
+        metadata: { sourceTableId: source.id },
+      })
+      publishRealtime(hostProjectId, {
+        type: 'tables.changed',
+        actorId: subject.id,
+        projectId: hostProjectId,
+        tableId: table.id,
+      })
       return presentTable(table)
     } catch (error) {
       if (requested || attempt === 4) return uniqueOrConflict(error)
@@ -186,7 +260,11 @@ export async function createTableMirror(
   throw conflict('A record with that name already exists')
 }
 
-export function positionBetween(items: { id: string; position: string }[], beforeId?: string | null, afterId?: string | null) {
+export function positionBetween(
+  items: { id: string; position: string }[],
+  beforeId?: string | null,
+  afterId?: string | null,
+) {
   if (beforeId && afterId) throw badRequest('Choose one neighbor')
   if (beforeId) {
     const index = items.findIndex((item) => item.id === beforeId)
@@ -196,13 +274,19 @@ export function positionBetween(items: { id: string; position: string }[], befor
   if (afterId) {
     const index = items.findIndex((item) => item.id === afterId)
     if (index < 0) throw badRequest('Unknown neighbor')
-    return generateKeyBetween(items[index].position, index === items.length - 1 ? null : items[index + 1].position)
+    return generateKeyBetween(
+      items[index].position,
+      index === items.length - 1 ? null : items[index + 1].position,
+    )
   }
   return generateKeyBetween(items.at(-1)?.position ?? null, null)
 }
 
 export async function nextTableName(db: AppDatabase, projectId: string) {
-  const existing = await db.select({ name: tables.name }).from(tables).where(eq(tables.projectId, projectId))
+  const existing = await db
+    .select({ name: tables.name })
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
   const taken = new Set(existing.map((row) => row.name))
   if (!taken.has('Untitled')) return 'Untitled'
   let index = 2
@@ -237,11 +321,19 @@ export async function nextTablePosition(db: AppDatabase, projectId: string) {
 
 export async function listTables(db: AppDatabase, subject: Subject, projectId: string) {
   await assertCan(db, subject, 'view', { type: 'project', id: projectId })
-  const rows = await db.select().from(tables).where(eq(tables.projectId, projectId)).orderBy(asc(tables.position), asc(tables.name))
+  const rows = await db
+    .select()
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
+    .orderBy(asc(tables.position), asc(tables.name))
   const visible = []
   for (const table of rows) {
     try {
-      await assertCan(db, subject, 'view', { type: 'table', id: table.id, parents: { project: projectId } })
+      await assertCan(db, subject, 'view', {
+        type: 'table',
+        id: table.id,
+        parents: { project: projectId },
+      })
       if (!table.archivedAt) visible.push(presentTable(table))
     } catch {
       // Hidden tables stay out of the list.
@@ -264,11 +356,26 @@ export async function createTable(
       const position = await nextTablePosition(db, projectId)
       const [table] = await db
         .insert(tables)
-        .values({ projectId, name, description: input.description ?? '', position, createdBy: subject.id })
+        .values({
+          projectId,
+          name,
+          description: input.description ?? '',
+          position,
+          createdBy: subject.id,
+        })
         .returning()
       if (input.template === 'demo') await seedDemoTable(db, table.id, subject.id)
-      await writeAudit(db, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
-      publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId: table.id })
+      await writeAudit(db, subject, {
+        action: 'table.create',
+        resourceType: 'table',
+        resourceId: table.id,
+      })
+      publishRealtime(projectId, {
+        type: 'tables.changed',
+        actorId: subject.id,
+        projectId,
+        tableId: table.id,
+      })
       return presentTable(table)
     } catch (error) {
       if (requested || attempt === 4) return uniqueOrConflict(error)
@@ -277,15 +384,27 @@ export async function createTable(
   throw conflict('A record with that name already exists')
 }
 
-export async function reorderTables(db: AppDatabase, subject: Subject, projectId: string, tableIds: string[]) {
+export async function reorderTables(
+  db: AppDatabase,
+  subject: Subject,
+  projectId: string,
+  tableIds: string[],
+) {
   await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
-  const existing = await db.select({ id: tables.id }).from(tables).where(eq(tables.projectId, projectId))
+  const existing = await db
+    .select({ id: tables.id })
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
   const allowed = new Set(existing.map((table) => table.id))
-  if (tableIds.length === 0 || tableIds.some((id) => !allowed.has(id))) throw badRequest('Unknown table')
+  if (tableIds.length === 0 || tableIds.some((id) => !allowed.has(id)))
+    throw badRequest('Unknown table')
   let previous: string | null = null
   for (const tableId of tableIds) {
     previous = generateKeyBetween(previous, null)
-    await db.update(tables).set({ position: previous, updatedAt: new Date() }).where(and(eq(tables.id, tableId), eq(tables.projectId, projectId)))
+    await db
+      .update(tables)
+      .set({ position: previous, updatedAt: new Date() })
+      .where(and(eq(tables.id, tableId), eq(tables.projectId, projectId)))
   }
   publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId })
 }
@@ -293,7 +412,11 @@ export async function reorderTables(db: AppDatabase, subject: Subject, projectId
 export async function ensureTextColumns(db: AppDatabase, tableId: string, names: string[]) {
   const existing = await loadColumns(db, tableId)
   const byName = new Map(existing.map((column) => [column.name.toLowerCase(), column]))
-  let lastPos = existing.map((column) => column.position).sort().at(-1) ?? null
+  let lastPos =
+    existing
+      .map((column) => column.position)
+      .sort()
+      .at(-1) ?? null
   const mapped: LoadedColumn[] = []
   for (const name of names) {
     const found = byName.get(name.toLowerCase())
@@ -349,39 +472,54 @@ export async function createTableFromCsv(
   const requested = input.name?.trim() ?? ''
   const name = requested || (await nextTableName(db, projectId))
   try {
-    return await db.transaction(async (tx) => {
-      const position = await nextTablePosition(tx as unknown as AppDatabase, projectId)
-      const [table] = await tx
-        .insert(tables)
-        .values({ projectId, name, description: '', position, createdBy: subject.id })
-        .returning()
-      const columns = await ensureTextColumns(tx as unknown as AppDatabase, table.id, parsed.names)
-      let rowPos: string | null = null
-      let rowNumber = 1
-      for (const record of parsed.records) {
-        rowPos = generateKeyBetween(rowPos, null)
-        const [row] = await tx
-          .insert(tableRows)
-          .values({ tableId: table.id, position: rowPos, rowNumber, createdBy: subject.id })
+    return await db
+      .transaction(async (tx) => {
+        const position = await nextTablePosition(tx as unknown as AppDatabase, projectId)
+        const [table] = await tx
+          .insert(tables)
+          .values({ projectId, name, description: '', position, createdBy: subject.id })
           .returning()
-        const cells = columns
-          .map((column, index) => ({
-            tableId: table.id,
-            rowId: row.id,
-            columnId: column.id,
-            valueText: record[index] ?? '',
-          }))
-          .filter((cell) => cell.valueText !== '')
-        if (cells.length > 0) await tx.insert(tableCells).values(cells)
-        rowNumber += 1
-      }
-      await tx.update(tables).set({ nextRowNumber: rowNumber }).where(eq(tables.id, table.id))
-      await writeAudit(tx as unknown as AppDatabase, subject, { action: 'table.create', resourceType: 'table', resourceId: table.id })
-      return presentTable(table)
-    }).then((table) => {
-      publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId: table.id })
-      return table
-    })
+        const columns = await ensureTextColumns(
+          tx as unknown as AppDatabase,
+          table.id,
+          parsed.names,
+        )
+        let rowPos: string | null = null
+        let rowNumber = 1
+        for (const record of parsed.records) {
+          rowPos = generateKeyBetween(rowPos, null)
+          const [row] = await tx
+            .insert(tableRows)
+            .values({ tableId: table.id, position: rowPos, rowNumber, createdBy: subject.id })
+            .returning()
+          const cells = columns
+            .map((column, index) => ({
+              tableId: table.id,
+              rowId: row.id,
+              columnId: column.id,
+              valueText: record[index] ?? '',
+            }))
+            .filter((cell) => cell.valueText !== '')
+          if (cells.length > 0) await tx.insert(tableCells).values(cells)
+          rowNumber += 1
+        }
+        await tx.update(tables).set({ nextRowNumber: rowNumber }).where(eq(tables.id, table.id))
+        await writeAudit(tx as unknown as AppDatabase, subject, {
+          action: 'table.create',
+          resourceType: 'table',
+          resourceId: table.id,
+        })
+        return presentTable(table)
+      })
+      .then((table) => {
+        publishRealtime(projectId, {
+          type: 'tables.changed',
+          actorId: subject.id,
+          projectId,
+          tableId: table.id,
+        })
+        return table
+      })
   } catch (error) {
     return uniqueOrConflict(error)
   }
@@ -392,18 +530,32 @@ export async function getTable(db: AppDatabase, subject: Subject, tableId: strin
   if (subject.kind === 'user') {
     await db
       .insert(userRecentItems)
-      .values({ userId: subject.id, resourceType: 'table', resourceId: shell.id, openedAt: new Date() })
+      .values({
+        userId: subject.id,
+        resourceType: 'table',
+        resourceId: shell.id,
+        openedAt: new Date(),
+      })
       .onConflictDoUpdate({
         target: [userRecentItems.userId, userRecentItems.resourceType, userRecentItems.resourceId],
         set: { openedAt: new Date() },
       })
   }
-  const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, physical.id)).orderBy(asc(tableTags.name))
-  const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, physical.id)).orderBy(asc(tableStatuses.position))
+  const tags = await db
+    .select()
+    .from(tableTags)
+    .where(eq(tableTags.tableId, physical.id))
+    .orderBy(asc(tableTags.name))
+  const statuses = await db
+    .select()
+    .from(tableStatuses)
+    .where(eq(tableStatuses.tableId, physical.id))
+    .orderBy(asc(tableStatuses.position))
   const mirrorSource = isMirror ? await loadMirrorSourceMeta(db, physical.id) : null
   return {
     ...presentTable(shell),
     mirrorSource,
+    connector: await loadTableConnector(db, shell.id),
     columns: (await loadColumns(db, physical.id)).map((column) => presentColumn(column)),
     tags,
     statuses,
@@ -414,12 +566,31 @@ export async function updateTable(
   db: AppDatabase,
   subject: Subject,
   tableId: string,
-  input: { name?: string; description?: string; icon?: string; headerConfig?: unknown; footerConfig?: unknown; formatRules?: unknown },
+  input: {
+    name?: string
+    description?: string
+    icon?: string
+    headerConfig?: unknown
+    footerConfig?: unknown
+    formatRules?: unknown
+  },
 ) {
   const table = await requireTable(db, subject, tableId, 'manage_structure')
-  const restricted = Boolean(table.mirrorOfTableId) || Boolean(table.lockedAt)
-  if (restricted && (input.headerConfig !== undefined || input.footerConfig !== undefined || input.formatRules !== undefined)) {
-    throw conflict(table.mirrorOfTableId ? 'Synced views are read-only' : 'Table is locked')
+  const connectorBound = await tableHasConnectorBinding(db, table.id)
+  const restricted = Boolean(table.mirrorOfTableId) || Boolean(table.lockedAt) || connectorBound
+  if (
+    restricted &&
+    (input.headerConfig !== undefined ||
+      input.footerConfig !== undefined ||
+      input.formatRules !== undefined)
+  ) {
+    throw conflict(
+      table.mirrorOfTableId
+        ? 'Synced views are read-only'
+        : connectorBound
+          ? CONNECTOR_BOUND_MESSAGE
+          : 'Table is locked',
+    )
   }
   if (input.icon !== undefined && !isResourceIcon(input.icon)) throw badRequest('Unknown icon')
   try {
@@ -436,21 +607,36 @@ export async function updateTable(
       })
       .where(eq(tables.id, tableId))
       .returning()
-    publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+    publishRealtime(table.projectId, {
+      type: 'tables.changed',
+      actorId: subject.id,
+      projectId: table.projectId,
+      tableId,
+    })
     return presentTable(updated)
   } catch (error) {
     return uniqueOrConflict(error)
   }
 }
 
-export async function setTableArchived(db: AppDatabase, subject: Subject, tableId: string, archived: boolean) {
+export async function setTableArchived(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  archived: boolean,
+) {
   await requireTable(db, subject, tableId, 'delete')
   const [table] = await db
     .update(tables)
     .set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
     .where(eq(tables.id, tableId))
     .returning()
-  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+  publishRealtime(table.projectId, {
+    type: 'tables.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId,
+  })
   return presentTable(table)
 }
 
@@ -458,8 +644,17 @@ export async function deleteTable(db: AppDatabase, subject: Subject, tableId: st
   const table = await requireTable(db, subject, tableId, 'delete')
   if (table.lockedAt) throw conflict('Unlock the table before deleting')
   await db.delete(tables).where(eq(tables.id, tableId))
-  await writeAudit(db, subject, { action: 'table.delete', resourceType: 'table', resourceId: tableId })
-  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+  await writeAudit(db, subject, {
+    action: 'table.delete',
+    resourceType: 'table',
+    resourceId: tableId,
+  })
+  publishRealtime(table.projectId, {
+    type: 'tables.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId,
+  })
 }
 
 export async function addColumn(
@@ -478,7 +673,8 @@ export async function addColumn(
 ) {
   await requireEditableTable(db, subject, tableId, 'manage_structure')
   if (!columnTypeIds.includes(input.type as never)) throw badRequest('Unknown column type')
-  if (input.type === 'multi_select' || input.type === 'radio') throw badRequest('Use the select column type')
+  if (input.type === 'multi_select' || input.type === 'radio')
+    throw badRequest('Use the select column type')
   const existing = await loadColumns(db, tableId)
   const position = positionBetween(existing, input.beforeId, input.afterId)
   try {
@@ -501,9 +697,21 @@ export async function addColumn(
     let optionPos: string | null = null
     for (const option of input.options ?? []) {
       optionPos = generateKeyBetween(optionPos, null)
-      await db.insert(columnOptions).values({ columnId: column.id, label: option.label, color: option.color ?? null, position: optionPos })
+      await db
+        .insert(columnOptions)
+        .values({
+          columnId: column.id,
+          label: option.label,
+          color: option.color ?? null,
+          position: optionPos,
+        })
     }
-    await writeAudit(db, subject, { action: 'column.create', resourceType: 'column', resourceId: column.id, metadata: { tableId, type: input.type } })
+    await writeAudit(db, subject, {
+      action: 'column.create',
+      resourceType: 'column',
+      resourceId: column.id,
+      metadata: { tableId, type: input.type },
+    })
     await publishTableSignal(db, subject.id, tableId, 'columns.changed')
     return presentColumn((await loadColumns(db, tableId)).find((item) => item.id === column.id)!)
   } catch (error) {
@@ -515,9 +723,20 @@ export async function updateColumn(
   db: AppDatabase,
   subject: Subject,
   columnId: string,
-  input: { name?: string; description?: string; hidden?: boolean; width?: number; frozen?: boolean; config?: Record<string, unknown> },
+  input: {
+    name?: string
+    description?: string
+    hidden?: boolean
+    width?: number
+    frozen?: boolean
+    config?: Record<string, unknown>
+  },
 ) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   const [updated] = await db
@@ -525,21 +744,40 @@ export async function updateColumn(
     .set({ ...input, updatedAt: new Date() })
     .where(eq(tableColumns.id, columnId))
     .returning()
-  await writeAudit(db, subject, { action: 'column.update', resourceType: 'column', resourceId: columnId })
+  await writeAudit(db, subject, {
+    action: 'column.update',
+    resourceType: 'column',
+    resourceId: columnId,
+  })
   await publishTableSignal(db, subject.id, updated.tableId, 'columns.changed')
-  return presentColumn((await loadColumns(db, updated.tableId)).find((item) => item.id === columnId)!)
+  return presentColumn(
+    (await loadColumns(db, updated.tableId)).find((item) => item.id === columnId)!,
+  )
 }
 
 export async function deleteColumn(db: AppDatabase, subject: Subject, columnId: string) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   await db.delete(tableColumns).where(eq(tableColumns.id, columnId))
-  await writeAudit(db, subject, { action: 'column.delete', resourceType: 'column', resourceId: columnId })
+  await writeAudit(db, subject, {
+    action: 'column.delete',
+    resourceType: 'column',
+    resourceId: columnId,
+  })
   await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
 }
 
-export async function duplicateColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
+export async function duplicateColumns(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  columnIds: string[],
+) {
   await requireEditableTable(db, subject, tableId, 'manage_structure')
   const columns = await loadColumns(db, tableId)
   const selected = columns.filter((column) => columnIds.includes(column.id))
@@ -551,10 +789,17 @@ export async function duplicateColumns(db: AppDatabase, subject: Subject, tableI
       type: source.type,
       description: source.description,
       config: source.config,
-      options: (source.options ?? []).map((option) => ({ label: option.label, color: option.color ?? undefined })),
+      options: (source.options ?? []).map((option) => ({
+        label: option.label,
+        color: option.color ?? undefined,
+      })),
       afterId: source.id,
     })
-    await updateColumn(db, subject, copy.id, { hidden: source.hidden, width: source.width, frozen: source.frozen })
+    await updateColumn(db, subject, copy.id, {
+      hidden: source.hidden,
+      width: source.width,
+      frozen: source.frozen,
+    })
     const cells = await db.select().from(tableCells).where(eq(tableCells.columnId, source.id))
     if (cells.length) {
       await db.insert(tableCells).values(
@@ -577,12 +822,20 @@ export async function duplicateColumns(db: AppDatabase, subject: Subject, tableI
   return created
 }
 
-export async function reorderColumns(db: AppDatabase, subject: Subject, tableId: string, columnIds: string[]) {
+export async function reorderColumns(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  columnIds: string[],
+) {
   await requireEditableTable(db, subject, tableId, 'manage_structure')
   let previous: string | null = null
   for (const columnId of columnIds) {
     previous = generateKeyBetween(previous, null)
-    await db.update(tableColumns).set({ position: previous, updatedAt: new Date() }).where(and(eq(tableColumns.id, columnId), eq(tableColumns.tableId, tableId)))
+    await db
+      .update(tableColumns)
+      .set({ position: previous, updatedAt: new Date() })
+      .where(and(eq(tableColumns.id, columnId), eq(tableColumns.tableId, tableId)))
   }
   await publishTableSignal(db, subject.id, tableId, 'columns.changed')
 }
@@ -599,8 +852,18 @@ function storedValue(parsed: CellWrite) {
   }
 }
 
-export async function convertColumn(db: AppDatabase, subject: Subject, columnId: string, type: string, dryRun = false) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+export async function convertColumn(
+  db: AppDatabase,
+  subject: Subject,
+  columnId: string,
+  type: string,
+  dryRun = false,
+) {
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
   if (!columnTypeIds.includes(type as never)) throw badRequest('Unknown column type')
@@ -632,10 +895,17 @@ export async function convertColumn(db: AppDatabase, subject: Subject, columnId:
   }
   const cleared = clearIds.length
   const kept = cells.length - cleared
-  if (dryRun || column.type === type) return { cleared: column.type === type ? 0 : cleared, kept: column.type === type ? cells.length : kept }
+  if (dryRun || column.type === type)
+    return {
+      cleared: column.type === type ? 0 : cleared,
+      kept: column.type === type ? cells.length : kept,
+    }
   if (clearIds.length) await db.delete(tableCells).where(inArray(tableCells.id, clearIds))
   for (const rewrite of rewrites) {
-    await db.update(tableCells).set({ ...storedValue(rewrite.parsed), updatedAt: new Date() }).where(eq(tableCells.id, rewrite.id))
+    await db
+      .update(tableCells)
+      .set({ ...storedValue(rewrite.parsed), updatedAt: new Date() })
+      .where(eq(tableCells.id, rewrite.id))
   }
   const configPatch =
     type === 'select'
@@ -656,7 +926,12 @@ export async function convertColumn(db: AppDatabase, subject: Subject, columnId:
       updatedAt: new Date(),
     })
     .where(eq(tableColumns.id, columnId))
-  await writeAudit(db, subject, { action: 'column.convert', resourceType: 'column', resourceId: columnId, metadata: { from: column.type, to: type, cleared } })
+  await writeAudit(db, subject, {
+    action: 'column.convert',
+    resourceType: 'column',
+    resourceId: columnId,
+    metadata: { from: column.type, to: type, cleared },
+  })
   await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
   await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
   return { cleared, kept }
@@ -668,10 +943,18 @@ export async function attachRelation(
   columnId: string,
   input: { toTableId: string; cardinality: string },
 ) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   const table = await requireEditableTable(db, subject, column.tableId, 'manage_structure')
-  await assertCan(db, subject, 'view', { type: 'table', id: input.toTableId, parents: { project: table.projectId } })
+  await assertCan(db, subject, 'view', {
+    type: 'table',
+    id: input.toTableId,
+    parents: { project: table.projectId },
+  })
   await convertColumn(db, subject, columnId, 'relation')
   const [relation] = await db
     .insert(relations)
@@ -683,10 +966,17 @@ export async function attachRelation(
       onDelete: 'restrict',
     })
     .returning()
-  return updateColumn(db, subject, column.id, { config: { relationId: relation.id, toTableId: input.toTableId } })
+  return updateColumn(db, subject, column.id, {
+    config: { relationId: relation.id, toTableId: input.toTableId },
+  })
 }
 
-export async function duplicateTable(db: AppDatabase, subject: Subject, tableId: string, includeData: boolean) {
+export async function duplicateTable(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  includeData: boolean,
+) {
   const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
   assertTableDataEditable(shell)
   const table = physical
@@ -724,24 +1014,61 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       .returning()
     columnMap.set(column.id, created.id)
     for (const option of column.options ?? []) {
-      await db.insert(columnOptions).values({ columnId: created.id, label: option.label, color: option.color, position: option.position })
+      await db
+        .insert(columnOptions)
+        .values({
+          columnId: created.id,
+          label: option.label,
+          color: option.color,
+          position: option.position,
+        })
     }
   }
-  await db.update(tables).set({ nextRowNumber: table.nextRowNumber, formatRules: remapIds(table.formatRules, columnMap) as never }).where(eq(tables.id, copy.id))
+  await db
+    .update(tables)
+    .set({
+      nextRowNumber: table.nextRowNumber,
+      formatRules: remapIds(table.formatRules, columnMap) as never,
+    })
+    .where(eq(tables.id, copy.id))
   const tagMap = new Map<string, string>()
   for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, table.id))) {
-    const [created] = await db.insert(tableTags).values({ tableId: copy.id, name: tag.name, color: tag.color }).returning()
+    const [created] = await db
+      .insert(tableTags)
+      .values({ tableId: copy.id, name: tag.name, color: tag.color })
+      .returning()
     tagMap.set(tag.id, created.id)
   }
   const statusMap = new Map<string, string>()
-  for (const status of await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, table.id))) {
-    const [created] = await db.insert(tableStatuses).values({ tableId: copy.id, name: status.name, color: status.color, position: status.position }).returning()
+  for (const status of await db
+    .select()
+    .from(tableStatuses)
+    .where(eq(tableStatuses.tableId, table.id))) {
+    const [created] = await db
+      .insert(tableStatuses)
+      .values({
+        tableId: copy.id,
+        name: status.name,
+        color: status.color,
+        position: status.position,
+      })
+      .returning()
     statusMap.set(status.id, created.id)
   }
   if (includeData) {
     const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, table.id))
     for (const row of rows) {
-      const [created] = await db.insert(tableRows).values({ tableId: copy.id, position: row.position, color: row.color, notes: row.notes, rowNumber: row.rowNumber, createdBy: subject.id }).returning()
+      const [created] = await db
+        .insert(tableRows)
+        .values({
+          tableId: copy.id,
+          position: row.position,
+          color: row.color,
+          notes: row.notes,
+          rowNumber: row.rowNumber,
+          createdBy: subject.id,
+        })
+        .returning()
       const cells = await db.select().from(tableCells).where(eq(tableCells.rowId, row.id))
       if (cells.length) {
         await db.insert(tableCells).values(
@@ -761,11 +1088,21 @@ export async function duplicateTable(db: AppDatabase, subject: Subject, tableId:
       }
     }
   }
-  publishRealtime(shell.projectId, { type: 'tables.changed', actorId: subject.id, projectId: shell.projectId, tableId: copy.id })
+  publishRealtime(shell.projectId, {
+    type: 'tables.changed',
+    actorId: subject.id,
+    projectId: shell.projectId,
+    tableId: copy.id,
+  })
   return presentTable(copy)
 }
 
-export async function moveTable(db: AppDatabase, subject: Subject, tableId: string, projectId: string) {
+export async function moveTable(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  projectId: string,
+) {
   const table = await requireTable(db, subject, tableId, 'delete')
   await assertCan(db, subject, 'manage_structure', { type: 'project', id: projectId })
   const links = await db
@@ -775,15 +1112,26 @@ export async function moveTable(db: AppDatabase, subject: Subject, tableId: stri
   for (const link of links) {
     const otherId = link.fromTableId === tableId ? link.toTableId : link.fromTableId
     const [other] = await db.select().from(tables).where(eq(tables.id, otherId)).limit(1)
-    if (other && other.projectId !== projectId) throw conflict('This table has a relationship in another project')
+    if (other && other.projectId !== projectId)
+      throw conflict('This table has a relationship in another project')
   }
   const [updated] = await db
     .update(tables)
     .set({ projectId, position: await nextTablePosition(db, projectId), updatedAt: new Date() })
     .where(eq(tables.id, table.id))
     .returning()
-  await writeAudit(db, subject, { action: 'table.move', resourceType: 'table', resourceId: tableId, metadata: { from: table.projectId, to: projectId } })
-  publishRealtime(table.projectId, { type: 'tables.changed', actorId: subject.id, projectId: table.projectId, tableId })
+  await writeAudit(db, subject, {
+    action: 'table.move',
+    resourceType: 'table',
+    resourceId: tableId,
+    metadata: { from: table.projectId, to: projectId },
+  })
+  publishRealtime(table.projectId, {
+    type: 'tables.changed',
+    actorId: subject.id,
+    projectId: table.projectId,
+    tableId,
+  })
   publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId })
   return presentTable(updated)
 }
@@ -797,8 +1145,10 @@ function remapIds(value: unknown, ids: Map<string, string>) {
 function remapCatalog(value: unknown, tags: Map<string, string>, statuses: Map<string, string>) {
   if (!value || typeof value !== 'object') return value
   const record = value as { tagIds?: string[]; statusId?: string; userIds?: string[] }
-  if (Array.isArray(record.tagIds)) return { ...record, tagIds: record.tagIds.map((id) => tags.get(id) ?? id) }
-  if (typeof record.statusId === 'string') return { ...record, statusId: statuses.get(record.statusId) ?? record.statusId }
+  if (Array.isArray(record.tagIds))
+    return { ...record, tagIds: record.tagIds.map((id) => tags.get(id) ?? id) }
+  if (typeof record.statusId === 'string')
+    return { ...record, statusId: statuses.get(record.statusId) ?? record.statusId }
   return value
 }
 
@@ -809,12 +1159,21 @@ export async function createTag(db: AppDatabase, subject: Subject, tableId: stri
   const existing = await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))
   const match = existing.find((tag) => tag.name.toLowerCase() === trimmed.toLowerCase())
   if (match) return match
-  const [tag] = await db.insert(tableTags).values({ tableId, name: trimmed, color: nextTagColor(existing.length) }).returning()
+  const [tag] = await db
+    .insert(tableTags)
+    .values({ tableId, name: trimmed, color: nextTagColor(existing.length) })
+    .returning()
   await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return tag
 }
 
-export async function updateTag(db: AppDatabase, subject: Subject, tableId: string, tagId: string, input: { color?: string; name?: string }) {
+export async function updateTag(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  tagId: string,
+  input: { color?: string; name?: string },
+) {
   await requireEditableTable(db, subject, tableId, 'edit')
   const patch: { color?: string; name?: string } = {}
   if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
@@ -822,30 +1181,48 @@ export async function updateTag(db: AppDatabase, subject: Subject, tableId: stri
     const trimmed = input.name.trim()
     if (!trimmed) throw badRequest('Tag name is required')
     const existing = await db.select().from(tableTags).where(eq(tableTags.tableId, tableId))
-    const clash = existing.find((tag) => tag.id !== tagId && tag.name.toLowerCase() === trimmed.toLowerCase())
+    const clash = existing.find(
+      (tag) => tag.id !== tagId && tag.name.toLowerCase() === trimmed.toLowerCase(),
+    )
     if (clash) throw badRequest('A tag with that name already exists')
     patch.name = trimmed
   }
   if (!patch.color && !patch.name) throw badRequest('Tag name is required')
-  const [tag] = await db.update(tableTags).set(patch).where(and(eq(tableTags.id, tagId), eq(tableTags.tableId, tableId))).returning()
+  const [tag] = await db
+    .update(tableTags)
+    .set(patch)
+    .where(and(eq(tableTags.id, tagId), eq(tableTags.tableId, tableId)))
+    .returning()
   if (!tag) throw notFound()
   await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return tag
 }
 
-export async function createStatus(db: AppDatabase, subject: Subject, tableId: string, name: string) {
+export async function createStatus(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  name: string,
+) {
   await requireEditableTable(db, subject, tableId, 'edit')
   const trimmed = name.trim()
   if (!trimmed) throw badRequest('Status name is required')
-  const existing = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId)).orderBy(asc(tableStatuses.position))
+  const existing = await db
+    .select()
+    .from(tableStatuses)
+    .where(eq(tableStatuses.tableId, tableId))
+    .orderBy(asc(tableStatuses.position))
   const match = existing.find((status) => status.name.toLowerCase() === trimmed.toLowerCase())
   if (match) return match
-  const [status] = await db.insert(tableStatuses).values({
-    tableId,
-    name: trimmed,
-    color: nextTagColor(existing.length),
-    position: positionBetween(existing),
-  }).returning()
+  const [status] = await db
+    .insert(tableStatuses)
+    .values({
+      tableId,
+      name: trimmed,
+      color: nextTagColor(existing.length),
+      position: positionBetween(existing),
+    })
+    .returning()
   await publishTableSignal(db, subject.id, tableId, 'columns.changed')
   return status
 }
@@ -865,7 +1242,9 @@ async function rewriteSelectCell(
   const parsed = parseCell(column, value)
   const kept = existing?.background ?? null
   const rules = existing?.formatRules ?? []
-  await db.delete(tableCells).where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
+  await db
+    .delete(tableCells)
+    .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
   if (!parsed && !kept && !(Array.isArray(rules) && rules.length > 0)) return
   await db.insert(tableCells).values({
     tableId,
@@ -881,8 +1260,17 @@ async function rewriteSelectCell(
   })
 }
 
-export async function createColumnOption(db: AppDatabase, subject: Subject, columnId: string, label: string) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+export async function createColumnOption(
+  db: AppDatabase,
+  subject: Subject,
+  columnId: string,
+  label: string,
+) {
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   assertOptionColumnType(column.type)
   await requireEditableTable(db, subject, column.tableId, 'edit')
@@ -915,7 +1303,11 @@ export async function updateColumnOption(
   optionId: string,
   input: { label?: string; color?: string; position?: string },
 ) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   assertOptionColumnType(column.type)
   await requireEditableTable(db, subject, column.tableId, 'edit')
@@ -924,23 +1316,39 @@ export async function updateColumnOption(
   if (!current) throw notFound()
   const patch: { label?: string; color?: string; position?: string } = {}
   if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
-  if (typeof input.position === 'string' && input.position.trim()) patch.position = input.position.trim()
+  if (typeof input.position === 'string' && input.position.trim())
+    patch.position = input.position.trim()
   if (input.label != null) {
     const trimmed = input.label.trim()
     if (!trimmed) throw badRequest('Option label is required')
-    const clash = loaded.options?.find((option) => option.id !== optionId && option.label.toLowerCase() === trimmed.toLowerCase())
+    const clash = loaded.options?.find(
+      (option) => option.id !== optionId && option.label.toLowerCase() === trimmed.toLowerCase(),
+    )
     if (clash) throw badRequest('An option with that label already exists')
     patch.label = trimmed
   }
   if (!patch.color && !patch.label && !patch.position) throw badRequest('Nothing to update')
-  const [option] = await db.update(columnOptions).set(patch).where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId))).returning()
+  const [option] = await db
+    .update(columnOptions)
+    .set(patch)
+    .where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId)))
+    .returning()
   if (!option) throw notFound()
   await publishTableSignal(db, subject.id, column.tableId, 'columns.changed')
   return option
 }
 
-export async function deleteColumnOption(db: AppDatabase, subject: Subject, columnId: string, optionId: string) {
-  const [column] = await db.select().from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+export async function deleteColumnOption(
+  db: AppDatabase,
+  subject: Subject,
+  columnId: string,
+  optionId: string,
+) {
+  const [column] = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.id, columnId))
+    .limit(1)
   if (!column) throw notFound()
   assertOptionColumnType(column.type)
   await requireEditableTable(db, subject, column.tableId, 'edit')
@@ -960,7 +1368,9 @@ export async function deleteColumnOption(db: AppDatabase, subject: Subject, colu
     if (JSON.stringify(next) === JSON.stringify(raw)) continue
     await rewriteSelectCell(db, column.tableId, cell.rowId, loaded, next, cell)
   }
-  await db.delete(columnOptions).where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId)))
+  await db
+    .delete(columnOptions)
+    .where(and(eq(columnOptions.id, optionId), eq(columnOptions.columnId, columnId)))
   await writeAudit(db, subject, {
     action: 'column_option.delete',
     resourceType: 'column',
@@ -972,7 +1382,13 @@ export async function deleteColumnOption(db: AppDatabase, subject: Subject, colu
   return { ok: true }
 }
 
-export async function updateStatus(db: AppDatabase, subject: Subject, tableId: string, statusId: string, input: { color?: string; name?: string }) {
+export async function updateStatus(
+  db: AppDatabase,
+  subject: Subject,
+  tableId: string,
+  statusId: string,
+  input: { color?: string; name?: string },
+) {
   await requireEditableTable(db, subject, tableId, 'edit')
   const patch: { color?: string; name?: string } = {}
   if (typeof input.color === 'string' && input.color.trim()) patch.color = input.color.trim()
@@ -980,7 +1396,9 @@ export async function updateStatus(db: AppDatabase, subject: Subject, tableId: s
     const trimmed = input.name.trim()
     if (!trimmed) throw badRequest('Status name is required')
     const existing = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, tableId))
-    const clash = existing.find((status) => status.id !== statusId && status.name.toLowerCase() === trimmed.toLowerCase())
+    const clash = existing.find(
+      (status) => status.id !== statusId && status.name.toLowerCase() === trimmed.toLowerCase(),
+    )
     if (clash) throw badRequest('A status with that name already exists')
     patch.name = trimmed
   }
@@ -1008,7 +1426,9 @@ function storedFilter(value: unknown) {
   return null
 }
 
-function presentUserTableState(row: { sort: unknown; filter: unknown; display: unknown } | undefined) {
+function presentUserTableState(
+  row: { sort: unknown; filter: unknown; display: unknown } | undefined,
+) {
   return {
     sort: storedSort(row?.sort),
     filter: storedFilter(row?.filter),
@@ -1035,7 +1455,12 @@ export async function saveUserTableState(
 ) {
   await requireTable(db, subject, tableId, 'view')
   if (subject.kind !== 'user') return presentUserTableState(undefined)
-  const patch: { sort?: ReturnType<typeof storedSort>; filter?: ReturnType<typeof storedFilter>; display?: ReturnType<typeof sanitizeTableDisplay>; updatedAt: Date } = {
+  const patch: {
+    sort?: ReturnType<typeof storedSort>
+    filter?: ReturnType<typeof storedFilter>
+    display?: ReturnType<typeof sanitizeTableDisplay>
+    updatedAt: Date
+  } = {
     updatedAt: new Date(),
   }
   if (input.sort !== undefined) patch.sort = storedSort(input.sort)
