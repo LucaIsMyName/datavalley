@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { permissionGrants, tableRows } from '../database/schema.js'
 import { ApiSession, createHarness, createUser, login, type Harness } from './harness.js'
@@ -14,6 +14,13 @@ describe('search', () => {
 
   afterAll(async () => {
     await harness?.close()
+  })
+
+  it('indexes cell text by trigram', async () => {
+    const result = await harness.db.execute(
+      sql`SELECT indexname FROM pg_indexes WHERE indexname = 'table_cells_value_text_trgm'`,
+    )
+    expect(result.rows).toHaveLength(1)
   })
 
   it('rejects an anonymous search', async () => {

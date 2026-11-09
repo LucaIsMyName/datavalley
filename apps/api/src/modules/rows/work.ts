@@ -1,10 +1,11 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { asc, eq, inArray, sql } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
 import { tableCells, tableColumns, tableRows, users } from '../../database/schema.js'
 import { allows, resolveGrants } from '../../security/access.js'
 import type { Subject } from '../../security/subject.js'
 import { listProjects } from '../projects/service.js'
 import { listTables } from '../tables/service.js'
+import { many } from './query.js'
 
 const DUE_NAMES = new Set(['due', 'due date', 'deadline'])
 const ASSIGNEE_NAMES = new Set(['assignee', 'owner', 'assigned'])
@@ -52,8 +53,7 @@ export async function listMyWork(db: AppDatabase, subject: Subject): Promise<Wor
     list.push(column)
     byTable.set(column.tableId, list)
   }
-  const tasks: WorkTask[] = []
-  for (const table of tables) {
+  const picks = tables.flatMap((table) => {
     const tableColumnsFor = byTable.get(table.id) ?? []
     const parents = { table: table.id, project: table.projectId }
     const canView = (columnId: string) =>
@@ -62,68 +62,49 @@ export async function listMyWork(db: AppDatabase, subject: Subject): Promise<Wor
     const assignee = pick(tableColumnsFor, ['user'], ASSIGNEE_NAMES, canView)
     const due = pick(tableColumnsFor, ['date', 'datetime'], DUE_NAMES, canView)
     const titleColumn = pick(tableColumnsFor, ['text', 'mail', 'url'], TITLE_NAMES, canView)
-    if (!done || !assignee || !due || !titleColumn) continue
-    const dueCells = await db
-      .select({ rowId: tableCells.rowId, valueText: tableCells.valueText })
-      .from(tableCells)
-      .where(
-        and(
-          eq(tableCells.columnId, due.id),
-          sql`coalesce(${tableCells.valueText}, '') <> ''`,
-          sql`left(${tableCells.valueText}, 10) <= ${today}`,
-        ),
-      )
-    if (dueCells.length === 0) continue
-    const dueByRow = new Map(dueCells.map((cell) => [cell.rowId, cell.valueText?.slice(0, 10) ?? '']))
-    const assigned = await db
-      .select({ rowId: tableCells.rowId })
-      .from(tableCells)
-      .where(
-        and(
-          eq(tableCells.columnId, assignee.id),
-          inArray(tableCells.rowId, [...dueByRow.keys()]),
-          sql`${tableCells.valueJsonb}->'userIds' ? ${subject.id}`,
-        ),
-      )
-    if (assigned.length === 0) continue
-    const finished = await db
-      .select({ rowId: tableCells.rowId })
-      .from(tableCells)
-      .where(
-        and(
-          eq(tableCells.columnId, done.id),
-          inArray(tableCells.rowId, assigned.map((cell) => cell.rowId)),
-          eq(tableCells.valueBool, true),
-        ),
-      )
-    const finishedIds = new Set(finished.map((cell) => cell.rowId))
-    const openIds = assigned.map((cell) => cell.rowId).filter((rowId) => !finishedIds.has(rowId))
-    if (openIds.length === 0) continue
-    const titles = await db
-      .select({ rowId: tableCells.rowId, valueText: tableCells.valueText })
-      .from(tableCells)
-      .where(and(eq(tableCells.columnId, titleColumn.id), inArray(tableCells.rowId, openIds)))
-    const titleByRow = new Map(titles.map((cell) => [cell.rowId, cell.valueText?.trim() || '']))
-    const visibleRows = await db
-      .select({ id: tableRows.id })
-      .from(tableRows)
-      .where(and(eq(tableRows.tableId, table.id), inArray(tableRows.id, openIds)))
-    for (const row of visibleRows) {
-      if (!allows(subject, grants, 'view', { type: 'row', id: row.id, parents })) continue
-      const dueDate = dueByRow.get(row.id) ?? ''
-      if (!dueDate) continue
-      tasks.push({
-        rowId: row.id,
-        title: titleByRow.get(row.id) || `#${row.id.slice(0, 8)}`,
-        due: dueDate,
-        overdue: dueDate < today,
-        projectId: table.projectId,
-        projectName: table.projectName,
-        tableId: table.id,
-        tableName: table.name,
-        href: `/projects/${table.projectId}/tables/${table.id}/rows/${row.id}`,
-      })
-    }
+    if (!done || !assignee || !due || !titleColumn) return []
+    return [{ table, done: done.id, assignee: assignee.id, due: due.id, title: titleColumn.id }]
+  })
+  if (picks.length === 0) return []
+  const candidates = sql.join(
+    picks.map((item) => sql`(${item.table.id}::uuid, ${item.due}::uuid, ${item.assignee}::uuid, ${item.done}::uuid, ${item.title}::uuid)`),
+    sql`, `,
+  )
+  const open = await many<{ rowId: string; tableId: string; due: string; title: string | null }>(
+    db,
+    sql`
+      WITH picks (table_id, due_id, assignee_id, done_id, title_id) AS (VALUES ${candidates})
+      SELECT r.id AS "rowId", r.table_id AS "tableId", left(d.value_text, 10) AS due, t.value_text AS title
+      FROM picks p
+      JOIN ${tableRows} r ON r.table_id = p.table_id
+      JOIN ${tableCells} d ON d.row_id = r.id AND d.column_id = p.due_id
+      JOIN ${tableCells} a ON a.row_id = r.id AND a.column_id = p.assignee_id
+      LEFT JOIN ${tableCells} f ON f.row_id = r.id AND f.column_id = p.done_id
+      LEFT JOIN ${tableCells} t ON t.row_id = r.id AND t.column_id = p.title_id
+      WHERE coalesce(d.value_text, '') <> ''
+        AND left(d.value_text, 10) <= ${today}
+        AND a.value_jsonb->'userIds' ? ${subject.id}
+        AND f.value_bool IS NOT TRUE
+    `,
+  )
+  const tableById = new Map(picks.map((item) => [item.table.id, item.table]))
+  const tasks: WorkTask[] = []
+  for (const row of open) {
+    const table = tableById.get(row.tableId)
+    if (!table || !row.due) continue
+    const parents = { table: table.id, project: table.projectId }
+    if (!allows(subject, grants, 'view', { type: 'row', id: row.rowId, parents })) continue
+    tasks.push({
+      rowId: row.rowId,
+      title: row.title?.trim() || `#${row.rowId.slice(0, 8)}`,
+      due: row.due,
+      overdue: row.due < today,
+      projectId: table.projectId,
+      projectName: table.projectName,
+      tableId: table.id,
+      tableName: table.name,
+      href: `/projects/${table.projectId}/tables/${table.id}/rows/${row.rowId}`,
+    })
   }
   return tasks
     .sort((left, right) => left.due.localeCompare(right.due) || left.title.localeCompare(right.title))

@@ -37,9 +37,21 @@ export class DatavalleyClient {
       credentials: 'include',
     })
     const text = await response.text()
-    const data = text ? JSON.parse(text) : {}
-    if (!response.ok) throw new ApiClientError(response.status, data)
+    const data = parseBody(text)
+    if (!response.ok) throw new ApiClientError(response.status, data ?? { error: { message: response.statusText || 'Request failed' } })
+    if (data === null) throw new ApiClientError(response.status, { error: { code: 'invalid_response', message: 'The server sent a response that is not JSON' } })
     return data as T
+  }
+}
+
+/** `{}` for an empty body, `null` when the body is not JSON (for example a proxy error page). */
+function parseBody(text: string): Record<string, unknown> | null {
+  if (!text) return {}
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
   }
 }
 

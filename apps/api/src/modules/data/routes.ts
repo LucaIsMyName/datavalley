@@ -2,13 +2,14 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { isImageMime } from '../../security/media-mime.js'
 import * as dataSchema from './schema.js'
-import type { FilterNode, FormatRule } from '@datavalley/shared'
+import type { Action, FilterNode, FormatRule } from '@datavalley/shared'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { relations, userFavorites } from '../../database/schema.js'
+import { pluginConnections, relations, userFavorites } from '../../database/schema.js'
 import { listFavoriteHits, listRecentHits } from './library.js'
-import { badRequest, notFound, unauthorized } from '../../errors.js'
+import { AppError, badRequest, notFound, unauthorized } from '../../errors.js'
 import { assertCan } from '../../security/access.js'
+import type { Subject } from '../../security/subject.js'
 import { writeAudit } from '../../security/audit.js'
 import {
   addColumn,
@@ -85,7 +86,27 @@ import {
   verifyWebhook,
 } from '../platform/service.js'
 
+function parseFilterQuery(value: string | undefined): FilterNode | null {
+  if (!value) return null
+  try {
+    return JSON.parse(value) as FilterNode
+  } catch {
+    throw badRequest('filter must be valid JSON')
+  }
+}
+
 export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: Env) {
+  async function assertConnectionAccess(subject: Subject, connectionId: string, action: Action) {
+    const [connection] = await db
+      .select({ projectId: pluginConnections.projectId })
+      .from(pluginConnections)
+      .where(eq(pluginConnections.id, connectionId))
+      .limit(1)
+    if (!connection) throw notFound()
+    if (connection.projectId) await assertCan(db, subject, action, { type: 'project', id: connection.projectId })
+    else await assertCan(db, subject, 'manage_plugins', { type: 'system', id: null })
+  }
+
   app.get('/projects/:projectId/tables', async (request) => {
     if (!request.subject) throw unauthorized()
     return { tables: await listTables(db, request.subject, (request.params as { projectId: string }).projectId) }
@@ -220,8 +241,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.get('/tables/:tableId/rows', async (request) => {
     if (!request.subject) throw unauthorized()
     const query = request.query as { limit?: string; cursor?: string; q?: string; sort?: string; direction?: string; filter?: string }
-    let filter: FilterNode | null = null
-    if (query.filter) filter = JSON.parse(query.filter) as FilterNode
+    const filter = parseFilterQuery(query.filter)
     return listRows(db, request.subject, (request.params as { tableId: string }).tableId, {
       limit: query.limit ? Number(query.limit) : 50,
       cursor: query.cursor,
@@ -356,7 +376,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
         db,
         request.subject,
         (request.params as { tableId: string }).tableId,
-        query.filter ? JSON.parse(query.filter) : null,
+        parseFilterQuery(query.filter),
         columnIds,
       ),
     }
@@ -368,7 +388,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     return tableSummary(db, request.subject, (request.params as { tableId: string }).tableId, {
       dimensionId: query.dimension,
       valueIds: query.values ? query.values.split(',').map((id) => id.trim()).filter(Boolean) : [],
-      filter: query.filter ? JSON.parse(query.filter) : null,
+      filter: parseFilterQuery(query.filter),
     })
   })
   app.post('/tables/:tableId/import', async (request) => {
@@ -629,12 +649,18 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     } else if (!isImageMime(media.file.mime) || media.file.mime === 'image/svg+xml') {
       reply.header('content-disposition', `attachment; filename="${safeName}"`)
     }
+    // A sandboxed, script-free policy keeps an uploaded SVG or HTML-like file inert even if a browser renders it
+    // in place. PDFs are excluded because the built-in PDF viewers refuse to run in a sandbox.
+    if (media.file.mime !== 'application/pdf') {
+      reply.header('content-security-policy', "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'")
+    }
     return reply.send(media.body)
   })
   app.get('/integrations/google-sheets/connect', async (request, reply) => {
     if (!request.subject) throw unauthorized()
     const projectId = (request.query as { projectId?: string }).projectId
     if (!projectId) throw badRequest('projectId is required')
+    await assertCan(db, request.subject, 'manage_structure', { type: 'project', id: projectId })
     const state = signState(env, { projectId, userId: request.subject.id })
     return reply.redirect(googleAuthUrl(env, state))
   })
@@ -660,27 +686,33 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.get('/projects/:projectId/connections', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { connections: await publicConnections(db, (request.params as { projectId: string }).projectId) }
+    const projectId = (request.params as { projectId: string }).projectId
+    await assertCan(db, request.subject, 'view', { type: 'project', id: projectId })
+    return { connections: await publicConnections(db, projectId) }
   })
   app.get('/integrations/:connectionId/history', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { jobs: await listSyncJobs(db, (request.params as { connectionId: string }).connectionId) }
+    const connectionId = (request.params as { connectionId: string }).connectionId
+    await assertConnectionAccess(request.subject, connectionId, 'view')
+    return { jobs: await listSyncJobs(db, connectionId) }
   })
   app.post('/integrations/:connectionId/sync', async (request) => {
     if (!request.subject) throw unauthorized()
     await requirePlugin(db, 'google-sheets', 'sync:run')
     const connectionId = (request.params as { connectionId: string }).connectionId
-    const secret = await connectionSecret(db, env, connectionId)
-    if (!secret) throw badRequest('Connection has no credentials')
-    const job = await recordSync(db, connectionId, 'completed', undefined, { imported: 0, note: 'Manual sync recorded' })
-    return { job }
+    await assertConnectionAccess(request.subject, connectionId, 'import')
+    // Pulling sheet rows is not implemented. Report that instead of recording a sync that imported nothing.
+    throw new AppError(501, 'not_implemented', 'Manual Google Sheets sync is not available. Use an HTTP connector or the signed webhook.')
   })
   app.post('/integrations/:connectionId/webhook', async (request, reply) => {
     const connectionId = (request.params as { connectionId: string }).connectionId
     const secret = await connectionSecret(db, env, connectionId)
     const signature = request.headers['x-datavalley-signature']
-    if (!secret || !verifyWebhook(secret, request.rawBody ?? JSON.stringify(request.body ?? {}), Array.isArray(signature) ? signature[0] : signature)) {
-      return reply.status(401).send({ error: { code: 'unauthorized', message: 'Invalid webhook signature' } })
+    const timestamp = request.headers['x-datavalley-timestamp']
+    const body = request.rawBody ?? JSON.stringify(request.body ?? {})
+    const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
+    if (!secret || !verifyWebhook(secret, body, first(signature), first(timestamp))) {
+      return reply.status(401).send({ error: { code: 'unauthorized', message: 'Invalid or expired webhook signature' } })
     }
     const job = await recordSync(db, connectionId, 'queued', undefined, { webhook: true })
     return { jobId: job.id }

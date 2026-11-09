@@ -348,6 +348,7 @@
   "find": "Find",
   "copy": "Copy",
   "paste": "Paste",
+  "clipboardDenied": "The browser did not allow reading the clipboard",
   "clearCell": "Clear",
   "clearColor": "Clear color",
   "clearFilter": "Clear filter",

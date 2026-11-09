@@ -66,6 +66,8 @@ For PostgreSQL options, SMTP, migrations, and worker setup, see [docs/local-setu
 | [docs/data-model.md](docs/data-model.md) | Database and table storage model |
 | [docs/permissions.md](docs/permissions.md) | Grants and access checks |
 | [docs/plugins.md](docs/plugins.md) | Plugins, credentials, and webhooks |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow, checks, and pull requests |
+| [SECURITY.md](SECURITY.md) | Reporting vulnerabilities and running an instance safely |
 
 ## Common commands
 
@@ -80,7 +82,9 @@ npm run deploy       # Remote install (see docs/deploy.md)
 
 ## Production notes
 
-- Use PostgreSQL, not embedded PGLite.
+- Use PostgreSQL 13 or newer, not embedded PGLite. Migrations enable the `pg_trgm` extension for search, so the database user must own the database (the default for `npm run deploy` and the bundled Compose database).
+- Back up with `scripts/backup.sh`; set `BACKUP_PASSPHRASE` to encrypt and `BACKUP_KEEP_DAYS` to prune old backups (see [docs/deploy.md](docs/deploy.md#backup)).
+- Public forms accept at most 200 submissions a day by default; change it per form with `dailyLimit`.
 - Set strong `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY` (see `.env.production.example`).
 - Set `REDIS_URL` when running multiple API processes or the worker, so API-key rate limits, live edit events, and job queues stay consistent. Without Redis, live edits still work on the single API process.
 - Configure SMTP for password reset emails.

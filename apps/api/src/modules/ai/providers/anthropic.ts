@@ -1,4 +1,5 @@
 import { badRequest } from '../../../errors.js'
+import { publicFetch } from '../../connectors/fetch.js'
 import type { AiChatMessage, AiCompletion, CompleteInput } from './types.js'
 
 type AnthropicBlock =
@@ -54,9 +55,9 @@ export async function completeAnthropic(input: CompleteInput): Promise<AiComplet
     }))
   }
   const root = input.baseUrl.replace(/\/$/, '')
-  let response: Response
+  let response: Awaited<ReturnType<typeof publicFetch>>
   try {
-    response = await fetch(`${root}/v1/messages`, {
+    response = await publicFetch(`${root}/v1/messages`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

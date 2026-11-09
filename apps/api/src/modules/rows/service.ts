@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm'
+import { generateKeyBetween } from 'fractional-indexing'
 import {
   csvTable,
   normalizeCsvDelimiter,
@@ -29,9 +30,11 @@ import {
   parseCell,
   readCell,
   type CellWrite,
+  type ColumnShape,
 } from '../../column-types/index.js'
 import { assertMediaReadable, loadMediaFile } from '../platform/media-access.js'
 import { AppError, badRequest, conflict, notFound, versionConflict } from '../../errors.js'
+import { advanceRowVersion, rowFieldKeys } from './versions.js'
 import { allows, assertCan, resolveGrants } from '../../security/access.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
@@ -41,7 +44,6 @@ import { assertTableDataEditable } from '../tables/resolve.js'
 import {
   ensureTextColumns,
   loadColumns,
-  positionBetween,
   requireEditableTable,
   requireTable,
   resolveTableContext,
@@ -175,7 +177,7 @@ async function titleContextFor(
 
 async function catalogLabels(
   db: AppDatabase,
-  columns: { id: string; type: string }[],
+  columns: ColumnShape[],
   cells: (typeof tableCells.$inferSelect)[],
 ) {
   const labels = new Map<string, string>()
@@ -307,10 +309,11 @@ async function recordTitles(db: AppDatabase, rowIds: string[]) {
     tableId: column.tableId,
     type: column.type,
     name: column.name,
+    config: (column.config ?? {}) as Record<string, unknown>,
     position: column.position,
     options: options
       .filter((option) => option.columnId === column.id)
-      .map((option) => ({ id: option.id, label: option.label })),
+      .map((option) => ({ id: option.id, label: option.label, color: option.color, position: option.position })),
   }))
   const labels = await catalogLabels(db, shaped, cells)
   for (const row of rows) {
@@ -493,7 +496,9 @@ async function attachFormulaValues<T extends { id: string; cells: Record<string,
         if (value !== undefined) row.cells[column.id] = value
       }
     }
-  } catch {
+  } catch (error) {
+    // The page still loads with #N/A cells, but the cause must reach the server log.
+    console.error('Formula evaluation failed for table', tableId, error)
     for (const row of rows) {
       for (const column of formulaColumns) {
         if (stored.some((item) => item.columnId === column.id && item.rowId === row.id)) {
@@ -765,6 +770,53 @@ async function syncRelation(
     .onConflictDoNothing()
 }
 
+/**
+ * Position for a row placed before or after a neighbour, or at the end. Reads only the neighbour and the row
+ * next to it instead of every position in the table. `movingId` is left out when a row is being moved.
+ */
+async function rowPosition(
+  db: AppDatabase,
+  tableId: string,
+  placement: { beforeId?: string; afterId?: string },
+  movingId?: string,
+) {
+  if (placement.beforeId && placement.afterId) throw badRequest('Choose one neighbor')
+  const others = movingId ? ne(tableRows.id, movingId) : undefined
+  const neighborId = placement.beforeId ?? placement.afterId
+  if (!neighborId) {
+    const [last] = await db
+      .select({ position: tableRows.position })
+      .from(tableRows)
+      .where(and(eq(tableRows.tableId, tableId), others))
+      .orderBy(desc(tableRows.position))
+      .limit(1)
+    return generateKeyBetween(last?.position ?? null, null)
+  }
+  if (neighborId === movingId) throw badRequest('Unknown neighbor')
+  const [neighbor] = await db
+    .select({ position: tableRows.position })
+    .from(tableRows)
+    .where(and(eq(tableRows.tableId, tableId), eq(tableRows.id, neighborId)))
+    .limit(1)
+  if (!neighbor) throw badRequest('Unknown neighbor')
+  if (placement.beforeId) {
+    const [previous] = await db
+      .select({ position: tableRows.position })
+      .from(tableRows)
+      .where(and(eq(tableRows.tableId, tableId), lt(tableRows.position, neighbor.position), others))
+      .orderBy(desc(tableRows.position))
+      .limit(1)
+    return generateKeyBetween(previous?.position ?? null, neighbor.position)
+  }
+  const [next] = await db
+    .select({ position: tableRows.position })
+    .from(tableRows)
+    .where(and(eq(tableRows.tableId, tableId), gt(tableRows.position, neighbor.position), others))
+    .orderBy(asc(tableRows.position))
+    .limit(1)
+  return generateKeyBetween(neighbor.position, next?.position ?? null)
+}
+
 export async function createRow(
   db: AppDatabase,
   subject: Subject,
@@ -778,12 +830,7 @@ export async function createRow(
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
   const columns = await loadColumns(db, dataTableId)
-  const existing = await db
-    .select({ id: tableRows.id, position: tableRows.position })
-    .from(tableRows)
-    .where(eq(tableRows.tableId, dataTableId))
-    .orderBy(asc(tableRows.position))
-  const position = positionBetween(existing, placement.beforeId, placement.afterId)
+  const position = await rowPosition(db, dataTableId, placement)
   const row = await db.transaction(async (tx) => {
     const [numbered] = await tx
       .update(tables)
@@ -863,17 +910,13 @@ export async function moveRow(
 ) {
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
-  const existing = await db
-    .select({ id: tableRows.id, position: tableRows.position })
+  const [moving] = await db
+    .select({ id: tableRows.id })
     .from(tableRows)
-    .where(eq(tableRows.tableId, dataTableId))
-    .orderBy(asc(tableRows.position))
-  if (!existing.some((row) => row.id === rowId)) throw notFound()
-  const position = positionBetween(
-    existing.filter((row) => row.id !== rowId),
-    placement.beforeId,
-    placement.afterId,
-  )
+    .where(and(eq(tableRows.tableId, dataTableId), eq(tableRows.id, rowId)))
+    .limit(1)
+  if (!moving) throw notFound()
+  const position = await rowPosition(db, dataTableId, placement, rowId)
   await db.update(tableRows).set({ position, updatedAt: new Date() }).where(eq(tableRows.id, rowId))
   await publishTableSignal(db, subject.id, table.id, 'rows.changed')
   return { id: rowId, position }
@@ -921,35 +964,28 @@ export async function patchRow(
       .filter((columnId) => columns.find((item) => item.id === columnId)?.type === 'user')
       .map((columnId) => ({ rowId: row.id, columnId })),
   )
+  const writtenKeys = [
+    ...columnIds,
+    ...('color' in input ? [rowFieldKeys.color] : []),
+    ...('notes' in input ? [rowFieldKeys.notes] : []),
+    ...Object.keys(input.backgrounds ?? {}).map(rowFieldKeys.background),
+    ...Object.keys(input.formats ?? {}).map(rowFieldKeys.format),
+  ]
   await db.transaction(async (tx) => {
-    const updated = await tx
-      .update(tableRows)
-      .set({
-        version: sql`${tableRows.version} + 1`,
-        updatedAt: new Date(),
-        ...('color' in input ? { color: input.color ?? null } : {}),
-        ...('notes' in input ? { notes: input.notes ?? '' } : {}),
-      })
-      .where(and(eq(tableRows.id, row.id), eq(tableRows.version, input.version)))
-      .returning()
-    if (updated.length === 0) {
-      const [stillThere] = await tx
-        .select()
-        .from(tableRows)
-        .where(eq(tableRows.id, row.id))
-        .limit(1)
-      if (!stillThere) throw notFound()
-      if (stillThere.version !== input.version) {
-        const current = await presentRowRecord(
-          tx as unknown as AppDatabase,
-          subject,
-          table.id,
-          table.projectId,
-          row.id,
-        )
-        throw versionConflict(undefined, { row: current })
-      }
-      throw notFound()
+    const advanced = await advanceRowVersion(tx as unknown as AppDatabase, row.id, input.version, writtenKeys, {
+      ...('color' in input ? { color: input.color ?? null } : {}),
+      ...('notes' in input ? { notes: input.notes ?? '' } : {}),
+    })
+    if (advanced.status === 'missing') throw notFound()
+    if (advanced.status === 'conflict') {
+      const current = await presentRowRecord(
+        tx as unknown as AppDatabase,
+        subject,
+        table.id,
+        table.projectId,
+        row.id,
+      )
+      throw versionConflict(undefined, { row: current })
     }
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
@@ -1138,29 +1174,11 @@ export async function bulkPatch(
     const database = tx as unknown as AppDatabase
     for (const update of updates) {
       const row = rowById.get(update.rowId)!
-      const updated = await database
-        .update(tableRows)
-        .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
-        .where(and(eq(tableRows.id, row.id), eq(tableRows.version, update.version)))
-        .returning()
-      if (updated.length === 0) {
-        const [stillThere] = await database
-          .select()
-          .from(tableRows)
-          .where(eq(tableRows.id, row.id))
-          .limit(1)
-        if (!stillThere) throw notFound()
-        if (stillThere.version !== update.version) {
-          const current = await presentRowRecord(
-            database,
-            subject,
-            dataTableId,
-            table.projectId,
-            row.id,
-          )
-          throw versionConflict(undefined, { row: current, rowId: row.id })
-        }
-        throw notFound()
+      const advanced = await advanceRowVersion(database, row.id, update.version, Object.keys(update.cells))
+      if (advanced.status === 'missing') throw notFound()
+      if (advanced.status === 'conflict') {
+        const current = await presentRowRecord(database, subject, dataTableId, table.projectId, row.id)
+        throw versionConflict(undefined, { row: current, rowId: row.id })
       }
       for (const [columnId, value] of Object.entries(update.cells)) {
         const column = columnById.get(columnId)!
@@ -1235,10 +1253,12 @@ async function writeAutomationCells(
     if (!column) continue
     await writeCell(db, tableId, rowId, column, value)
   }
-  await db
-    .update(tableRows)
-    .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
-    .where(eq(tableRows.id, rowId))
+  await advanceRowVersion(
+    db,
+    rowId,
+    null,
+    Object.keys(cells).filter((columnId) => columns.some((item) => item.id === columnId)),
+  )
   await publishTableSignal(db, subject.id, tableId, 'rows.changed')
 }
 
@@ -1281,12 +1301,15 @@ export async function bulkDelete(
     ? await db.select({ id: tableRows.id, notes: tableRows.notes }).from(tableRows).where(inArray(tableRows.id, rowIds))
     : []
   const notes = Object.fromEntries(existing.map((row) => [row.id, row.notes ?? '']))
-  for (const rowId of rowIds) await deleteRow(db, subject, rowId, false)
-  await writeAudit(db, subject, {
-    action: 'row.bulk_delete',
-    resourceType: 'table',
-    resourceId: tableId,
-    metadata: { count: rowIds.length },
+  await db.transaction(async (tx) => {
+    const database = tx as unknown as AppDatabase
+    for (const rowId of rowIds) await deleteRow(database, subject, rowId, false)
+    await writeAudit(database, subject, {
+      action: 'row.bulk_delete',
+      resourceType: 'table',
+      resourceId: tableId,
+      metadata: { count: rowIds.length },
+    })
   })
   await publishTableSignal(db, subject.id, tableId, 'rows.changed')
   return notes
@@ -1301,33 +1324,36 @@ export async function duplicateRows(
   await requireEditableTable(db, subject, tableId, 'edit')
   const created: string[] = []
   const notes: Record<string, string> = {}
-  for (const rowId of rowIds) {
-    const { row } = await assertRow(db, subject, rowId, 'view')
-    notes[row.id] = row.notes ?? ''
-    const cells = await cellsFor(db, [row.id])
-    const copy = await createRow(db, subject, tableId, {}, {}, false)
-    if (row.color || row.notes)
-      await db
-        .update(tableRows)
-        .set({ color: row.color, notes: row.notes })
-        .where(eq(tableRows.id, copy.id))
-    const columns = await loadColumns(db, tableId)
-    for (const cell of cells) {
-      const column = columns.find((item) => item.id === cell.columnId)
-      if (!column) continue
-      if (isWritable(column.type))
-        await writeCell(db, tableId, copy.id, column, readCell(column, cell), cell.background)
-      if (storedRules(cell.formatRules).length > 0)
-        await setCellFormats(
-          db,
-          tableId,
-          copy.id,
-          column.id,
-          storedRules(cell.formatRules) as FormatRule[],
-        )
+  const columns = await loadColumns(db, tableId)
+  await db.transaction(async (tx) => {
+    const database = tx as unknown as AppDatabase
+    for (const rowId of rowIds) {
+      const { row } = await assertRow(database, subject, rowId, 'view')
+      notes[row.id] = row.notes ?? ''
+      const cells = await cellsFor(database, [row.id])
+      const copy = await createRow(database, subject, tableId, {}, {}, false)
+      if (row.color || row.notes)
+        await database
+          .update(tableRows)
+          .set({ color: row.color, notes: row.notes })
+          .where(eq(tableRows.id, copy.id))
+      for (const cell of cells) {
+        const column = columns.find((item) => item.id === cell.columnId)
+        if (!column) continue
+        if (isWritable(column.type))
+          await writeCell(database, tableId, copy.id, column, readCell(column, cell), cell.background)
+        if (storedRules(cell.formatRules).length > 0)
+          await setCellFormats(
+            database,
+            tableId,
+            copy.id,
+            column.id,
+            storedRules(cell.formatRules) as FormatRule[],
+          )
+      }
+      created.push(copy.id)
     }
-    created.push(copy.id)
-  }
+  })
   await publishTableSignal(db, subject.id, tableId, 'rows.changed')
   return { rowIds: created, notes }
 }
@@ -1365,23 +1391,11 @@ export async function fillDown(
       const { row } = await assertRow(database, subject, rowId, 'edit')
       if (row.tableId !== dataTableId) throw notFound()
       const expected = input.versions?.[rowId] ?? row.version
-      const updated = await database
-        .update(tableRows)
-        .set({ version: sql`${tableRows.version} + 1`, updatedAt: new Date() })
-        .where(and(eq(tableRows.id, row.id), eq(tableRows.version, expected)))
-        .returning()
-      if (updated.length === 0) {
-        const [stillThere] = await database
-          .select()
-          .from(tableRows)
-          .where(eq(tableRows.id, row.id))
-          .limit(1)
-        if (!stillThere) throw notFound()
-        if (stillThere.version !== expected) {
-          const current = await presentRowRecord(database, subject, dataTableId, table.projectId, row.id)
-          throw versionConflict(undefined, { row: current, rowId: row.id })
-        }
-        throw notFound()
+      const advanced = await advanceRowVersion(database, row.id, expected, [column.id])
+      if (advanced.status === 'missing') throw notFound()
+      if (advanced.status === 'conflict') {
+        const current = await presentRowRecord(database, subject, dataTableId, table.projectId, row.id)
+        throw versionConflict(undefined, { row: current, rowId: row.id })
       }
       await writeCell(database, dataTableId, row.id, column, value)
     }
@@ -1506,8 +1520,8 @@ export async function importCsv(
           mapping.forEach((column, columnIndex) => {
             const raw = record[columnIndex] ?? ''
             if (raw === '') return
-            coerceImport(column, raw)
-            cells[column.id] = column.type === 'select' || column.type === 'radio' ? raw : raw
+            const coerced = coerceImport(column, raw)
+            if (coerced) cells[column.id] = readCell(column, coerced)
           })
           const row = await createRow(tx as unknown as AppDatabase, subject, table.id, cells, {}, false)
           rows.push({ id: row.id, cells })

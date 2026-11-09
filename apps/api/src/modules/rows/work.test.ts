@@ -77,6 +77,15 @@ describe('my work and assignment notices', () => {
     expect((beaWork.json().tasks as { title: string; overdue: boolean }[]).map((task) => task.title)).toEqual([
       'Follow up',
     ])
+    const doneId = columns.find((column) => column.name === 'Done')?.id
+    const finished = await adaSession.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${follow?.id}`,
+      payload: { version: patched.json().row.version, cells: { [doneId ?? '']: true } },
+    })
+    expect(finished.statusCode).toBe(200)
+    const cleared = await beaSession.inject({ method: 'GET', url: '/api/v1/work' })
+    expect(cleared.json().tasks).toEqual([])
     expect(ada.id).not.toBe(bea.id)
   })
 

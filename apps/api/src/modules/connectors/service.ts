@@ -5,7 +5,6 @@ import {
   normalizeConnectorParseConfig,
   sampleFieldKeysFromRecords,
   suggestJsonRecordsPaths,
-  type ConnectorParseConfig,
 } from '@datavalley/shared'
 import { isResourceIcon } from '@datavalley/shared'
 import type { Env } from '../../config/env.js'

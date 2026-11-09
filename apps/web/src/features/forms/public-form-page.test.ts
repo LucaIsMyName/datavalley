@@ -20,7 +20,7 @@ describe('public form page', () => {
       const url = String(input)
       if (init?.method === 'POST') {
         expect(url).toBe('/api/v1/public/forms/tok')
-        expect(JSON.parse(String(init.body))).toEqual({ cells: { name: 'Ada' } })
+        expect(JSON.parse(String(init.body))).toEqual({ cells: { name: 'Ada' }, website: '' })
         return new Response(JSON.stringify({ id: 'row-1' }), { status: 200 })
       }
       return new Response(

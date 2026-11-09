@@ -21,7 +21,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app /app
+# A fresh media volume copies this directory's owner, so the unprivileged user can write uploads.
+RUN mkdir -p /var/lib/datavalley/media && chown node:node /var/lib/datavalley/media
+USER node
 EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.API_PORT || 3000) + '/api/v1/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 CMD ["npm", "run", "start", "-w", "@datavalley/api"]
 
 FROM caddy:2 AS web

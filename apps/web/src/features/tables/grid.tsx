@@ -507,7 +507,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     return () => window.removeEventListener('pointerdown', close)
   }, [popover])
 
-  const allChecked = rows.length > 0 && rows.every((row) => checked.includes(row.id))
+  const checkedIds = new Set(checked)
+  const allChecked = rows.length > 0 && rows.every((row) => checkedIds.has(row.id))
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['table', tableId] })
     await queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
@@ -549,7 +550,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
     return latest?.pages.flatMap((page) => page.rows) ?? rows
   }
-
   async function undo(direction: 'undo' | 'redo') {
     try {
       const ran = await (direction === 'undo' ? undoTable(tableId) : redoTable(tableId))
@@ -627,7 +627,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
       else if (command === 'redo') void undoRef.current('redo')
       else if (command === 'copy') copyCellRef.current()
       else if (command === 'paste')
-        void navigator.clipboard.readText().then((text) => pasteCellRef.current(text))
+        void navigator.clipboard
+          .readText()
+          .then((text) => pasteCellRef.current(text))
+          .catch(() => toast.error(i18n.t('clipboardDenied')))
       else if (command === 'clear') clearCellRef.current()
       else if (command === 'activate') activateRef.current()
       else if (command === 'toggle') toggleRef.current()
@@ -1484,11 +1487,13 @@ export function TableScreen({ tableId }: { tableId: string }) {
             }}
           >
             <table
+              aria-label={table.name}
+              aria-rowcount={rowsQuery.hasNextPage ? -1 : rows.length + 1}
               className="table-grid table-fixed border-collapse text-sm"
               style={{ width: GUTTER_WIDTH + columnsWidth + filler }}
             >
               <thead className="sticky top-0 z-20">
-                <tr>
+                <tr aria-rowindex={1}>
                   <th
                     className={`sticky left-0 z-30 h-10 p-0 text-left ${TABLE_HEADER_CELL}`}
                     style={{ width: GUTTER_WIDTH }}

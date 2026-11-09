@@ -20,12 +20,4 @@ export async function applyMigrations(
     await exec(readFileSync(join(dir, file), 'utf8'))
     await exec(`INSERT INTO schema_migrations (id) VALUES ('${file}')`)
   }
-  try {
-    await exec('CREATE EXTENSION IF NOT EXISTS pg_trgm')
-    await exec(
-      'CREATE INDEX IF NOT EXISTS table_cells_value_text_trgm ON table_cells USING gin (value_text gin_trgm_ops)',
-    )
-  } catch {
-    // pg_trgm is optional. Search still uses ILIKE.
-  }
 }

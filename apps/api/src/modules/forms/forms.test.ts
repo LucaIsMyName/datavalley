@@ -56,6 +56,25 @@ describe('public forms, quotes, and privacy', () => {
     expect(row.json().row.cells[nameId]).toBe('Grace Hopper')
     expect(row.json().row.cells[emailId]).toBe('grace@navy.example')
     expect(row.json().row.cells[secret]).not.toBe('hidden')
+
+    const trapped = await harness.app.inject({
+      method: 'POST',
+      url: `/api/v1/public/forms/${token}`,
+      payload: { cells: { [nameId]: 'Bot' }, website: 'https://spam.example' },
+    })
+    expect(trapped.statusCode).toBe(400)
+    const limited = await admin.inject({
+      method: 'PUT',
+      url: `/api/v1/tables/${peopleId}/form`,
+      payload: { columnIds: [nameId, emailId], dailyLimit: 2 },
+    })
+    expect(limited.json().form).toMatchObject({ token, dailyLimit: 2 })
+    const second = await harness.app.inject({ method: 'POST', url: `/api/v1/public/forms/${token}`, payload: { cells: { [nameId]: 'Second' } } })
+    expect(second.statusCode).toBe(200)
+    const third = await harness.app.inject({ method: 'POST', url: `/api/v1/public/forms/${token}`, payload: { cells: { [nameId]: 'Third' } } })
+    expect(third.statusCode).toBe(429)
+    expect(third.json().error.code).toBe('rate_limited')
+
     const invited = await admin.inject({
       method: 'POST',
       url: `/api/v1/projects/${projectId}/invites`,

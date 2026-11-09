@@ -208,6 +208,7 @@ export const tableRows = pgTable('table_rows', {
   tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
     position: text('position').notNull(),
     version: integer('version').notNull().default(1),
+    cellVersions: jsonb('cell_versions').$type<Record<string, number>>().notNull().default({}),
     color: text('color'),
     notes: text('notes').notNull().default(''),
     rowNumber: integer('row_number').notNull().default(0),
@@ -260,6 +261,9 @@ export const publicForms = pgTable('public_forms', {
   token: text('token').notNull().unique(),
   columnIds: jsonb('column_ids').notNull().default([]),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  dailyLimit: integer('daily_limit').notNull().default(200),
+  windowStartedAt: timestamp('window_started_at', { withTimezone: true }),
+  windowCount: integer('window_count').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
 

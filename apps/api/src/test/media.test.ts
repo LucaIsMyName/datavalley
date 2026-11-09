@@ -61,6 +61,19 @@ describe('media access', () => {
 
     const allowed = await ada.inject({ method: 'GET', url: `/api/v1/media/${fileId}` })
     expect(allowed.statusCode).toBe(200)
+    expect(allowed.headers['content-security-policy']).toMatch(/^sandbox;/)
+
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>'
+    const svgUpload = await ada.inject({
+      method: 'POST',
+      url: `/api/v1/media?tableId=${tableId}`,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="dot.svg"\r\nContent-Type: image/svg+xml\r\n\r\n${svg}\r\n--${boundary}--\r\n`,
+    })
+    expect(svgUpload.statusCode).toBe(200)
+    const svgResponse = await ada.inject({ method: 'GET', url: `/api/v1/media/${svgUpload.json().file.id}` })
+    expect(svgResponse.headers['content-disposition']).toMatch(/^attachment;/)
+    expect(svgResponse.headers['content-security-policy']).toContain("default-src 'none'")
 
     const blocked = await cam.inject({ method: 'GET', url: `/api/v1/media/${fileId}` })
     expect(blocked.statusCode).toBe(404)
@@ -89,6 +102,7 @@ describe('media access', () => {
     const response = await session.inject({ method: 'GET', url: `/api/v1/media/${fileId}` })
     expect(response.statusCode).toBe(200)
     expect(response.headers['content-disposition']).toMatch(/^inline;/)
+    expect(String(response.headers['content-security-policy'] ?? '')).not.toMatch(/^sandbox/)
     await harness.close()
   })
 

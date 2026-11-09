@@ -348,6 +348,7 @@
   "find": "Suchen",
   "copy": "Kopieren",
   "paste": "Einfügen",
+  "clipboardDenied": "Der Browser hat den Zugriff auf die Zwischenablage nicht erlaubt",
   "clearCell": "Leeren",
   "clearColor": "Farbe entfernen",
   "clearFilter": "Filter entfernen",

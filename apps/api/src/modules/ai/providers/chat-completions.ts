@@ -1,4 +1,5 @@
 import { badRequest } from '../../../errors.js'
+import { publicFetch } from '../../connectors/fetch.js'
 import type { AiChatMessage, AiCompletion, AiToolCall, CompleteInput } from './types.js'
 
 function chatUrl(baseUrl: string) {
@@ -49,9 +50,11 @@ export async function completeChat(input: CompleteInput): Promise<AiCompletion> 
       function: { name: tool.name, description: tool.description, parameters: tool.parameters },
     }))
   }
-  let response: Response
+  // Ollama is restricted to localhost by provider-url; every other provider must stay on public addresses.
+  const send = input.provider === 'ollama' ? fetch : publicFetch
+  let response: Awaited<ReturnType<typeof send>>
   try {
-    response = await fetch(chatUrl(input.baseUrl), {
+    response = await send(chatUrl(input.baseUrl), {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

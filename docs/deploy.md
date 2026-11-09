@@ -48,7 +48,7 @@ Run the same command again to upgrade that instance. The previous release stays 
 
 Set `DEPLOY_MODE=docker` in the instance env file. The same `npm run deploy` command installs Docker Engine and the Compose plugin when they are missing, using Docker's apt repository for the server's Ubuntu or Debian codename. It does not install Node.js, PostgreSQL, Redis, or Caddy on the host. Compose builds the API, worker, and Caddy images on the server and starts the project named `datavalley`.
 
-A loopback `DATABASE_URL` (`127.0.0.1`, `localhost`, or `::1`) starts Postgres 16 in Compose and rewrites that URL to the `postgres` service. Any other host is left unchanged and must be reachable from the containers. The same rule applies to `REDIS_URL`. The worker container starts only when `REDIS_URL` is set. The API listens on `0.0.0.0` inside the Compose network and is not published on the host. Caddy publishes ports 80 and 443.
+A loopback `DATABASE_URL` (`127.0.0.1`, `localhost`, or `::1`) starts Postgres 16 in Compose and rewrites that URL to the `postgres` service. Any other host is left unchanged and must be reachable from the containers. The same rule applies to `REDIS_URL`. The worker container starts only when `REDIS_URL` is set. The API listens on `0.0.0.0` inside the Compose network and is not published on the host. Caddy publishes ports 80 and 443, and starts once the API container reports healthy through `/api/v1/health`, which returns 503 while the database is unreachable. The API and worker run as the unprivileged `node` user. The one-shot `migrate` container runs as root so it can hand the media volume to that user, including volumes created by older releases.
 
 Uploads go to the `datavalley_media` volume. Postgres, Redis, media, and certificate volumes are kept across releases. The bundled database password is applied when that volume is created; a later change to `DATABASE_URL` does not alter the password already stored in the volume.
 
@@ -97,7 +97,14 @@ DATABASE_URL=... MEDIA_ROOT=./data/media bash scripts/backup.sh ./backups
 DATABASE_URL=... MEDIA_ROOT=./data/media bash scripts/restore.sh ./backups/datavalley-STAMP.dump ./backups/media-STAMP.tar.gz
 ```
 
-Backups are a PostgreSQL custom-format dump plus the media directory. On a host install, `MEDIA_ROOT` is the shared media directory on the VPS.
+Backups are a PostgreSQL custom-format dump plus the media directory. On a host install, `MEDIA_ROOT` is the shared media directory on the VPS. The script reads the dump back with `pg_restore --list` and fails if it cannot, so a broken backup shows up when it is written.
+
+| Variable | Effect |
+|---|---|
+| `BACKUP_PASSPHRASE` | Encrypts both files with AES-256 (`openssl enc -pbkdf2`) and keeps only the `.enc` copies. `restore.sh` needs the same passphrase. Store it outside the server, because losing it makes the backups unreadable. |
+| `BACKUP_KEEP_DAYS` | Deletes `datavalley-*` and `media-*` files in the backup directory that are older than this many days. Other files are left alone. |
+
+Run it from cron for scheduled backups, for example `0 3 * * * cd /opt/datavalley/current && BACKUP_KEEP_DAYS=14 BACKUP_PASSPHRASE=... DATABASE_URL=... MEDIA_ROOT=... bash scripts/backup.sh /var/backups/datavalley`. Copy the directory to storage off the VPS; a backup on the same disk does not survive losing the server.
 
 For a Docker install with the bundled database, dump from the Compose project on the server:
 

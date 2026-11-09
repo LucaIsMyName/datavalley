@@ -14,8 +14,9 @@ function loadDotEnv() {
 loadDotEnv()
 const redisUrl = process.env.REDIS_URL?.trim()
 if (!redisUrl) {
-  console.log('REDIS_URL is not set. The worker is idle until Redis is configured.')
-  process.exit(0)
+  // Non-zero so systemd and compose report a failed service instead of a worker that silently does nothing.
+  console.error('REDIS_URL is not set. The worker needs Redis to run background jobs and connector schedules.')
+  process.exit(1)
 }
 
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null })

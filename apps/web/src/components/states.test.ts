@@ -29,7 +29,7 @@ describe('LoadingBlock', () => {
         createElement(
           I18nextProvider,
           { i18n: provider },
-          createElement(LoadingBlock, variant ? { variant } : null),
+          createElement(LoadingBlock, { variant }),
         ),
       )
     })

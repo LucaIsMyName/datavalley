@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   extractJsonRecords,
   extractRecordsFromPayload,
@@ -21,7 +21,6 @@ import {
 import { parseCell } from '../../column-types/index.js'
 import { badRequest, notFound } from '../../errors.js'
 import { writeAudit } from '../../security/audit.js'
-import { decryptString } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
 import { loadColumns, type LoadedColumn } from '../tables/service.js'
 import { publishTableSignal } from '../realtime/publish.js'
@@ -60,6 +59,16 @@ export async function executeConnectorSyncJob(
   }
 }
 
+const SYNC_CHUNK_SIZE = 500
+
+function parseJsonBody(body: string): unknown {
+  try {
+    return JSON.parse(body)
+  } catch {
+    throw badRequest('The connector response is not valid JSON')
+  }
+}
+
 async function runConnectorSync(
   db: AppDatabase,
   env: Env,
@@ -79,8 +88,9 @@ async function runConnectorSync(
   const apiKey = connectorApiKey(env, connector)
   const body = await fetchConnectorPayload(connector.source as never, auth, apiKey)
   const format = connector.format as 'json' | 'csv' | 'xml' | 'html'
+  const jsonRoot = format === 'json' ? parseJsonBody(body) : undefined
   const mappedRows = extractRecordsFromPayload(format, body, parse)
-  const jsonRecords = format === 'json' ? extractJsonRecords(JSON.parse(body), parse) : []
+  const jsonRecords = format === 'json' ? extractJsonRecords(jsonRoot, parse) : []
   const stats = { imported: 0, updated: 0, deleted: 0, bindings: bindings.length }
   const actor = input.actorUserId
     ? ({ id: input.actorUserId, kind: 'user', role: 'admin', source: 'web', user: null } as Subject)
@@ -139,85 +149,88 @@ async function syncBinding(
   const seenKeys = new Set<string>()
   let imported = 0
   let updated = 0
-  let rowPos: string | null =
-    (
-      await db
-        .select({ position: tableRows.position })
-        .from(tableRows)
-        .where(eq(tableRows.tableId, table.id))
-        .orderBy(asc(tableRows.position))
-    )
-      .map((row) => row.position)
-      .sort()
-      .at(-1) ?? null
-  await db.transaction(async (tx) => {
-    for (let index = 0; index < mappedRows.length; index += 1) {
-      const mapped = mappedRows[index]
-      const rawRecord = format === 'json' ? jsonRecords[index] : mapped
-      const externalKey =
-        (format === 'json' && parse.externalIdPath
-          ? String(getValueAtPath(rawRecord, parse.externalIdPath) ?? '')
-          : externalKeyFromMapped(mapped, parse)) || null
-      if (externalKey) seenKeys.add(externalKey)
-      if (syncMode === 'upsert' && externalKey) {
-        const [link] = await tx
-          .select()
-          .from(connectorRowLinks)
-          .where(
-            and(
-              eq(connectorRowLinks.tableId, table.id),
-              eq(connectorRowLinks.externalKey, externalKey),
-            ),
-          )
-          .limit(1)
-        if (link) {
-          await writeMappedCells(
-            tx as unknown as AppDatabase,
-            table.id,
-            link.rowId,
-            columns,
-            columnMap,
-            mapped,
-          )
-          await tx
-            .update(connectorRowLinks)
-            .set({ lastSeenAt: new Date() })
-            .where(eq(connectorRowLinks.id, link.id))
-          updated += 1
-          continue
+  const [last] = await db
+    .select({ position: tableRows.position })
+    .from(tableRows)
+    .where(eq(tableRows.tableId, table.id))
+    .orderBy(sql`${tableRows.position} COLLATE "C" DESC`)
+    .limit(1)
+  let rowPos: string | null = last?.position ?? null
+  // Commit in chunks so a large payload does not hold row locks for the whole sync. Upserts make a re-run safe after a failed chunk.
+  for (let start = 0; start < mappedRows.length; start += SYNC_CHUNK_SIZE) {
+    await db.transaction(async (tx) => {
+      for (
+        let index = start;
+        index < Math.min(start + SYNC_CHUNK_SIZE, mappedRows.length);
+        index += 1
+      ) {
+        const mapped = mappedRows[index]
+        const rawRecord = format === 'json' ? jsonRecords[index] : mapped
+        const externalKey =
+          (format === 'json' && parse.externalIdPath
+            ? String(getValueAtPath(rawRecord, parse.externalIdPath) ?? '')
+            : externalKeyFromMapped(mapped, parse)) || null
+        if (externalKey) seenKeys.add(externalKey)
+        if (syncMode === 'upsert' && externalKey) {
+          const [link] = await tx
+            .select()
+            .from(connectorRowLinks)
+            .where(
+              and(
+                eq(connectorRowLinks.tableId, table.id),
+                eq(connectorRowLinks.externalKey, externalKey),
+              ),
+            )
+            .limit(1)
+          if (link) {
+            await writeMappedCells(
+              tx as unknown as AppDatabase,
+              table.id,
+              link.rowId,
+              columns,
+              columnMap,
+              mapped,
+            )
+            await tx
+              .update(connectorRowLinks)
+              .set({ lastSeenAt: new Date() })
+              .where(eq(connectorRowLinks.id, link.id))
+            updated += 1
+            continue
+          }
         }
+        rowPos = generateKeyBetween(rowPos, null)
+        const [numbered] = await tx
+          .update(tables)
+          .set({ nextRowNumber: sql`${tables.nextRowNumber} + 1` })
+          .where(eq(tables.id, table.id))
+          .returning({ nextRowNumber: tables.nextRowNumber })
+        const [row] = await tx
+          .insert(tableRows)
+          .values({
+            tableId: table.id,
+            position: rowPos,
+            rowNumber: numbered.nextRowNumber - 1,
+            createdBy: actor?.id ?? null,
+          })
+          .returning()
+        await writeMappedCells(
+          tx as unknown as AppDatabase,
+          table.id,
+          row.id,
+          columns,
+          columnMap,
+          mapped,
+        )
+        if (externalKey && syncMode === 'upsert') {
+          await tx
+            .insert(connectorRowLinks)
+            .values({ tableId: table.id, externalKey, rowId: row.id, lastSeenAt: new Date() })
+        }
+        imported += 1
       }
-      rowPos = generateKeyBetween(rowPos, null)
-      const [numbered] = await tx
-        .update(tables)
-        .set({ nextRowNumber: sql`${tables.nextRowNumber} + 1` })
-        .where(eq(tables.id, table.id))
-        .returning({ nextRowNumber: tables.nextRowNumber })
-      const [row] = await tx
-        .insert(tableRows)
-        .values({
-          tableId: table.id,
-          position: rowPos,
-          rowNumber: numbered.nextRowNumber - 1,
-          createdBy: actor?.id ?? null,
-        })
-        .returning()
-      await writeMappedCells(
-        tx as unknown as AppDatabase,
-        table.id,
-        row.id,
-        columns,
-        columnMap,
-        mapped,
-      )
-      if (externalKey && syncMode === 'upsert') {
-        await tx
-          .insert(connectorRowLinks)
-          .values({ tableId: table.id, externalKey, rowId: row.id, lastSeenAt: new Date() })
-      }
-      imported += 1
-    }
-  })
+    })
+  }
   const retention = await loadConnector(db, connectorId)
   const policy = retention.retention as { mode: string; missingAfterDays?: number }
   let deleted = 0

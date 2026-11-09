@@ -6,10 +6,12 @@ import { deletePublicForm, publicFormFields, readPublicForm, savePublicForm, sub
 
 const saveBody = Type.Object({
   columnIds: Type.Array(Type.String({ minLength: 36, maxLength: 36 }), { minItems: 1, maxItems: 24 }),
+  dailyLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000 })),
 })
 
 const submitBody = Type.Object({
   cells: Type.Record(Type.String(), Type.Unknown()),
+  website: Type.Optional(Type.String({ maxLength: 500 })),
 })
 
 export function registerFormRoutes(app: FastifyInstance, db: AppDatabase) {
@@ -19,8 +21,10 @@ export function registerFormRoutes(app: FastifyInstance, db: AppDatabase) {
   })
   app.put('/tables/:tableId/form', { schema: { body: saveBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    const body = request.body as { columnIds: string[] }
-    return { form: await savePublicForm(db, request.subject, (request.params as { tableId: string }).tableId, body.columnIds) }
+    const body = request.body as { columnIds: string[]; dailyLimit?: number }
+    return {
+      form: await savePublicForm(db, request.subject, (request.params as { tableId: string }).tableId, body.columnIds, body.dailyLimit),
+    }
   })
   app.delete('/tables/:tableId/form', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -34,8 +38,8 @@ export function registerFormRoutes(app: FastifyInstance, db: AppDatabase) {
     '/public/forms/:token',
     { schema: { body: submitBody }, config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } },
     async (request) => {
-      const body = request.body as { cells: Record<string, unknown> }
-      return submitPublicForm(db, (request.params as { token: string }).token, body.cells ?? {})
+      const body = request.body as { cells: Record<string, unknown>; website?: string }
+      return submitPublicForm(db, (request.params as { token: string }).token, body.cells ?? {}, body.website)
     },
   )
 }

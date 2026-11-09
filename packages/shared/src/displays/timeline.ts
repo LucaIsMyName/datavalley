@@ -174,7 +174,7 @@ export function timelineWindow(input: { points: number[]; step: TimelineStep; in
   const earliest = Math.min(...points)
   const latest = Math.max(...points)
   const pad = timelineMonthSteps(input.step)
-  let start = walkSteps(floorStep(earliest, input.step, input.includeTime), input.step, input.includeTime, pad, -1)
+  const start = walkSteps(floorStep(earliest, input.step, input.includeTime), input.step, input.includeTime, pad, -1)
   let end = walkSteps(ceilStep(latest, input.step, input.includeTime), input.step, input.includeTime, pad, 1)
   if (end <= start) end = addStep(addStep(start, input.step, input.includeTime), input.step, input.includeTime)
   return { start, end }

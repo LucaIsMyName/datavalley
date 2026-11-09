@@ -75,7 +75,8 @@ function asText(value: FormulaScalar): string {
 }
 
 export function evaluate(node: AstNode, ctx: EvalContext, depth = 0): FormulaValue {
-  if (depth > LIMITS.maxDependencyDepth) return err('#LIM')
+  // Stored ASTs are not re-parsed, so the structural depth limit is enforced here as well.
+  if (depth > LIMITS.maxDepth) return err('#LIM')
   if (ctx.now() - startOf(ctx) > LIMITS.maxMillis) return err('#LIM')
   steps(ctx)
   switch (node.type) {
@@ -85,7 +86,7 @@ export function evaluate(node: AstNode, ctx: EvalContext, depth = 0): FormulaVal
     case 'bool':
       return node.value
     case 'unary': {
-      const value = evaluate(node.expr, ctx, depth)
+      const value = evaluate(node.expr, ctx, depth + 1)
       if (isFormulaError(value)) return value
       if (node.op === 'NOT') {
         const flag = truthy(value)
@@ -97,9 +98,9 @@ export function evaluate(node: AstNode, ctx: EvalContext, depth = 0): FormulaVal
       return -numeric
     }
     case 'binary':
-      return evalBinary(node.op, node.left, node.right, ctx, depth)
+      return evalBinary(node.op, node.left, node.right, ctx, depth + 1)
     case 'call':
-      return evalCall(node.name, node.args, ctx, depth)
+      return evalCall(node.name, node.args, ctx, depth + 1)
     case 'ref':
       return ctx.get(node.ref)
     case 'range':

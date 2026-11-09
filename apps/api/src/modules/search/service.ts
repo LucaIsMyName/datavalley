@@ -166,6 +166,8 @@ async function rowHits(db: AppDatabase, subject: Subject, query: string, tablesI
   const byId = new Map(tablesInScope.map((table) => [table.id, table]))
   const idList = sql.join([...byId.keys()].map((id) => sql`${id}`), sql`, `)
   const pattern = `%${escapeLike(query)}%`
+  // Numbers have no trigram index, so only numeric-looking queries pay for scanning them.
+  const numberMatch = /^[\d.,+-]+$/.test(query) ? sql`OR c.value_number::text ILIKE ${pattern} ESCAPE '\\'` : sql``
   const matched = await many<{
     row_id: string
     table_id: string
@@ -182,10 +184,7 @@ async function rowHits(db: AppDatabase, subject: Subject, query: string, tablesI
       JOIN ${tables} t ON t.id = r.table_id
       JOIN ${tableColumns} col ON col.id = c.column_id
       WHERE t.id IN (${idList})
-        AND (
-          c.value_text ILIKE ${pattern} ESCAPE '\\'
-          OR c.value_number::text ILIKE ${pattern} ESCAPE '\\'
-        )
+        AND (c.value_text ILIKE ${pattern} ESCAPE '\\' ${numberMatch})
       ORDER BY r.updated_at DESC
       LIMIT 80`,
   )

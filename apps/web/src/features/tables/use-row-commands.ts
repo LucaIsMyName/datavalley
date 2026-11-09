@@ -210,13 +210,18 @@ export function useRowCommands(scope: Scope) {
     const targets = rows.filter((row: any) => checked.includes(row.id))
     const undo = []
     const redo = []
-    for (const row of targets) {
-      const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ version: row.version, cells: {}, color }),
-      })
-      undo.push({ rowId: row.id, version: result.row.version, cells: {}, color: row.color })
-      redo.push({ rowId: row.id, version: result.row.version, cells: {}, color })
+    try {
+      for (const row of targets) {
+        const result = await api.request<{ row: RowRecord }>(`/rows/${row.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ version: row.version, cells: {}, color }),
+        })
+        undo.push({ rowId: row.id, version: result.row.version, cells: {}, color: row.color })
+        redo.push({ rowId: row.id, version: result.row.version, cells: {}, color })
+      }
+    } catch (error) {
+      // Rows painted before the failure stay painted, so they still get an undo step and a cache update below.
+      showEditError(editFailureMessage(error, t('error')) ?? t('error'))
     }
     if (undo.length > 0) pushCommand(tableId, { kind: 'patch', undo, redo })
     setPopover(null)

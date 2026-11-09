@@ -20,6 +20,7 @@ export function PublicFormPage() {
   const [done, setDone] = useState(false)
   const [pending, setPending] = useState(false)
   const [missing, setMissing] = useState(false)
+  const [website, setWebsite] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -56,7 +57,7 @@ export function PublicFormPage() {
       const response = await fetch(`/api/v1/public/forms/${token}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cells }),
+        body: JSON.stringify({ cells, website }),
       })
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
@@ -120,6 +121,18 @@ export function PublicFormPage() {
             )}
           </div>
         ))}
+        {/* Honeypot: hidden from people and assistive technology; bots that fill every field get rejected. */}
+        <div aria-hidden="true" className="absolute -left-[9999px] size-px overflow-hidden">
+          <label htmlFor="form-website">Website</label>
+          <input
+            id="form-website"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={website}
+            onChange={(event) => setWebsite(event.target.value)}
+          />
+        </div>
         {error ? (
           <p role="alert" className="text-sm text-danger">
             {error}

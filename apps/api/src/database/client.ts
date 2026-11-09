@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { PGlite } from '@electric-sql/pglite'
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm'
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres'
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite'
 import pg from 'pg'
@@ -28,8 +29,8 @@ export async function createDatabase(env: Env): Promise<DatabaseHandle> {
   const timeout = Number.isFinite(env.STATEMENT_TIMEOUT_MS) ? env.STATEMENT_TIMEOUT_MS : 5000
   if (env.DATABASE_URL === 'pglite' || env.DATABASE_URL.startsWith('pglite:')) {
     const path = env.DATABASE_URL === 'pglite' ? undefined : embeddedPath(env.DATABASE_URL.slice('pglite:'.length))
-    const client = new PGlite(path)
-    await client.waitReady
+    // The synchronous constructor skips installing extension bundles, so pg_trgm needs PGlite.create.
+    const client = await PGlite.create({ dataDir: path, extensions: { pg_trgm } })
     await applyMigrations(
       async (sql) => {
         await client.exec(sql)

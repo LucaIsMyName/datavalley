@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { collectRefs, conditionBlock, matchesCondition, matchesCriterion, parseFormula, runFormula, canonicalize, displayFormula, ownRowFormula, resolveBrackets, wholeColumnInMath } from './index.js'
-import type { BracketCatalog, EvalContext, FormulaValue, RefNode } from './index.js'
+import { collectRefs, conditionBlock, LIMITS, matchesCondition, matchesCriterion, parseFormula, runFormula, canonicalize, displayFormula, ownRowFormula, resolveBrackets, wholeColumnInMath } from './index.js'
+import type { AstNode, BracketCatalog, EvalContext, FormulaValue, RefNode } from './index.js'
 
 const column = '11111111-1111-4111-8111-111111111111'
 const other = '22222222-2222-4222-8222-222222222222'
@@ -72,6 +72,13 @@ describe('formula engine', () => {
     })
     expect(result).toBe('ok')
     expect(seen).toEqual([])
+  })
+
+  it('limits how deeply a stored AST nests, even when it never went through the parser', () => {
+    const nested = (levels: number): AstNode => (levels === 0 ? { type: 'number', value: 1 } : { type: 'unary', op: '-', expr: nested(levels - 1) })
+    expect(runFormula(nested(20), ctx({}))).toBe(1)
+    expect(runFormula(nested(LIMITS.maxDepth + 5), ctx({}))).toEqual({ error: '#LIM' })
+    expect(run(`${'('.repeat(20)}1${')'.repeat(20)} + 1`)).toBe(2)
   })
 
   it('returns spreadsheet errors for bad math, missing refs, and cycles', () => {

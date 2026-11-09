@@ -9,6 +9,7 @@ import {
 } from '@datavalley/shared'
 import { ArrowUpRight, GripVertical, Plus } from 'lucide-react'
 import { type MouseEvent as ReactMouseEvent } from 'react'
+import { toast } from 'sonner'
 import { Checkbox } from '../../components/ui/checkbox'
 import { fillableColumn as fillable } from './cell-display'
 import { patchCachedTable } from './cache'
@@ -83,7 +84,8 @@ export function createTableColumns(input: Record<string, any>): ColumnDef<RowRec
               }
               setSelectingAll(true)
               void loadEveryRow()
-                .then((loaded: any) => setChecked(loaded.map((row: any) => row.id)))
+                .then((loaded: RowRecord[]) => setChecked(loaded.map((row) => row.id)))
+                .catch(() => toast.error(t('error')))
                 .finally(() => setSelectingAll(false))
             }}
           />

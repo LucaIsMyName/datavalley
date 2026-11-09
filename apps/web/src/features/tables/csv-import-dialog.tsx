@@ -6,8 +6,6 @@ import { CsvDelimiterField, csvDelimiterWire, defaultCsvDelimiter } from '../../
 import { FileUpload } from '../../components/file-upload'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
-import { Label } from '../../components/ui/label'
-
 export function CsvImportDialog({
   open,
   busy,

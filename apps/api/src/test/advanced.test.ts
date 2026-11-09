@@ -194,23 +194,37 @@ describe('advanced crm behavior', () => {
       })
       .returning()
     const payload = JSON.stringify({ hello: true })
-    const signature = createHmac('sha256', secret).update(payload).digest('hex')
-    const badHook = await harness.app.inject({
-      method: 'POST',
-      url: `/api/v1/integrations/${connection.id}/webhook`,
-      headers: { 'content-type': 'application/json', 'x-datavalley-signature': 'nope' },
-      payload,
-    })
-    expect(badHook.statusCode).toBe(401)
-    const goodHook = await harness.app.inject({
-      method: 'POST',
-      url: `/api/v1/integrations/${connection.id}/webhook`,
-      headers: { 'content-type': 'application/json', 'x-datavalley-signature': signature },
-      payload,
-    })
+    const sign = (timestamp: number) => createHmac('sha256', secret).update(`${timestamp}.${payload}`).digest('hex')
+    const now = Math.floor(Date.now() / 1000)
+    const hook = (headers: Record<string, string>) =>
+      harness.app.inject({
+        method: 'POST',
+        url: `/api/v1/integrations/${connection.id}/webhook`,
+        headers: { 'content-type': 'application/json', ...headers },
+        payload,
+      })
+    expect((await hook({ 'x-datavalley-signature': 'nope', 'x-datavalley-timestamp': String(now) })).statusCode).toBe(401)
+    expect((await hook({ 'x-datavalley-signature': sign(now) })).statusCode).toBe(401)
+    const replayed = await hook({ 'x-datavalley-signature': sign(now - 600), 'x-datavalley-timestamp': String(now - 600) })
+    expect(replayed.statusCode).toBe(401)
+    const goodHook = await hook({ 'x-datavalley-signature': sign(now), 'x-datavalley-timestamp': String(now) })
     expect(goodHook.statusCode).toBe(200)
     const connections = await admin.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/connections` })
     expect(JSON.stringify(connections.json())).not.toContain(secret)
+
+    await createUser(harness.db, harness.env, harness.organizationId, { username: 'outsider', email: 'outsider@example.com', password })
+    const outsider = await sessionFor(harness, 'outsider')
+    expect((await outsider.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/connections` })).statusCode).toBe(404)
+    expect((await outsider.inject({ method: 'GET', url: `/api/v1/integrations/${connection.id}/history` })).statusCode).toBe(404)
+    expect((await admin.inject({ method: 'GET', url: `/api/v1/integrations/${connection.id}/history` })).statusCode).toBe(200)
+    expect((await outsider.inject({ method: 'GET', url: `/api/v1/integrations/google-sheets/connect?projectId=${projectId}` })).statusCode).toBe(404)
+    await admin.inject({ method: 'POST', url: '/api/v1/plugins/google-sheets/enable' })
+    expect((await outsider.inject({ method: 'POST', url: `/api/v1/integrations/${connection.id}/sync` })).statusCode).toBe(404)
+    const manualSync = await admin.inject({ method: 'POST', url: `/api/v1/integrations/${connection.id}/sync` })
+    expect(manualSync.statusCode).toBe(501)
+    const badFilter = await admin.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/rows?filter=${encodeURIComponent('{broken')}` })
+    expect(badFilter.statusCode).toBe(400)
+    expect((await admin.inject({ method: 'GET', url: `/api/v1/tables/${tableId}/footer?filter=%7B` })).statusCode).toBe(400)
 
     const job = await createJob(harness.db, 'retry-demo', {})
     await expect(

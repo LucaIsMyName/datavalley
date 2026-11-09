@@ -135,6 +135,7 @@ function GridBodyRowView({
 
   return (
     <tr
+      aria-rowindex={rowIndex + 2}
       className={`group ${spotlightRow && !spotlightColumnId ? 'bg-accent' : ''} ${aiRow && !(spotlightRow && !spotlightColumnId) ? 'bg-accent' : ''}`}
       onDragOver={(event) => {
         const from = api.dragItem.current

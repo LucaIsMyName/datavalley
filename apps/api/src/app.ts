@@ -119,9 +119,14 @@ export async function buildApp(options: { env: Env; db: AppDatabase }) {
 
   await app.register(
     async (api) => {
-      api.get('/health', async () => {
-        await db.execute(sql`select 1 as ok`)
-        return { ok: true, database: 'up' }
+      api.get('/health', async (request, reply) => {
+        try {
+          await db.execute(sql`select 1 as ok`)
+          return { ok: true, database: 'up' }
+        } catch (error) {
+          request.log.error(error)
+          return reply.status(503).send({ ok: false, database: 'down' })
+        }
       })
       registerAuthRoutes(api, db, env)
       registerUserRoutes(api, db, env)

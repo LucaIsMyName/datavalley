@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
-import { auditLogs, tableCells, apiKeys } from '../database/schema.js'
-import { createJob, runJob } from '../jobs/process.js'
+import { auditLogs, apiKeys } from '../database/schema.js'
 import { ApiSession, createHarness, createUser, login, type Harness } from './harness.js'
 
 const password = 'correct horse battery'

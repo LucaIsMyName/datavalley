@@ -4,7 +4,16 @@ import { rowFromVersionConflict } from './version-conflict.js'
 
 describe('rowFromVersionConflict', () => {
   it('returns the row from a version_conflict response', () => {
-    const row = { id: 'r1', version: 3, cells: { c1: 'x' } } as RowRecord
+    const row: RowRecord = {
+      id: 'r1',
+      position: 'a0',
+      version: 3,
+      color: null,
+      notes: '',
+      rowNumber: 1,
+      cells: { c1: 'x' },
+      backgrounds: {},
+    }
     const error = new ApiClientError(409, {
       error: { code: 'version_conflict', message: 'Row was updated elsewhere', details: { row } },
     })

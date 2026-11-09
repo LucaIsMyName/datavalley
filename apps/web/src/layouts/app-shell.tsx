@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router'
 import { api } from '../lib/api'
@@ -35,9 +35,14 @@ import {
   SidebarTrigger,
 } from '../components/ui/sidebar'
 import { Toaster } from '../components/ui/sonner'
-import { AiChat } from '../features/ai/chat'
-import { FormulaWindow } from '../features/tables/formula-window'
+import { useAiEnabled } from '../features/ai/status'
+import { useFormulaWindow } from '../stores/formula-window'
 import { readSidebarOpen, writeSidebarOpen } from './sidebar-state'
+
+const AiChat = lazy(() => import('../features/ai/chat').then((module) => ({ default: module.AiChat })))
+const FormulaWindow = lazy(() =>
+  import('../features/tables/formula-window').then((module) => ({ default: module.FormulaWindow })),
+)
 
 const links: { to: string; key: string; icon: LucideIcon; end: boolean }[] = [
   { to: '/', key: 'dashboard', icon: LayoutDashboard, end: true },
@@ -204,6 +209,8 @@ export function AppShell() {
   const tableMatch = useMatch('/projects/:projectId/tables/:tableId')
   const projectMatch = useMatch('/projects/:projectId')
   const queryClient = useQueryClient()
+  const aiEnabled = useAiEnabled()
+  const formulaOpen = useFormulaWindow((state) => state.cell !== null)
   const [open, setOpen] = useState(false)
   const [nav, setNav] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
@@ -286,17 +293,25 @@ export function AppShell() {
             >
               <Outlet />
             </main>
-            <AiChat
-              context={{
-                projectId: tableMatch?.params.projectId ?? projectMatch?.params.projectId,
-                tableId: tableMatch?.params.tableId,
-              }}
-            />
+            {aiEnabled && (
+              <Suspense fallback={null}>
+                <AiChat
+                  context={{
+                    projectId: tableMatch?.params.projectId ?? projectMatch?.params.projectId,
+                    tableId: tableMatch?.params.tableId,
+                  }}
+                />
+              </Suspense>
+            )}
           </div>
         </SidebarInset>
       </SidebarProvider>
       <Toaster />
-      <FormulaWindow />
+      {formulaOpen && (
+        <Suspense fallback={null}>
+          <FormulaWindow />
+        </Suspense>
+      )}
     </ContextMenuProvider>
   )
 }

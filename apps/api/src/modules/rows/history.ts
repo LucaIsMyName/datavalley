@@ -16,7 +16,11 @@ export type FieldChange = {
   after: unknown
 }
 
-export function historyLabel(column: HistoryColumn, value: unknown, labels: Map<string, string>) {
+export function historyLabel(
+  column: { type: string; options?: { id: string; label: string }[] },
+  value: unknown,
+  labels: Map<string, string>,
+) {
   if (value == null || value === '') return ''
   if (column.type === 'checkbox') {
     if (value === true || value === 'true') return 'true'

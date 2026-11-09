@@ -44,7 +44,10 @@ services:
     environment:
       API_HOST: 0.0.0.0
       MEDIA_ROOT: /var/lib/datavalley/media
-    command: ["sh", "-c", "npm run migrate && npm run seed:admin"]
+    # Root only for the chown: media volumes created by releases that ran as root must become writable for the
+    # unprivileged api and worker containers.
+    user: root
+    command: ["sh", "-c", "chown -R node:node /var/lib/datavalley/media && npm run migrate && npm run seed:admin"]
     restart: "no"
     depends_on:
       postgres:
@@ -92,6 +95,8 @@ services:
       MEDIA_ROOT: /var/lib/datavalley/media
     command: ["npm", "run", "start", "-w", "@datavalley/worker"]
     restart: unless-stopped
+    healthcheck:
+      disable: true
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -117,7 +122,7 @@ services:
       - "443:443"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - datavalley_caddy:/data
       - datavalley_caddy_config:/config

@@ -34,7 +34,7 @@ function decodeCursor(value: string): Cursor {
   }
 }
 
-async function many<T extends Record<string, unknown>>(db: AppDatabase, query: SQL): Promise<T[]> {
+export async function many<T extends Record<string, unknown>>(db: AppDatabase, query: SQL): Promise<T[]> {
   const result = await db.execute(query)
   if (Array.isArray(result)) return result as T[]
   return ((result as { rows?: T[] }).rows ?? []) as T[]
@@ -242,13 +242,14 @@ function searchValue(value: string | null | undefined) {
   return value?.trim() ?? ''
 }
 
-function rowViewDenied(subjectType: string, subjectId: string): SQL {
+/** SQL condition that is true when the subject has no row-level `view` deny for `rowId` (defaults to `r.id`). */
+export function rowViewDenied(subjectType: string, subjectId: string, rowId: SQL = sql`r.id`): SQL {
   return sql`NOT EXISTS (
     SELECT 1 FROM permission_grants g
     WHERE g.subject_type = ${subjectType}
       AND g.subject_id = ${subjectId}::uuid
       AND g.resource_type = 'row'
-      AND g.resource_id = r.id
+      AND g.resource_id = ${rowId}
       AND g.action = 'view'
       AND g.effect = 'deny'
   )`

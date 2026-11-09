@@ -5,6 +5,18 @@ import { useSession } from '../../stores/session.js'
 import { applyRealtimeEvent } from './apply.js'
 import { bindPresenceProject, receivePresence, unbindPresenceProject } from './presence-store.js'
 
+/** Parses one SSE payload. A malformed message is dropped so it cannot stop later events from being handled. */
+export function parseRealtimeEvent(data: unknown): RealtimeEvent | null {
+  if (typeof data !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(data)
+    if (!parsed || typeof parsed !== 'object' || typeof (parsed as { type?: unknown }).type !== 'string') return null
+    return parsed as RealtimeEvent
+  } catch {
+    return null
+  }
+}
+
 export function useProjectEvents(projectId: string) {
   const queryClient = useQueryClient()
   const userId = useSession((state) => state.user?.id ?? '')
@@ -22,7 +34,8 @@ export function useProjectEvents(projectId: string) {
       void queryClient.invalidateQueries({ queryKey: ['table'] })
     }
     source.onmessage = (message) => {
-      const event = JSON.parse(message.data) as RealtimeEvent
+      const event = parseRealtimeEvent(message.data)
+      if (!event) return
       if (event.type === 'presence') {
         receivePresence(event.upsert, event.remove, userId)
         return

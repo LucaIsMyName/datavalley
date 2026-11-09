@@ -15,7 +15,7 @@ Application metadata and dynamic CRM data live in one PostgreSQL database. Creat
 - `projects.settings.automations` stores a built-in stage follow-up, which can be turned off, and flowcharts. A flow starts when a row is created, a column changes, or a row is deleted, then branches on the column type and creates or updates rows. A shared catalog decides which comparisons and field values each column type allows.
 - `audit_logs` is append-only. A trigger rejects updates and deletes.
 
-Indexes cover row order, cell lookup by row, and column value filters for text, number, and time. If `pg_trgm` is available, a trigram index speeds in-table search. Search still uses `ILIKE` without that extension.
+Indexes cover row order, cell lookup by row, and column value filters for text, number, and time. A trigram index on cell text serves search, so the database needs the `pg_trgm` extension. It ships with PostgreSQL and is trusted since version 13, so the database owner can enable it; migrations stop with an error if it is missing. Positions use the `C` collation because fractional-index keys only sort correctly byte by byte.
 
 Dates are calendar dates (`YYYY-MM-DD`) in `value_text`. Date-times are `timestamptz` stored in UTC and shown in the user timezone. Currency amounts use `numeric(19,4)` plus an ISO code on the column. There is no exchange-rate conversion.
 

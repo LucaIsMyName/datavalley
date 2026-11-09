@@ -50,7 +50,10 @@ export async function subjectFromApiKey(
   if (!(await rateLimiter.consume(`api_key:${key.id}`, key.rateLimitPerMinute))) {
     throw new AppError(429, 'rate_limited', 'API key rate limit exceeded')
   }
-  await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id))
+  // Minute precision is enough for "last used" and keeps busy keys from writing the same row on every request.
+  if (!key.lastUsedAt || Date.now() - key.lastUsedAt.getTime() >= 60_000) {
+    await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id))
+  }
   return { kind: 'api_key', id: key.id, role: 'service', source: 'api_key', user: null, apiKeyId: key.id }
 }
 
@@ -306,9 +309,22 @@ export async function publicConnections(db: AppDatabase, projectId: string) {
   }))
 }
 
-export function verifyWebhook(secret: string, body: string, signature: string | undefined) {
-  if (!signature) return false
-  const mac = createHmac('sha256', secret).update(body).digest('hex')
+export const WEBHOOK_TOLERANCE_SECONDS = 300
+
+/**
+ * Checks an incoming webhook. The signature is the hex HMAC-SHA256 of `${timestamp}.${body}`, and the
+ * timestamp (Unix seconds) must be within five minutes of now, so a captured delivery cannot be replayed later.
+ */
+export function verifyWebhook(
+  secret: string,
+  body: string,
+  signature: string | undefined,
+  timestamp: string | undefined,
+  now = Date.now(),
+) {
+  if (!signature || !timestamp || !/^\d{1,12}$/.test(timestamp)) return false
+  if (Math.abs(now / 1000 - Number(timestamp)) > WEBHOOK_TOLERANCE_SECONDS) return false
+  const mac = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')
   return safeEqual(mac, signature)
 }
 

@@ -1,32 +1,84 @@
+import { lookup as lookupCallback, type LookupAddress } from 'node:dns'
 import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
+import { BlockList, isIP, type LookupFunction } from 'node:net'
+import { Agent, fetch as undiciFetch, type RequestInfo, type RequestInit } from 'undici'
 import { badRequest } from '../../errors.js'
 
 const MAX_BYTES = 12 * 1024 * 1024
 const TIMEOUT_MS = 30_000
 const MAX_REDIRECTS = 5
+const BLOCKED_CODE = 'EDATAVALLEY_BLOCKED_HOST'
 
-function isPrivateIp(address: string) {
-  if (address === '::1' || address === '0:0:0:0:0:0:0:1') return true
-  const kind = isIP(address)
-  if (kind === 4) {
-    const parts = address.split('.').map(Number)
-    if (parts[0] === 10) return true
-    if (parts[0] === 127) return true
-    if (parts[0] === 169 && parts[1] === 254) return true
-    if (parts[0] === 192 && parts[1] === 168) return true
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true
-    return false
-  }
-  if (kind === 6) {
-    const lower = address.toLowerCase()
-    if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80')) return true
-  }
+// Separate lists: BlockList matches IPv4 addresses against IPv6 rules as IPv4-mapped, so `::ffff:0:0/96` would block every IPv4 address.
+const privateIpv4 = new BlockList()
+const privateIpv6 = new BlockList()
+for (const [network, prefix] of [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+] as const) {
+  privateIpv4.addSubnet(network, prefix, 'ipv4')
+}
+for (const [network, prefix] of [
+  ['::', 96],
+  ['::ffff:0:0', 96],
+  ['64:ff9b::', 96],
+  ['fc00::', 7],
+  ['fe80::', 10],
+  ['ff00::', 8],
+] as const) {
+  privateIpv6.addSubnet(network, prefix, 'ipv6')
+}
+
+/** True for loopback, private, link-local, carrier-grade NAT, multicast, reserved, and IPv4-embedding IPv6 addresses. */
+export function isPrivateIp(address: string) {
+  const bare = address.replace(/^\[|\]$/g, '')
+  const kind = isIP(bare)
+  if (kind === 4) return privateIpv4.check(bare, 'ipv4')
+  if (kind === 6) return privateIpv6.check(bare, 'ipv6')
   return false
 }
 
+function blockedHostError() {
+  return Object.assign(new Error('URL host is not allowed'), { code: BLOCKED_CODE })
+}
+
+/**
+ * DNS lookup used at connect time. Checking the addresses the socket actually connects to closes the
+ * DNS-rebinding gap between `assertPublicHost` and the request.
+ */
+export const publicLookup: LookupFunction = (hostname, options, callback) => {
+  lookupCallback(hostname, { ...options, all: true }, (error, addresses: LookupAddress[]) => {
+    if (error) return callback(error, '', 0)
+    if (addresses.length === 0 || addresses.some((item) => isPrivateIp(item.address))) return callback(blockedHostError(), '', 0)
+    if (options.all) return (callback as unknown as (error: null, addresses: LookupAddress[]) => void)(null, addresses)
+    callback(null, addresses[0].address, addresses[0].family)
+  })
+}
+
+const publicDispatcher = new Agent({ connect: { lookup: publicLookup } })
+
+export function isBlockedHostError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if ((error as { code?: unknown }).code === BLOCKED_CODE) return true
+  return isBlockedHostError((error as { cause?: unknown }).cause)
+}
+
+/** `fetch` for user-supplied URLs: every connection is pinned to an address that passed the public-host check. */
+export function publicFetch(input: RequestInfo, init: RequestInit = {}) {
+  return undiciFetch(input, { ...init, dispatcher: publicDispatcher })
+}
+
 export async function assertPublicHost(hostname: string) {
-  const host = hostname.toLowerCase()
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     throw badRequest('URL host is not allowed')
   }
@@ -87,7 +139,7 @@ export async function fetchConnectorPayload(
     let current = url
     for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
       await assertPublicHost(current.hostname)
-      const response = await fetch(current, { method, headers, redirect: 'manual', signal: controller.signal })
+      const response = await publicFetch(current, { method, headers, redirect: 'manual', signal: controller.signal })
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location')
         if (!location) throw badRequest('Redirect response missing location')
@@ -112,6 +164,7 @@ export async function fetchConnectorPayload(
     throw badRequest('Too many redirects')
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw badRequest('Remote request timed out')
+    if (isBlockedHostError(error)) throw badRequest('URL host is not allowed')
     throw error
   } finally {
     clearTimeout(timer)

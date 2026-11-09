@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import type { RowRecord } from '@datavalley/api-client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { applyRealtimeEvent, applyRemoteRow, applyStashedCell } from './apply.js'
 import { clearCellEditing, setCellEditing, setNotesEditing } from './editing.js'
 

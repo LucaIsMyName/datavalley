@@ -360,7 +360,6 @@ export type InlinePart =
 
 export function parseInlineMarkdown(text: string): InlinePart[] {
   const parts: InlinePart[] = []
-  let rest = text
   const pattern =
     /(\*\*(.+?)\*\*)|(\*(?!\*)(.+?)\*(?!\*))|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g
 

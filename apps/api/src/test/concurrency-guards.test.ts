@@ -30,6 +30,31 @@ describe('permission and concurrency guards', () => {
     await harness?.close()
   })
 
+  it('merges stale edits to different cells of a row and rejects a stale edit to the same cell', async () => {
+    const projectId = (await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Merge' } })).json().project.id as string
+    const tableId = (await session.inject({ method: 'POST', url: `/api/v1/projects/${projectId}/tables`, payload: { name: 'Rows' } })).json().table.id as string
+    const nameId = (await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'Name', type: 'text' } })).json().column.id as string
+    const cityId = (await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/columns`, payload: { name: 'City', type: 'text' } })).json().column.id as string
+    const created = (await session.inject({ method: 'POST', url: `/api/v1/tables/${tableId}/rows`, payload: { cells: { [nameId]: 'Ada' } } })).json().row
+    const base = created.version as number
+
+    const first = await session.inject({ method: 'PATCH', url: `/api/v1/rows/${created.id}`, payload: { version: base, cells: { [nameId]: 'Ada L.' } } })
+    expect(first.statusCode).toBe(200)
+    const second = await session.inject({ method: 'PATCH', url: `/api/v1/rows/${created.id}`, payload: { version: base, cells: { [cityId]: 'London' } } })
+    expect(second.statusCode).toBe(200)
+    expect(second.json().row.cells).toMatchObject({ [nameId]: 'Ada L.', [cityId]: 'London' })
+    expect(second.json().row.version).toBe(base + 2)
+
+    const notes = await session.inject({ method: 'PATCH', url: `/api/v1/rows/${created.id}`, payload: { version: base, notes: 'Met at the fair' } })
+    expect(notes.statusCode).toBe(200)
+
+    const stale = await session.inject({ method: 'PATCH', url: `/api/v1/rows/${created.id}`, payload: { version: base, cells: { [nameId]: 'Overwrite' } } })
+    expect(stale.statusCode).toBe(409)
+    expect(stale.json().error.details.row.cells[nameId]).toBe('Ada L.')
+    const staleNotes = await session.inject({ method: 'PATCH', url: `/api/v1/rows/${created.id}`, payload: { version: base + 1, notes: 'Lost' } })
+    expect(staleNotes.statusCode).toBe(409)
+  })
+
   it('rejects fill-down when the column cannot be edited and when a row version is stale', async () => {
     const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Fill' } })
     const projectId = project.json().project.id as string

@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, lt, or, sql } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
 import { publicForms, tables, users } from '../../database/schema.js'
-import { badRequest, notFound } from '../../errors.js'
+import { AppError, badRequest, notFound } from '../../errors.js'
 import { randomToken } from '../../security/crypto.js'
 import { assertCan } from '../../security/access.js'
 import type { Subject } from '../../security/subject.js'
@@ -20,6 +20,7 @@ export async function savePublicForm(
   subject: Subject,
   tableId: string,
   requested: string[],
+  dailyLimit?: number,
 ) {
   const table = await requireTable(db, subject, tableId, 'share')
   const columns = await loadColumns(db, table.id)
@@ -30,7 +31,7 @@ export async function savePublicForm(
   if (existing) {
     const [updated] = await db
       .update(publicForms)
-      .set({ columnIds: ids })
+      .set({ columnIds: ids, ...(dailyLimit ? { dailyLimit } : {}) })
       .where(eq(publicForms.id, existing.id))
       .returning()
     return presentForm(updated)
@@ -42,6 +43,7 @@ export async function savePublicForm(
       token: randomToken(24),
       columnIds: ids,
       createdBy: subject.kind === 'user' ? subject.id : null,
+      ...(dailyLimit ? { dailyLimit } : {}),
     })
     .returning()
   return presentForm(created)
@@ -58,8 +60,8 @@ export async function deletePublicForm(db: AppDatabase, subject: Subject, tableI
   await db.delete(publicForms).where(eq(publicForms.tableId, tableId))
 }
 
-function presentForm(form: { token: string; columnIds: unknown }) {
-  return { token: form.token, columnIds: columnIds(form.columnIds) }
+function presentForm(form: { token: string; columnIds: unknown; dailyLimit: number }) {
+  return { token: form.token, columnIds: columnIds(form.columnIds), dailyLimit: form.dailyLimit }
 }
 
 export async function publicFormFields(db: AppDatabase, token: string) {
@@ -77,7 +79,28 @@ export async function publicFormFields(db: AppDatabase, token: string) {
   return { tableName: form.tableName, fields }
 }
 
-export async function submitPublicForm(db: AppDatabase, token: string, cells: Record<string, unknown>) {
+/** Counts one submission against the form's rolling 24-hour limit. False when the limit is reached. */
+async function claimSubmission(db: AppDatabase, formId: string) {
+  const fresh = sql`(${publicForms.windowStartedAt} IS NULL OR ${publicForms.windowStartedAt} < now() - interval '1 day')`
+  const claimed = await db
+    .update(publicForms)
+    .set({
+      windowStartedAt: sql`CASE WHEN ${fresh} THEN now() ELSE ${publicForms.windowStartedAt} END`,
+      windowCount: sql`CASE WHEN ${fresh} THEN 1 ELSE ${publicForms.windowCount} + 1 END`,
+    })
+    .where(and(eq(publicForms.id, formId), or(fresh, lt(publicForms.windowCount, publicForms.dailyLimit))))
+    .returning({ id: publicForms.id })
+  return claimed.length > 0
+}
+
+export async function submitPublicForm(
+  db: AppDatabase,
+  token: string,
+  cells: Record<string, unknown>,
+  honeypot = '',
+) {
+  // Real visitors never see the honeypot field, so a value there means an automated submission.
+  if (honeypot.trim() !== '') throw badRequest('The form could not be sent')
   const form = await loadForm(db, token)
   if (!form.createdBy) throw notFound()
   const [owner] = await db.select().from(users).where(eq(users.id, form.createdBy)).limit(1)
@@ -89,6 +112,9 @@ export async function submitPublicForm(db: AppDatabase, token: string, cells: Re
     input[columnId] = value
   }
   if (Object.keys(input).length === 0) throw badRequest('Fill in the form')
+  if (!(await claimSubmission(db, form.id))) {
+    throw new AppError(429, 'rate_limited', 'This form has received too many submissions today. Try again tomorrow.')
+  }
   await assertCan(db, { kind: 'user', id: owner.id, role: owner.role === 'admin' ? 'admin' : 'user', source: 'web', user: owner }, 'edit', {
     type: 'table',
     id: form.tableId,

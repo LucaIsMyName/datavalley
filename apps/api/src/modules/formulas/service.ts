@@ -34,7 +34,7 @@ import {
   tables,
   users,
 } from '../../database/schema.js'
-import { isDateRangeValue, selectColumnMultiple, swatchName, type FormatRule } from '@datavalley/shared'
+import { isDateRangeValue, selectColumnMultiple, swatchName, type FormatRule, type Grant } from '@datavalley/shared'
 import { readCell } from '../../column-types/index.js'
 import { badRequest } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
@@ -42,6 +42,7 @@ import { sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
 import { loadColumns, requireTable, resolveTableContext, type LoadedColumn } from '../tables/service.js'
 import { publishTableSignal } from '../realtime/publish.js'
+import { rowViewDenied } from '../rows/query.js'
 
 const textTypes = new Set(['text', 'long_text', 'mail', 'url', 'date', 'datetime'])
 
@@ -219,6 +220,14 @@ export async function canonicalizeFormatRules(db: AppDatabase, subject: Subject,
   return prepared
 }
 
+function deniedRowIds(grants: Grant[]) {
+  return new Set(
+    grants
+      .filter((grant) => grant.resourceType === 'row' && grant.action === 'view' && grant.effect === 'deny' && grant.resourceId)
+      .map((grant) => String(grant.resourceId)),
+  )
+}
+
 function sameValue(left: FormulaValue, right: FormulaValue) {
   return matchesCriterion(left, right)
 }
@@ -230,12 +239,19 @@ class ValueMap {
   private userNames = new Map<string, string>()
   private titles = new Map<string, string | null>()
   private series = new Map<string, FormulaValue[]>()
+  private denied?: Set<string>
 
   constructor(
     private db: AppDatabase,
     private subject: Subject,
     private stack: Set<string>,
   ) {}
+
+  /** Rows hidden from this subject by a row-level view deny; formulas must not read them. */
+  async deniedRows() {
+    if (!this.denied) this.denied = deniedRowIds(await resolveGrants(this.db, this.subject))
+    return this.denied
+  }
 
   async column(columnId: string) {
     if (this.columns.has(columnId)) return this.columns.get(columnId) ?? null
@@ -337,6 +353,7 @@ class ValueMap {
 
   async cell(column: LoadedColumn, rowId: string): Promise<FormulaValue> {
     if (!(await canReadColumn(this.db, this.subject, column.id))) return { error: '#REF' }
+    if ((await this.deniedRows()).has(rowId)) return { error: '#REF' }
     if (column.type === 'row_id') {
       const [row] = await this.db.select().from(tableRows).where(eq(tableRows.id, rowId)).limit(1)
       if (!row) return null
@@ -363,11 +380,14 @@ class ValueMap {
     const cached = this.series.get(column.id)
     if (cached) return cached
     if (!(await canReadColumn(this.db, this.subject, column.id))) return [{ error: '#REF' }]
-    const rows = await this.db
-      .select({ id: tableRows.id, rowNumber: tableRows.rowNumber })
-      .from(tableRows)
-      .where(eq(tableRows.tableId, column.tableId))
-      .orderBy(asc(tableRows.position))
+    const denied = await this.deniedRows()
+    const rows = (
+      await this.db
+        .select({ id: tableRows.id, rowNumber: tableRows.rowNumber })
+        .from(tableRows)
+        .where(eq(tableRows.tableId, column.tableId))
+        .orderBy(asc(tableRows.position))
+    ).filter((row) => !denied.has(row.id))
     let values: FormulaValue[]
     if (column.type === 'row_id') {
       values = rows.map((row) => (column.config.style === 'uuid' ? row.id : String(row.rowNumber ?? '')))
@@ -406,8 +426,9 @@ class ValueMap {
              count(value_number) AS filled,
              min(value_number) AS minimum,
              max(value_number) AS maximum
-          FROM table_cells
-          WHERE column_id = ${column.id}::uuid`,
+          FROM table_cells c
+          WHERE c.column_id = ${column.id}::uuid
+            AND ${rowViewDenied(this.subject.kind, this.subject.id, sql`c.row_id`)}`,
     )
     const total = Number(stats?.total ?? 0)
     const filled = Number(stats?.filled ?? 0)
@@ -438,8 +459,9 @@ export async function saveFormula(db: AppDatabase, subject: Subject, columnId: s
     : await db.select().from(tableRows).where(eq(tableRows.tableId, column.tableId)).orderBy(asc(tableRows.position))
   if (rowId && rows.length === 0) throw badRequest('Unknown row')
   let first: { id: string; cycle: boolean } | null = null
+  const graph = await loadFormulaGraph(db, [column.id, ...refs.map((ref) => ref.columnId)])
   for (const row of rows) {
-    const cycle = await hasCycle(db, column.id, row.id, refs)
+    const cycle = placeFormula(graph, column.id, row.id, refs)
     await db.delete(formulas).where(and(eq(formulas.columnId, column.id), eq(formulas.rowId, row.id)))
     const [formula] = await db
       .insert(formulas)
@@ -528,26 +550,51 @@ export async function readCellFormula(db: AppDatabase, subject: Subject, rowId: 
   }
 }
 
-async function hasCycle(db: AppDatabase, columnId: string, rowId: string, refs: RefNode[]) {
-  const self = `${columnId}:${rowId}`
-  if (refs.some((ref) => ref.columnId === columnId && (!ref.rowId || ref.rowId === rowId))) return true
-  const next = refs.map((ref) => `${ref.columnId}:${ref.rowId ?? rowId}`)
-  const columnIds = [columnId, ...refs.map((ref) => ref.columnId)]
-  const existing = columnIds.length ? await db.select().from(formulas).where(inArray(formulas.columnId, columnIds)) : []
-  const graph = new Map<string, string[]>()
-  for (const formula of existing) {
-    if (!formula.columnId || formula.columnId === columnId && formula.rowId === rowId) continue
-    const deps = await db.select().from(formulaDependencies).where(eq(formulaDependencies.formulaId, formula.id))
-    graph.set(
-      `${formula.columnId}:${formula.rowId}`,
-      deps.filter((dep) => dep.columnId).map((dep) => `${dep.columnId}:${dep.rowId ?? formula.rowId}`),
-    )
+type FormulaGraph = Map<string, string[]>
+
+/**
+ * Loads the stored formula dependency graph reachable from `columnIds`, one query per level of columns, keyed
+ * by `columnId:rowId`. A dependency without a row points at the same row as the formula that holds it.
+ */
+async function loadFormulaGraph(db: AppDatabase, columnIds: string[]) {
+  const graph: FormulaGraph = new Map()
+  const loaded = new Set<string>()
+  let pending = [...new Set(columnIds)]
+  while (pending.length) {
+    for (const id of pending) loaded.add(id)
+    const edges = await db
+      .select({
+        columnId: formulas.columnId,
+        rowId: formulas.rowId,
+        dependsOnColumn: formulaDependencies.columnId,
+        dependsOnRow: formulaDependencies.rowId,
+      })
+      .from(formulas)
+      .leftJoin(formulaDependencies, eq(formulaDependencies.formulaId, formulas.id))
+      .where(inArray(formulas.columnId, pending))
+    const discovered = new Set<string>()
+    for (const edge of edges) {
+      if (!edge.columnId) continue
+      const key = `${edge.columnId}:${edge.rowId}`
+      const targets = graph.get(key) ?? []
+      graph.set(key, targets)
+      if (!edge.dependsOnColumn) continue
+      targets.push(`${edge.dependsOnColumn}:${edge.dependsOnRow ?? edge.rowId}`)
+      if (!loaded.has(edge.dependsOnColumn)) discovered.add(edge.dependsOnColumn)
+    }
+    pending = [...discovered]
   }
+  return graph
+}
+
+/** Replaces the graph entry of `columnId:rowId` with `refs` and reports whether that closes a cycle. */
+function placeFormula(graph: FormulaGraph, columnId: string, rowId: string, refs: RefNode[]) {
+  const self = `${columnId}:${rowId}`
+  const next = refs.map((ref) => `${ref.columnId}:${ref.rowId ?? rowId}`)
   graph.set(self, next)
   const seen = new Set<string>()
   const stack = [...next]
-  while (stack.length) {
-    const current = stack.pop()!
+  for (let current = stack.pop(); current !== undefined; current = stack.pop()) {
     if (current === self) return true
     if (seen.has(current)) continue
     seen.add(current)
@@ -680,10 +727,13 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
       related.set(key, null)
       continue
     }
-    const links = await db
-      .select()
-      .from(relationRecords)
-      .where(and(eq(relationRecords.relationId, relationId), eq(relationRecords.fromRowId, rowId)))
+    const denied = await shared.deniedRows()
+    const links = (
+      await db
+        .select()
+        .from(relationRecords)
+        .where(and(eq(relationRecords.relationId, relationId), eq(relationRecords.fromRowId, rowId)))
+    ).filter((link) => !denied.has(link.toRowId))
     if (links.length === 0) {
       related.set(key, null)
       continue
@@ -1002,30 +1052,6 @@ async function loadCatalogStamps(db: AppDatabase, expansions: StampExpansion[]) 
   return { labelStamps, statusStamps, tagStamps, userStamp }
 }
 
-async function dependencyStamp(db: AppDatabase, rowId: string, ast: AstNode) {
-  const expanded = await expandStampDependencies(db, [{ ast, rowId }])
-  const rows = expanded.rowIds.size
-    ? await db.select().from(tableRows).where(inArray(tableRows.id, [...expanded.rowIds]))
-    : []
-  const rowVersions = new Map(rows.map((row) => [row.id, row.version]))
-  const tableStamps = new Map<string, string>()
-  for (const tableId of expanded.tableIds) {
-    tableStamps.set(tableId, await tableDependencyStamp(db, tableId))
-  }
-  const catalogs = await loadCatalogStamps(db, [expanded])
-  return composeVersionHash(
-    expanded,
-    rowVersions,
-    tableStamps,
-    catalogs.labelStamps,
-    catalogs.statusStamps,
-    catalogs.tagStamps,
-    catalogs.userStamp,
-    clockDay(),
-    '',
-  )
-}
-
 function formulaCellKey(rowId: string, columnId: string | null) {
   return `${rowId}:${columnId ?? ''}`
 }
@@ -1067,7 +1093,9 @@ export async function evaluateFormulasForRows(
 
   const grants = await resolveGrants(db, subject)
   const crossPermissionHash = sha256(JSON.stringify(grants))
-  const permissionHashFor = (crossesTables: boolean) => (crossesTables ? crossPermissionHash : '')
+  // Row denies change what aggregates see, so such a subject must not share the grant-free cache entry.
+  const hidesRows = deniedRowIds(grants).size > 0
+  const permissionHashFor = (crossesTables: boolean) => (crossesTables || hidesRows ? crossPermissionHash : '')
 
   const formulaIds = [...new Set(entries.map((entry) => entry.id))]
   const pageRowIds = [...new Set(entries.map((entry) => entry.rowId))]
