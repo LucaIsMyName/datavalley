@@ -1386,6 +1386,7 @@ const result = await api.request("/tables/00000000-0000-4000-8000-0000a3708989",
     "icon": "icon",
     "headerConfig": {},
     "footerConfig": {},
+    "documentConfig": {},
     "formatRules": [
       "formatRules"
     ],
@@ -2652,6 +2653,42 @@ None
 
 ```ts
 const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/quote")
+```
+
+### `GET /api/v1/rows/{rowId}/pdf`
+
+Get pdf
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/pdf")
+```
+
+### `GET /api/v1/rows/{rowId}/quote.pdf`
+
+Get quote.pdf
+
+**Path**
+
+- `rowId` string
+
+**Query**
+
+None
+
+**Example**
+
+```ts
+const result = await api.request("/rows/00000000-0000-4000-8000-0000067ab495/quote.pdf")
 ```
 
 ### `GET /api/v1/rows/{rowId}/privacy`

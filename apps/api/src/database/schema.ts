@@ -24,7 +24,9 @@ export const organizations = pgTable('organizations', {
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id),
   username: text('username').notNull().unique(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
@@ -39,7 +41,9 @@ export const users = pgTable('users', {
 
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   usedAt: timestamp('used_at', { withTimezone: true }),
@@ -48,7 +52,9 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
 
 export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
   userAgent: text('user_agent'),
   ip: text('ip'),
@@ -76,7 +82,9 @@ export const serviceAccounts = pgTable('service_accounts', {
 
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
-  serviceAccountId: uuid('service_account_id').notNull().references(() => serviceAccounts.id, { onDelete: 'cascade' }),
+  serviceAccountId: uuid('service_account_id')
+    .notNull()
+    .references(() => serviceAccounts.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   prefix: text('prefix').notNull(),
   tokenHash: text('token_hash').notNull().unique(),
@@ -114,7 +122,9 @@ export const auditLogs = pgTable('audit_logs', {
 
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   icon: text('icon').notNull().default('FolderKanban'),
@@ -127,8 +137,12 @@ export const projects = pgTable('projects', {
 export const projectMembers = pgTable(
   'project_members',
   {
-    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -139,13 +153,16 @@ export const tables = pgTable(
   'tables',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     icon: text('icon').notNull().default('Table'),
     position: text('position').notNull().default('a0'),
     headerConfig: jsonb('header_config').notNull().default({}),
     footerConfig: jsonb('footer_config').notNull().default({}),
+    documentConfig: jsonb('document_config').notNull().default({}),
     formatRules: jsonb('format_rules').notNull().default([]),
     nextRowNumber: integer('next_row_number').notNull().default(1),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -160,7 +177,9 @@ export const tables = pgTable(
 
 export const tableColumns = pgTable('table_columns', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+  tableId: uuid('table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   type: text('type').notNull(),
@@ -176,7 +195,9 @@ export const tableTags = pgTable(
   'table_tags',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id')
+      .notNull()
+      .references(() => tables.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     color: text('color').notNull(),
   },
@@ -187,7 +208,9 @@ export const tableStatuses = pgTable(
   'table_statuses',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id')
+      .notNull()
+      .references(() => tables.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     color: text('color').notNull(),
     position: text('position').notNull(),
@@ -197,7 +220,9 @@ export const tableStatuses = pgTable(
 
 export const columnOptions = pgTable('column_options', {
   id: uuid('id').primaryKey().defaultRandom(),
-  columnId: uuid('column_id').notNull().references(() => tableColumns.id, { onDelete: 'cascade' }),
+  columnId: uuid('column_id')
+    .notNull()
+    .references(() => tableColumns.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   color: text('color'),
   position: text('position').notNull(),
@@ -205,35 +230,45 @@ export const columnOptions = pgTable('column_options', {
 
 export const tableRows = pgTable('table_rows', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-    position: text('position').notNull(),
-    version: integer('version').notNull().default(1),
-    cellVersions: jsonb('cell_versions').$type<Record<string, number>>().notNull().default({}),
-    color: text('color'),
-    notes: text('notes').notNull().default(''),
-    rowNumber: integer('row_number').notNull().default(0),
-    createdBy: uuid('created_by'),
+  tableId: uuid('table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
+  position: text('position').notNull(),
+  version: integer('version').notNull().default(1),
+  cellVersions: jsonb('cell_versions').$type<Record<string, number>>().notNull().default({}),
+  color: text('color'),
+  notes: text('notes').notNull().default(''),
+  rowNumber: integer('row_number').notNull().default(0),
+  createdBy: uuid('created_by'),
   ...timestamps,
 })
 
 export const tableCells = pgTable('table_cells', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-  rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
-  columnId: uuid('column_id').notNull().references(() => tableColumns.id, { onDelete: 'cascade' }),
+  tableId: uuid('table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
+  rowId: uuid('row_id')
+    .notNull()
+    .references(() => tableRows.id, { onDelete: 'cascade' }),
+  columnId: uuid('column_id')
+    .notNull()
+    .references(() => tableColumns.id, { onDelete: 'cascade' }),
   valueText: text('value_text'),
   valueNumber: numeric('value_number', { precision: 19, scale: 4 }),
   valueBool: boolean('value_bool'),
   valueTimestamptz: timestamp('value_timestamptz', { withTimezone: true }),
-    valueJsonb: jsonb('value_jsonb'),
-    background: text('background'),
-    formatRules: jsonb('format_rules').notNull().default([]),
-    ...timestamps,
-  })
+  valueJsonb: jsonb('value_jsonb'),
+  background: text('background'),
+  formatRules: jsonb('format_rules').notNull().default([]),
+  ...timestamps,
+})
 
 export const mailTemplates = pgTable('mail_templates', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   subject: text('subject').notNull().default(''),
   body: text('body').notNull().default(''),
@@ -243,9 +278,15 @@ export const mailTemplates = pgTable('mail_templates', {
 
 export const mailMessages = pgTable('mail_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
-  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  rowId: uuid('row_id')
+    .notNull()
+    .references(() => tableRows.id, { onDelete: 'cascade' }),
   relatedRowId: uuid('related_row_id').references(() => tableRows.id, { onDelete: 'set null' }),
   templateId: uuid('template_id').references(() => mailTemplates.id, { onDelete: 'set null' }),
   actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
@@ -257,7 +298,10 @@ export const mailMessages = pgTable('mail_messages', {
 
 export const publicForms = pgTable('public_forms', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().unique().references(() => tables.id, { onDelete: 'cascade' }),
+  tableId: uuid('table_id')
+    .notNull()
+    .unique()
+    .references(() => tables.id, { onDelete: 'cascade' }),
   token: text('token').notNull().unique(),
   columnIds: jsonb('column_ids').notNull().default([]),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
@@ -269,9 +313,15 @@ export const publicForms = pgTable('public_forms', {
 
 export const fieldHistory = pgTable('field_history', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-  rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
-  columnId: uuid('column_id').notNull().references(() => tableColumns.id, { onDelete: 'cascade' }),
+  tableId: uuid('table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
+  rowId: uuid('row_id')
+    .notNull()
+    .references(() => tableRows.id, { onDelete: 'cascade' }),
+  columnId: uuid('column_id')
+    .notNull()
+    .references(() => tableColumns.id, { onDelete: 'cascade' }),
   actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
   beforeText: text('before_text').notNull().default(''),
   afterText: text('after_text').notNull().default(''),
@@ -281,7 +331,9 @@ export const fieldHistory = pgTable('field_history', {
 export const userFavorites = pgTable(
   'user_favorites',
   {
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
     resourceType: text('resource_type').notNull(),
     resourceId: uuid('resource_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -292,8 +344,12 @@ export const userFavorites = pgTable(
 export const userTableState = pgTable(
   'user_table_state',
   {
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id')
+      .notNull()
+      .references(() => tables.id, { onDelete: 'cascade' }),
     sort: jsonb('sort'),
     filter: jsonb('filter'),
     display: jsonb('display').notNull().default({}),
@@ -304,7 +360,9 @@ export const userTableState = pgTable(
 
 export const userRecentItems = pgTable('user_recent_items', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   resourceType: text('resource_type').notNull(),
   resourceId: uuid('resource_id').notNull(),
   openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
@@ -312,7 +370,9 @@ export const userRecentItems = pgTable('user_recent_items', {
 
 export const tableViews = pgTable('table_views', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+  tableId: uuid('table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   ownerId: uuid('owner_id'),
   shared: boolean('shared').notNull().default(false),
@@ -337,9 +397,13 @@ export const formulas = pgTable(
   'formulas',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id')
+      .notNull()
+      .references(() => tables.id, { onDelete: 'cascade' }),
     columnId: uuid('column_id').references(() => tableColumns.id, { onDelete: 'cascade' }),
-    rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+    rowId: uuid('row_id')
+      .notNull()
+      .references(() => tableRows.id, { onDelete: 'cascade' }),
     source: text('source').notNull(),
     canonical: text('canonical').notNull(),
     ast: jsonb('ast').notNull(),
@@ -351,7 +415,9 @@ export const formulas = pgTable(
 
 export const formulaDependencies = pgTable('formula_dependencies', {
   id: uuid('id').primaryKey().defaultRandom(),
-  formulaId: uuid('formula_id').notNull().references(() => formulas.id, { onDelete: 'cascade' }),
+  formulaId: uuid('formula_id')
+    .notNull()
+    .references(() => formulas.id, { onDelete: 'cascade' }),
   tableId: uuid('table_id'),
   columnId: uuid('column_id'),
   rowId: uuid('row_id'),
@@ -360,8 +426,12 @@ export const formulaDependencies = pgTable('formula_dependencies', {
 export const formulaCache = pgTable(
   'formula_cache',
   {
-    formulaId: uuid('formula_id').notNull().references(() => formulas.id, { onDelete: 'cascade' }),
-    rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+    formulaId: uuid('formula_id')
+      .notNull()
+      .references(() => formulas.id, { onDelete: 'cascade' }),
+    rowId: uuid('row_id')
+      .notNull()
+      .references(() => tableRows.id, { onDelete: 'cascade' }),
     permissionHash: text('permission_hash').notNull().default(''),
     versionHash: text('version_hash').notNull(),
     result: jsonb('result').notNull(),
@@ -371,8 +441,12 @@ export const formulaCache = pgTable(
 
 export const relations = pgTable('relations', {
   id: uuid('id').primaryKey().defaultRandom(),
-  fromTableId: uuid('from_table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-  toTableId: uuid('to_table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+  fromTableId: uuid('from_table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
+  toTableId: uuid('to_table_id')
+    .notNull()
+    .references(() => tables.id, { onDelete: 'cascade' }),
   fromColumnId: uuid('from_column_id').references(() => tableColumns.id, { onDelete: 'set null' }),
   toColumnId: uuid('to_column_id'),
   cardinality: text('cardinality').notNull(),
@@ -382,9 +456,15 @@ export const relations = pgTable('relations', {
 
 export const relationRecords = pgTable('relation_records', {
   id: uuid('id').primaryKey().defaultRandom(),
-  relationId: uuid('relation_id').notNull().references(() => relations.id, { onDelete: 'cascade' }),
-  fromRowId: uuid('from_row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
-  toRowId: uuid('to_row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+  relationId: uuid('relation_id')
+    .notNull()
+    .references(() => relations.id, { onDelete: 'cascade' }),
+  fromRowId: uuid('from_row_id')
+    .notNull()
+    .references(() => tableRows.id, { onDelete: 'cascade' }),
+  toRowId: uuid('to_row_id')
+    .notNull()
+    .references(() => tableRows.id, { onDelete: 'cascade' }),
 })
 
 export const plugins = pgTable('plugins', {
@@ -398,14 +478,18 @@ export const plugins = pgTable('plugins', {
 })
 
 export const pluginConfigurations = pgTable('plugin_configurations', {
-  pluginId: text('plugin_id').primaryKey().references(() => plugins.id, { onDelete: 'cascade' }),
+  pluginId: text('plugin_id')
+    .primaryKey()
+    .references(() => plugins.id, { onDelete: 'cascade' }),
   config: jsonb('config').notNull().default({}),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 export const pluginConnections = pgTable('plugin_connections', {
   id: uuid('id').primaryKey().defaultRandom(),
-  pluginId: text('plugin_id').notNull().references(() => plugins.id, { onDelete: 'cascade' }),
+  pluginId: text('plugin_id')
+    .notNull()
+    .references(() => plugins.id, { onDelete: 'cascade' }),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   credentialsEncrypted: text('credentials_encrypted'),
@@ -417,7 +501,9 @@ export const pluginConnections = pgTable('plugin_connections', {
 export const pluginPermissions = pgTable(
   'plugin_permissions',
   {
-    pluginId: text('plugin_id').notNull().references(() => plugins.id, { onDelete: 'cascade' }),
+    pluginId: text('plugin_id')
+      .notNull()
+      .references(() => plugins.id, { onDelete: 'cascade' }),
     scope: text('scope').notNull(),
   },
   (table) => [primaryKey({ columns: [table.pluginId, table.scope] })],
@@ -425,7 +511,9 @@ export const pluginPermissions = pgTable(
 
 export const integrationSyncJobs = pgTable('integration_sync_jobs', {
   id: uuid('id').primaryKey().defaultRandom(),
-  connectionId: uuid('connection_id').notNull().references(() => pluginConnections.id, { onDelete: 'cascade' }),
+  connectionId: uuid('connection_id')
+    .notNull()
+    .references(() => pluginConnections.id, { onDelete: 'cascade' }),
   status: text('status').notNull(),
   error: text('error'),
   stats: jsonb('stats').notNull().default({}),
@@ -435,7 +523,9 @@ export const integrationSyncJobs = pgTable('integration_sync_jobs', {
 
 export const dataConnectors = pgTable('data_connectors', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   icon: text('icon').notNull().default('Globe'),
@@ -455,8 +545,12 @@ export const tableConnectorBindings = pgTable(
   'table_connector_bindings',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
-    connectorId: uuid('connector_id').notNull().references(() => dataConnectors.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id')
+      .notNull()
+      .references(() => tables.id, { onDelete: 'cascade' }),
+    connectorId: uuid('connector_id')
+      .notNull()
+      .references(() => dataConnectors.id, { onDelete: 'cascade' }),
     columnMap: jsonb('column_map').notNull().default({}),
     syncMode: text('sync_mode').notNull().default('upsert'),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
@@ -471,17 +565,25 @@ export const connectorRowLinks = pgTable(
   'connector_row_links',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    tableId: uuid('table_id').notNull().references(() => tables.id, { onDelete: 'cascade' }),
+    tableId: uuid('table_id')
+      .notNull()
+      .references(() => tables.id, { onDelete: 'cascade' }),
     externalKey: text('external_key').notNull(),
-    rowId: uuid('row_id').notNull().references(() => tableRows.id, { onDelete: 'cascade' }),
+    rowId: uuid('row_id')
+      .notNull()
+      .references(() => tableRows.id, { onDelete: 'cascade' }),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('connector_row_links_table_key_idx').on(table.tableId, table.externalKey)],
+  (table) => [
+    uniqueIndex('connector_row_links_table_key_idx').on(table.tableId, table.externalKey),
+  ],
 )
 
 export const connectorSyncJobs = pgTable('connector_sync_jobs', {
   id: uuid('id').primaryKey().defaultRandom(),
-  connectorId: uuid('connector_id').notNull().references(() => dataConnectors.id, { onDelete: 'cascade' }),
+  connectorId: uuid('connector_id')
+    .notNull()
+    .references(() => dataConnectors.id, { onDelete: 'cascade' }),
   tableId: uuid('table_id').references(() => tables.id, { onDelete: 'set null' }),
   status: text('status').notNull(),
   error: text('error'),
@@ -492,7 +594,9 @@ export const connectorSyncJobs = pgTable('connector_sync_jobs', {
 
 export const notifications = pgTable('notifications', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   type: text('type').notNull(),
   title: text('title').notNull(),
   body: text('body').notNull().default(''),
@@ -502,7 +606,9 @@ export const notifications = pgTable('notifications', {
 })
 
 export const userTotp = pgTable('user_totp', {
-  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
   secretEncrypted: text('secret_encrypted').notNull(),
   enabled: boolean('enabled').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -510,7 +616,9 @@ export const userTotp = pgTable('user_totp', {
 
 export const recoveryCodes = pgTable('recovery_codes', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   codeHash: text('code_hash').notNull(),
   usedAt: timestamp('used_at', { withTimezone: true }),
 })
@@ -521,7 +629,9 @@ export const mediaFiles = pgTable('media_files', {
   originalName: text('original_name').notNull(),
   mime: text('mime').notNull(),
   sizeBytes: integer('size_bytes').notNull(),
-  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   tableId: uuid('table_id').references(() => tables.id, { onDelete: 'cascade' }),
   createdBy: uuid('created_by'),
@@ -529,7 +639,9 @@ export const mediaFiles = pgTable('media_files', {
 })
 
 export const organizationAiSettings = pgTable('organization_ai_settings', {
-  organizationId: uuid('organization_id').primaryKey().references(() => organizations.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(),
   model: text('model').notNull(),
   baseUrl: text('base_url'),

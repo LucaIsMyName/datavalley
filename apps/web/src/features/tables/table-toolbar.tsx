@@ -7,6 +7,7 @@ import {
   Kanban,
   Copy,
   Download,
+  FileText,
   Link2,
   Lock,
   LockOpen,
@@ -28,6 +29,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/button'
+import { QuoteDocumentDialog } from './quote-document-dialog'
 import { ShareFormDialog } from './share-form-dialog'
 
 export type TableToolbarView = {
@@ -87,6 +89,7 @@ export function TableToolbarRow() {
   const actions = ctx?.actions
   const viewsTriggerRef = useRef<HTMLButtonElement>(null)
   const [shareOpen, setShareOpen] = useState(false)
+  const [quoteOpen, setQuoteOpen] = useState(false)
   if (!actions) return <div className="h-9 shrink-0" aria-hidden />
 
   return (
@@ -160,6 +163,18 @@ export function TableToolbarRow() {
           onClick={() => setShareOpen(true)}
         >
           <Link2 className="size-4" />
+        </Button>
+      ) : null}
+      {actions.tableId && !actions.isMirror && !actions.locked && !actions.connectorBound ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="size-9 shrink-0 px-0"
+          aria-label={t('quoteDocument')}
+          title={t('quoteDocument')}
+          onClick={() => setQuoteOpen(true)}
+        >
+          <FileText className="size-4" />
         </Button>
       ) : null}
       <DropdownMenu.Root>
@@ -324,7 +339,18 @@ export function TableToolbarRow() {
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
       {actions.tableId ? (
-        <ShareFormDialog tableId={actions.tableId} open={shareOpen} onClose={() => setShareOpen(false)} />
+        <ShareFormDialog
+          tableId={actions.tableId}
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
+      {actions.tableId ? (
+        <QuoteDocumentDialog
+          tableId={actions.tableId}
+          open={quoteOpen}
+          onClose={() => setQuoteOpen(false)}
+        />
       ) : null}
     </div>
   )

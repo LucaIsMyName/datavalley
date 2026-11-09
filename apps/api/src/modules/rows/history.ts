@@ -1,6 +1,14 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { AppDatabase } from '../../database/client.js'
-import { fieldHistory, tableCells, tableColumns, tableRows, tableStatuses, tableTags, users } from '../../database/schema.js'
+import {
+  fieldHistory,
+  tableCells,
+  tableColumns,
+  tableRows,
+  tableStatuses,
+  tableTags,
+  users,
+} from '../../database/schema.js'
 import { readCell, type ColumnShape } from '../../column-types/index.js'
 import { notFound } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
@@ -41,8 +49,54 @@ export function historyLabel(
       .filter(Boolean)
       .join(', ')
   }
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    return String(value)
   return ''
+}
+
+/** Names for status, tag, and user ids stored in one row's cells. */
+export async function displayLabels(
+  db: AppDatabase,
+  columns: { id: string; type: string }[],
+  values: Record<string, unknown>,
+) {
+  const labels = new Map<string, string>()
+  const userIds = new Set<string>()
+  const statusIds = new Set<string>()
+  const tagIds = new Set<string>()
+  for (const column of columns) {
+    if (column.type !== 'user' && column.type !== 'status' && column.type !== 'tags') continue
+    const value = values[column.id]
+    const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+    for (const id of ids) {
+      if (typeof id !== 'string' || !id) continue
+      if (column.type === 'user') userIds.add(id)
+      if (column.type === 'status') statusIds.add(id)
+      if (column.type === 'tags') tagIds.add(id)
+    }
+  }
+  if (userIds.size > 0) {
+    const people = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(inArray(users.id, [...userIds]))
+    for (const person of people) labels.set(person.id, person.username)
+  }
+  if (statusIds.size > 0) {
+    const statuses = await db
+      .select({ id: tableStatuses.id, name: tableStatuses.name })
+      .from(tableStatuses)
+      .where(inArray(tableStatuses.id, [...statusIds]))
+    for (const status of statuses) labels.set(status.id, status.name)
+  }
+  if (tagIds.size > 0) {
+    const tags = await db
+      .select({ id: tableTags.id, name: tableTags.name })
+      .from(tableTags)
+      .where(inArray(tableTags.id, [...tagIds]))
+    for (const tag of tags) labels.set(tag.id, tag.name)
+  }
+  return labels
 }
 
 export async function previousCellValues(
@@ -66,7 +120,10 @@ export async function previousCellValues(
   for (const pair of pairs) {
     const column = byId.get(pair.columnId)
     if (!column) continue
-    values.set(`${pair.rowId}:${pair.columnId}`, readCell(column, byKey.get(`${pair.rowId}:${pair.columnId}`)))
+    values.set(
+      `${pair.rowId}:${pair.columnId}`,
+      readCell(column, byKey.get(`${pair.rowId}:${pair.columnId}`)),
+    )
   }
   return values
 }
@@ -116,7 +173,9 @@ type HistoryEntry = {
 }
 
 export function collapseFieldHistory(entries: HistoryEntry[]) {
-  const chronological = [...entries].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+  const chronological = [...entries].sort(
+    (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
+  )
   const open = new Map<string, HistoryEntry & { lastAt: number }>()
   const closed: HistoryEntry[] = []
   for (const entry of chronological) {
@@ -144,7 +203,13 @@ export async function listFieldHistory(db: AppDatabase, subject: Subject, rowId:
   if (!row) throw notFound()
   const table = await requireTable(db, subject, row.tableId, 'view')
   const grants = await resolveGrants(db, subject)
-  if (!allows(subject, grants, 'view', { type: 'row', id: row.id, parents: { table: table.id, project: table.projectId } })) {
+  if (
+    !allows(subject, grants, 'view', {
+      type: 'row',
+      id: row.id,
+      parents: { table: table.id, project: table.projectId },
+    })
+  ) {
     throw notFound()
   }
   const entries = await db
@@ -175,13 +240,19 @@ export async function listFieldHistory(db: AppDatabase, subject: Subject, rowId:
   }))
 }
 
-async function historyLabels(db: AppDatabase, tableId: string, columns: HistoryColumn[], changes: FieldChange[]) {
+async function historyLabels(
+  db: AppDatabase,
+  tableId: string,
+  columns: HistoryColumn[],
+  changes: FieldChange[],
+) {
   const labels = new Map<string, string>()
   const ids = new Set<string>()
   const types = new Set<string>()
   for (const change of changes) {
     const column = columns.find((item) => item.id === change.columnId)
-    if (!column || (column.type !== 'status' && column.type !== 'tags' && column.type !== 'user')) continue
+    if (!column || (column.type !== 'status' && column.type !== 'tags' && column.type !== 'user'))
+      continue
     types.add(column.type)
     for (const value of [change.before, change.after]) {
       const list = Array.isArray(value) ? value : value ? [value] : []
@@ -191,7 +262,10 @@ async function historyLabels(db: AppDatabase, tableId: string, columns: HistoryC
   if (ids.size === 0) return labels
   const idList = [...ids]
   if (types.has('user')) {
-    const people = await db.select({ id: users.id, username: users.username }).from(users).where(inArray(users.id, idList))
+    const people = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(inArray(users.id, idList))
     for (const person of people) labels.set(person.id, person.username)
   }
   if (types.has('status')) {

@@ -3124,6 +3124,10 @@
                     "type": "object",
                     "additionalProperties": {}
                   },
+                  "documentConfig": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
                   "formatRules": {
                     "type": "array",
                     "items": {}
@@ -3788,6 +3792,44 @@
       }
     },
     "/rows/{rowId}/quote": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "rowId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/rows/{rowId}/pdf": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "rowId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/rows/{rowId}/quote.pdf": {
       "get": {
         "parameters": [
           {

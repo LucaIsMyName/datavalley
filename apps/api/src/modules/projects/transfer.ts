@@ -38,6 +38,7 @@ import { invalidateGrantsCache } from '../../security/grants-cache.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, readCellFormula, saveFormula } from '../formulas/service.js'
+import { exportDocumentConfig, importDocumentConfig } from '../tables/document.js'
 import { loadColumns, type LoadedColumn } from '../tables/service.js'
 import { getProject } from './service.js'
 
@@ -85,7 +86,11 @@ function stripColumnConfig(config: Record<string, unknown>, toTable?: string) {
 
 async function buildExportContext(db: AppDatabase, projectId: string): Promise<ExportContext> {
   const warnings: string[] = []
-  const tableRows_ = await db.select().from(tables).where(eq(tables.projectId, projectId)).orderBy(asc(tables.position))
+  const tableRows_ = await db
+    .select()
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
+    .orderBy(asc(tables.position))
   const tableNameById = new Map(tableRows_.map((table) => [table.id, table.name]))
   const columnKeyMap = new Map<string, { table: string; column: string }>()
   const columnIdByKey = new Map<string, string>()
@@ -99,16 +104,27 @@ async function buildExportContext(db: AppDatabase, projectId: string): Promise<E
     const dataTableId = table.mirrorOfTableId ?? table.id
     const columns = await loadColumns(db, dataTableId)
     for (const column of columns) {
-      columnKeyMap.set(column.id, { table: table.name, column: column.name })
+      // A mirror repeats the source columns. Keep the source table name so a quote mapping survives export.
+      if (!table.mirrorOfTableId)
+        columnKeyMap.set(column.id, { table: table.name, column: column.name })
+      else if (!columnKeyMap.has(column.id))
+        columnKeyMap.set(column.id, { table: table.name, column: column.name })
       columnIdByKey.set(columnKey(table.name, column.name), column.id)
       for (const option of column.options ?? []) optionLabel.set(option.id, option.label)
     }
-    const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, dataTableId)).orderBy(asc(tableRows.position))
+    const rows = await db
+      .select()
+      .from(tableRows)
+      .where(eq(tableRows.tableId, dataTableId))
+      .orderBy(asc(tableRows.position))
     for (const row of rows) rowRef.set(row.id, { table: table.name, rowNumber: row.rowNumber })
     for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, dataTableId))) {
       tagName.set(tag.id, tag.name)
     }
-    for (const status of await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, dataTableId))) {
+    for (const status of await db
+      .select()
+      .from(tableStatuses)
+      .where(eq(tableStatuses.tableId, dataTableId))) {
       statusName.set(status.id, status.name)
     }
   }
@@ -134,13 +150,22 @@ async function buildExportContext(db: AppDatabase, projectId: string): Promise<E
 }
 
 async function bracketCatalog(db: AppDatabase, projectId: string, tableId: string) {
-  const projectTables = await db.select().from(tables).where(eq(tables.projectId, projectId)).orderBy(asc(tables.position))
+  const projectTables = await db
+    .select()
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
+    .orderBy(asc(tables.position))
   const columns: { name: string; columnId: string; tableId: string; tableName: string }[] = []
   const rows: { tableId: string; rowNumber: number; rowId: string }[] = []
   for (const item of projectTables) {
     const dataTableId = item.mirrorOfTableId ?? item.id
     for (const column of await loadColumns(db, dataTableId)) {
-      columns.push({ name: column.name, columnId: column.id, tableId: item.id, tableName: item.name })
+      columns.push({
+        name: column.name,
+        columnId: column.id,
+        tableId: item.id,
+        tableName: item.name,
+      })
     }
     for (const row of await db.select().from(tableRows).where(eq(tableRows.tableId, dataTableId))) {
       rows.push({ tableId: dataTableId, rowNumber: row.rowNumber, rowId: row.id })
@@ -185,7 +210,12 @@ async function portableFormatRules(
   return mapped
 }
 
-function serializeCellValue(column: LoadedColumn, value: unknown, ctx: ExportContext, tableName: string) {
+function serializeCellValue(
+  column: LoadedColumn,
+  value: unknown,
+  ctx: ExportContext,
+  tableName: string,
+) {
   if (value == null) return null
   if (column.type === 'formula' || column.type === 'lookup' || column.type === 'row_id') return null
   if (column.type === 'tags' && Array.isArray(value)) {
@@ -195,11 +225,13 @@ function serializeCellValue(column: LoadedColumn, value: unknown, ctx: ExportCon
     return ctx.statusName.get(value) ?? value
   }
   if (column.type === 'user' && Array.isArray(value)) {
-    return value.map((id) => {
-      const username = ctx.usernameById.get(String(id))
-      if (!username) ctx.warnings.push(`Unknown user id in ${tableName} -> ${column.name}`)
-      return username ?? null
-    }).filter((item) => item != null)
+    return value
+      .map((id) => {
+        const username = ctx.usernameById.get(String(id))
+        if (!username) ctx.warnings.push(`Unknown user id in ${tableName} -> ${column.name}`)
+        return username ?? null
+      })
+      .filter((item) => item != null)
   }
   if (column.type === 'select' || column.type === 'radio' || column.type === 'multi_select') {
     const mapId = (id: string) => ctx.optionLabel.get(id) ?? id
@@ -221,14 +253,22 @@ function serializeCellValue(column: LoadedColumn, value: unknown, ctx: ExportCon
   return value
 }
 
-export async function exportProject(db: AppDatabase, subject: Subject, projectId: string): Promise<ProjectTransferDocument> {
+export async function exportProject(
+  db: AppDatabase,
+  subject: Subject,
+  projectId: string,
+): Promise<ProjectTransferDocument> {
   if (subject.role !== 'admin') throw new AppError(403, 'forbidden', 'Admin access is required')
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
   if (!project) throw notFound()
   await assertCan(db, subject, 'view', { type: 'project', id: project.id })
 
   const ctx = await buildExportContext(db, projectId)
-  const tableRows_ = await db.select().from(tables).where(eq(tables.projectId, projectId)).orderBy(asc(tables.position))
+  const tableRows_ = await db
+    .select()
+    .from(tables)
+    .where(eq(tables.projectId, projectId))
+    .orderBy(asc(tables.position))
   const portableTables: PortableTable[] = []
   const portableFormulas: PortableFormula[] = []
 
@@ -243,6 +283,7 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
           position: table.position,
           headerConfig: table.headerConfig,
           footerConfig: table.footerConfig,
+          documentConfig: {},
           formatRules: [],
           nextRowNumber: 1,
           locked: false,
@@ -265,40 +306,51 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
 
     const portableColumns = await Promise.all(
       columns.map(async (column) => {
-      let toTable: string | undefined
-      let cardinality: string | undefined
-      if (column.type === 'relation') {
-        const targetId = String(column.config.toTableId ?? '')
-        toTable = ctx.tableNameById.get(targetId)
-        const relationId = String(column.config.relationId ?? '')
-        if (relationId) {
-          const [relation] = await db.select().from(relations).where(eq(relations.id, relationId)).limit(1)
-          cardinality = relation?.cardinality
+        let toTable: string | undefined
+        let cardinality: string | undefined
+        if (column.type === 'relation') {
+          const targetId = String(column.config.toTableId ?? '')
+          toTable = ctx.tableNameById.get(targetId)
+          const relationId = String(column.config.relationId ?? '')
+          if (relationId) {
+            const [relation] = await db
+              .select()
+              .from(relations)
+              .where(eq(relations.id, relationId))
+              .limit(1)
+            cardinality = relation?.cardinality
+          }
         }
-      }
-      const config = stripColumnConfig((column.config ?? {}) as Record<string, unknown>, toTable)
-      if (cardinality) config.cardinality = cardinality
-      return {
-        name: column.name,
-        description: column.description,
-        type: column.type,
-        config,
-        position: column.position,
-        hidden: column.hidden,
-        width: column.width,
-        frozen: column.frozen,
-        options: (column.options ?? []).map((option) => ({
-          label: option.label,
-          color: option.color,
-          position: option.position,
-        })),
-      }
-    }),
+        const config = stripColumnConfig((column.config ?? {}) as Record<string, unknown>, toTable)
+        if (cardinality) config.cardinality = cardinality
+        return {
+          name: column.name,
+          description: column.description,
+          type: column.type,
+          config,
+          position: column.position,
+          hidden: column.hidden,
+          width: column.width,
+          frozen: column.frozen,
+          options: (column.options ?? []).map((option) => ({
+            label: option.label,
+            color: option.color,
+            position: option.position,
+          })),
+        }
+      }),
     )
 
     const tags = await db.select().from(tableTags).where(eq(tableTags.tableId, dataTableId))
-    const statuses = await db.select().from(tableStatuses).where(eq(tableStatuses.tableId, dataTableId))
-    const rows = await db.select().from(tableRows).where(eq(tableRows.tableId, dataTableId)).orderBy(asc(tableRows.position))
+    const statuses = await db
+      .select()
+      .from(tableStatuses)
+      .where(eq(tableStatuses.tableId, dataTableId))
+    const rows = await db
+      .select()
+      .from(tableRows)
+      .where(eq(tableRows.tableId, dataTableId))
+      .orderBy(asc(tableRows.position))
     const cells = rows.length
       ? await db
           .select()
@@ -325,7 +377,13 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
         if (!column) continue
         const value = serializeCellValue(column, readCell(column, cell), ctx, table.name)
         const hasBackground = cell.background != null && cell.background !== ''
-        const formatRules = await portableFormatRules(db, projectId, table.id, cell.formatRules, ctx)
+        const formatRules = await portableFormatRules(
+          db,
+          projectId,
+          table.id,
+          cell.formatRules,
+          ctx,
+        )
         if (value == null && !hasBackground && formatRules.length === 0) continue
         portableCells.push({
           column: column.name,
@@ -357,7 +415,12 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
       const column = columnById.get(formula.columnId ?? '')
       const row = rows.find((item) => item.id === formula.rowId)
       if (!column || !row) continue
-      const { source } = await readCellFormula(db, subject, formula.rowId, formula.columnId ?? column.id)
+      const { source } = await readCellFormula(
+        db,
+        subject,
+        formula.rowId,
+        formula.columnId ?? column.id,
+      )
       portableFormulas.push({
         table: table.name,
         column: column.name,
@@ -373,19 +436,31 @@ export async function exportProject(db: AppDatabase, subject: Subject, projectId
       position: table.position,
       headerConfig: table.headerConfig,
       footerConfig: table.footerConfig,
+      documentConfig: exportDocumentConfig(table.documentConfig, {
+        tableName: (id) => ctx.tableNameById.get(id),
+        columnName: (id) => ctx.columnKey.get(id),
+      }),
       formatRules: await portableFormatRules(db, projectId, table.id, table.formatRules, ctx),
       nextRowNumber: table.nextRowNumber,
       locked: table.lockedAt != null,
       activity: table.activity,
       columns: portableColumns,
       tags: tags.map((tag) => ({ name: tag.name, color: tag.color })),
-      statuses: statuses.map((status) => ({ name: status.name, color: status.color, position: status.position })),
+      statuses: statuses.map((status) => ({
+        name: status.name,
+        color: status.color,
+        position: status.position,
+      })),
       rows: portableRows,
       views,
     })
   }
 
-  await writeAudit(db, subject, { action: 'project.export', resourceType: 'project', resourceId: projectId })
+  await writeAudit(db, subject, {
+    action: 'project.export',
+    resourceType: 'project',
+    resourceId: projectId,
+  })
 
   return {
     kind: PROJECT_TRANSFER_KIND,
@@ -517,11 +592,14 @@ export async function importProject(
     }
 
     const tableNameSet = new Set(doc.tables.map((table) => table.name))
-    if (tableNameSet.size !== doc.tables.length) throw badRequest('Duplicate table names in import file')
+    if (tableNameSet.size !== doc.tables.length)
+      throw badRequest('Duplicate table names in import file')
 
     for (const portable of doc.tables) {
       if (portable.mirrorOf && !tableNameSet.has(portable.mirrorOf)) {
-        warnings.push(`Ignored mirror for ${portable.name}: unknown source table ${portable.mirrorOf}`)
+        warnings.push(
+          `Ignored mirror for ${portable.name}: unknown source table ${portable.mirrorOf}`,
+        )
       }
       const [created] = await tx
         .insert(tables)
@@ -604,19 +682,33 @@ export async function importProject(
         for (const option of column.options ?? []) {
           const [row] = await tx
             .insert(columnOptions)
-            .values({ columnId: created.id, label: option.label, color: option.color, position: option.position })
+            .values({
+              columnId: created.id,
+              label: option.label,
+              color: option.color,
+              position: option.position,
+            })
             .returning()
           ctx.optionIdByKey.set(`${portable.name}\0${column.name}\0${option.label}`, row.id)
         }
         if (column.type === 'relation') {
           const toTable = String(column.config.toTable ?? '')
           const cardinality = String(column.config.cardinality ?? 'many_to_one')
-          if (toTable) deferredRelations.push({ tableName: portable.name, columnName: column.name, toTable, cardinality })
+          if (toTable)
+            deferredRelations.push({
+              tableName: portable.name,
+              columnName: column.name,
+              toTable,
+              cardinality,
+            })
         }
       }
 
       for (const tag of portable.tags) {
-        const [row] = await tx.insert(tableTags).values({ tableId, name: tag.name, color: tag.color }).returning()
+        const [row] = await tx
+          .insert(tableTags)
+          .values({ tableId, name: tag.name, color: tag.color })
+          .returning()
         ctx.tagIdByKey.set(`${portable.name}\0${tag.name.toLowerCase()}`, row.id)
       }
       for (const status of portable.statuses) {
@@ -627,8 +719,17 @@ export async function importProject(
         ctx.statusIdByKey.set(`${portable.name}\0${status.name.toLowerCase()}`, row.id)
       }
 
-      const formatRules = await importFormatRules(database, subject, tableId, portable.formatRules ?? [], columnNameToId)
-      await tx.update(tables).set({ formatRules: formatRules as never }).where(eq(tables.id, tableId))
+      const formatRules = await importFormatRules(
+        database,
+        subject,
+        tableId,
+        portable.formatRules ?? [],
+        columnNameToId,
+      )
+      await tx
+        .update(tables)
+        .set({ formatRules: formatRules as never })
+        .where(eq(tables.id, tableId))
 
       for (const portableRow of portable.rows) {
         const [row] = await tx
@@ -651,9 +752,15 @@ export async function importProject(
           if (!column) continue
           if (column.type === 'formula' || column.type === 'lookup') continue
           const parsed = deserializeCell(database, column, portableCell, portable.name, ctx)
-          if (!parsed && !portableCell.background && !(portableCell.formatRules?.length)) continue
+          if (!parsed && !portableCell.background && !portableCell.formatRules?.length) continue
           const rules = portableCell.formatRules?.length
-            ? await importFormatRules(database, subject, tableId, portableCell.formatRules, columnNameToId)
+            ? await importFormatRules(
+                database,
+                subject,
+                tableId,
+                portableCell.formatRules,
+                columnNameToId,
+              )
             : []
           const base = parsed ?? {
             valueText: null,
@@ -686,6 +793,21 @@ export async function importProject(
           definition: remapJsonIds(view.definition, columnNameToId) as never,
         })
       }
+    }
+
+    for (const portable of doc.tables) {
+      if (portable.mirrorOf) continue
+      const tableId = ctx.tableIdByName.get(portable.name)
+      if (!tableId) continue
+      const documentConfig = importDocumentConfig(portable.documentConfig, {
+        tableId: (name) => ctx.tableIdByName.get(name),
+        columnId: (table, column) => ctx.columnIdByKey.get(columnKey(table, column)),
+      })
+      if (Object.keys(documentConfig).length === 0) continue
+      await tx
+        .update(tables)
+        .set({ documentConfig: documentConfig as never })
+        .where(eq(tables.id, tableId))
     }
 
     for (const item of mirrorUpdates) {
@@ -736,7 +858,10 @@ export async function importProject(
           const relationId = String(column.config.relationId ?? '')
           const targetId = (parsed.valueJsonb as { rowId?: string }).rowId
           if (!relationId || !targetId) continue
-          await tx.insert(relationRecords).values({ relationId, fromRowId: rowId, toRowId: targetId }).onConflictDoNothing()
+          await tx
+            .insert(relationRecords)
+            .values({ relationId, fromRowId: rowId, toRowId: targetId })
+            .onConflictDoNothing()
         }
       }
     }
@@ -746,7 +871,10 @@ export async function importProject(
       if (portableTable?.mirrorOf) continue
       const columnId = ctx.columnIdByKey.get(columnKey(item.table, item.column))
       const rowId = ctx.rowIdByRef.get(rowRefKey(item.table, item.rowNumber))
-      if (!columnId || !rowId) throw badRequest(`Missing formula target ${item.table} -> ${item.column} #${item.rowNumber}`)
+      if (!columnId || !rowId)
+        throw badRequest(
+          `Missing formula target ${item.table} -> ${item.column} #${item.rowNumber}`,
+        )
       await saveFormula(database, subject, columnId, item.expression, rowId, false)
     }
 
@@ -811,7 +939,9 @@ function deserializeCell(
     }
     if (column.type === 'select' || column.type === 'radio' || column.type === 'multi_select') {
       if (Array.isArray(value)) {
-        const labels = value.map((label) => ctx.optionIdByKey.get(`${tableName}\0${column.name}\0${label}`) ?? label)
+        const labels = value.map(
+          (label) => ctx.optionIdByKey.get(`${tableName}\0${column.name}\0${label}`) ?? label,
+        )
         return parseCell(column, labels)
       }
       const label = ctx.optionIdByKey.get(`${tableName}\0${column.name}\0${value}`) ?? value

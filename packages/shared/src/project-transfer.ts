@@ -52,6 +52,7 @@ export type PortableTable = {
   position: string
   headerConfig: unknown
   footerConfig: unknown
+  documentConfig?: unknown
   formatRules: PortableFormatRule[]
   nextRowNumber: number
   locked: boolean

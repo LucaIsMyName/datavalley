@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
 import { ChevronRightIcon } from 'lucide-react'
 import { ErrorState, LoadingBlock } from '../../components/states'
+import { Button } from '../../components/ui/button'
 import { api } from '../../lib/api'
+import { downloadFile } from '../../lib/download'
 import { uploadMedia } from '../../lib/media'
 import { sync } from '../../lib/sync'
 import { useFormulaWindow } from '../../stores/formula-window'
@@ -26,6 +28,7 @@ import { RecordPrivacy } from './record-privacy'
 import { mergeColumnOption } from './select-options-utils'
 import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
 import { useRowCellEdit } from './use-row-cell-edit'
+import { toast } from 'sonner'
 
 type RecordLink = {
   tableId: string
@@ -49,7 +52,11 @@ type RecordCache = {
   activity: RecordActivityItem[]
 }
 
-function RecordAccordion({ sections }: { sections: { id: string; label: string; body: ReactNode }[] }) {
+function RecordAccordion({
+  sections,
+}: {
+  sections: { id: string; label: string; body: ReactNode }[]
+}) {
   const [open, setOpen] = useState<string | null>('notes')
   return (
     <div className="flex flex-col border border-border">
@@ -87,8 +94,16 @@ export function RecordPage() {
   const queryClient = useQueryClient()
   const uploadRef = useRef<HTMLInputElement>(null)
   const uploadTarget = useRef<{ rowId: string; columnId: string } | null>(null)
-  const [mediaLibrary, setMediaLibrary] = useState<{ rowId: string; columnId: string; existingIds: string[] } | null>(null)
-  const [mediaPreview, setMediaPreview] = useState<{ file: MediaFile; rowId: string; columnId: string } | null>(null)
+  const [mediaLibrary, setMediaLibrary] = useState<{
+    rowId: string
+    columnId: string
+    existingIds: string[]
+  } | null>(null)
+  const [mediaPreview, setMediaPreview] = useState<{
+    file: MediaFile
+    rowId: string
+    columnId: string
+  } | null>(null)
   const [mediaUploadingKey, setMediaUploadingKey] = useState<string | null>(null)
   const notesFocused = useRef(false)
   const notesBaseline = useRef('')
@@ -104,7 +119,9 @@ export function RecordPage() {
   const membersQuery = useQuery({
     queryKey: ['members', projectId],
     queryFn: () =>
-      api.request<{ members: { userId: string; username: string }[] }>(`/projects/${projectId}/members`),
+      api.request<{ members: { userId: string; username: string }[] }>(
+        `/projects/${projectId}/members`,
+      ),
   })
   const recordQuery = useQuery({
     queryKey: ['rows', tableId, 'record', rowId],
@@ -121,7 +138,9 @@ export function RecordPage() {
   })
   const table = tableQuery.data?.table
   const cache = recordQuery.data
-  const row = cache?.pages[0]?.rows.find((item) => item.id === rowId) ?? readCachedRow(queryClient, tableId, rowId)
+  const row =
+    cache?.pages[0]?.rows.find((item) => item.id === rowId) ??
+    readCachedRow(queryClient, tableId, rowId)
   const history = useQuery({
     queryKey: ['history', rowId, row?.version ?? 0],
     enabled: Boolean(rowId),
@@ -137,13 +156,7 @@ export function RecordPage() {
         }[]
       }>(`/rows/${rowId}/history`),
   })
-  const quote = useQuery({
-    queryKey: ['quote', rowId],
-    enabled: Boolean(rowId),
-    retry: false,
-    queryFn: () =>
-      api.request<{ title: string }>(`/rows/${rowId}/quote`),
-  })
+  const [downloading, setDownloading] = useState<'record' | 'quote' | null>(null)
   const readOnly = isTableReadOnly(table)
   const cellEdit = useRowCellEdit({
     tableId,
@@ -196,6 +209,21 @@ export function RecordPage() {
     })
   }
 
+  async function downloadRecord(kind: 'record' | 'quote') {
+    if (downloading) return
+    setDownloading(kind)
+    try {
+      await downloadFile(
+        kind === 'record' ? `/rows/${rowId}/pdf` : `/rows/${rowId}/quote.pdf`,
+        kind === 'record' ? 'record.pdf' : 'quote.pdf',
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('error'))
+    } finally {
+      setDownloading(null)
+    }
+  }
+
   if (tableQuery.isLoading || recordQuery.isLoading) return <LoadingBlock variant="rows" />
   if (tableQuery.isError || recordQuery.isError || !table || !row) {
     const message =
@@ -212,20 +240,35 @@ export function RecordPage() {
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-auto p-3 sm:p-4 md:p-6 border-t border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 flex items-center gap-1">
-          <Link to={`/projects/${projectId}/tables/${tableId}`} className="text-xl text-primary hover:underline max-w-48 truncate ">
+          <Link
+            to={`/projects/${projectId}/tables/${tableId}`}
+            className="text-xl text-primary hover:underline max-w-48 truncate "
+          >
             {table.name}
           </Link>
           <ChevronRightIcon className="size-4" />
           <h1 className="truncate text-xl font-semibold">{title}</h1>
         </div>
-        {quote.data ? (
-          <Link
-            to={`/projects/${projectId}/tables/${tableId}/rows/${rowId}/print`}
-            className="inline-flex h-9 items-center border border-border px-3 text-sm"
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={downloading !== null}
+            onClick={() => void downloadRecord('record')}
           >
-            {t('printQuote')}
-          </Link>
-        ) : null}
+            {t('savePdf')}
+          </Button>
+          {table.documentConfig.kind === 'quote' ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={downloading !== null}
+              onClick={() => void downloadRecord('quote')}
+            >
+              {t('printQuote')}
+            </Button>
+          ) : null}
+        </div>
       </div>
       <NotesRowFields
         tableId={tableId}
@@ -239,7 +282,9 @@ export function RecordPage() {
         onMediaLibrary={(targetRowId, columnId, existingIds) =>
           setMediaLibrary({ rowId: targetRowId, columnId, existingIds })
         }
-        onMediaPreview={(file, targetRowId, columnId) => setMediaPreview({ file, rowId: targetRowId, columnId })}
+        onMediaPreview={(file, targetRowId, columnId) =>
+          setMediaPreview({ file, rowId: targetRowId, columnId })
+        }
         onMediaRequestUpload={(targetRowId, columnId) => {
           uploadTarget.current = { rowId: targetRowId, columnId }
           uploadRef.current?.click()
@@ -249,14 +294,22 @@ export function RecordPage() {
           const config = { ...column.config, ...patch }
           patchCachedTable(queryClient, tableId, (current) => ({
             ...current,
-            columns: current.columns?.map((item) => (item.id === column.id ? { ...item, config } : item)),
+            columns: current.columns?.map((item) =>
+              item.id === column.id ? { ...item, config } : item,
+            ),
           }))
-          void api.request(`/columns/${column.id}`, { method: 'PATCH', body: JSON.stringify({ config }) })
+          void api.request(`/columns/${column.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ config }),
+          })
         }}
         onCreated={(kind, item) =>
           patchCachedTable(queryClient, tableId, (current) => ({
             ...current,
-            tags: kind === 'tag' ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item] : current.tags,
+            tags:
+              kind === 'tag'
+                ? [...(current.tags ?? []).filter((tag) => tag.id !== item.id), item]
+                : current.tags,
             statuses:
               kind === 'status'
                 ? [...(current.statuses ?? []).filter((status) => status.id !== item.id), item]
@@ -288,12 +341,17 @@ export function RecordPage() {
         {cache?.links.length ? (
           <ul className="flex w-full gap-2">
             {cache.links.map((link) => (
-              <li key={`${link.tableId}:${link.rowId}:${link.columnName}`} className="border border-border">
+              <li
+                key={`${link.tableId}:${link.rowId}:${link.columnName}`}
+                className="border border-border"
+              >
                 <Link
                   to={`/projects/${projectId}/tables/${link.tableId}/rows/${link.rowId}`}
                   className="flex  min-w-0 gap-0.5 px-2 py-1.5 text-sm sm:gap-2"
                 >
-                  <span className="text-muted-foreground col-span-1">{link.columnName || link.tableName}</span>
+                  <span className="text-muted-foreground col-span-1">
+                    {link.columnName || link.tableName}
+                  </span>
                   <span className="min-w-0 truncate font-medium col-span-2">{link.title}</span>
                 </Link>
               </li>
@@ -305,7 +363,10 @@ export function RecordPage() {
       </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">{t('activityTimeline')}</h2>
-        <RecordActivityList projectId={projectId} items={visibleActivity(cache?.activity ?? [], notes, row.id)} />
+        <RecordActivityList
+          projectId={projectId}
+          items={visibleActivity(cache?.activity ?? [], notes, row.id)}
+        />
       </section>
       <RecordAccordion
         sections={[
@@ -313,7 +374,9 @@ export function RecordPage() {
           {
             id: 'privacy',
             label: t('privacy'),
-            body: <RecordPrivacy projectId={projectId} tableId={tableId} rowId={row.id} title={title} />,
+            body: (
+              <RecordPrivacy projectId={projectId} tableId={tableId} rowId={row.id} title={title} />
+            ),
           },
           {
             id: 'history',
@@ -329,18 +392,30 @@ export function RecordPage() {
                     <table className="table-grid w-full border-collapse text-sm">
                       <thead>
                         <tr>
-                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryUser')}</th>
-                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryColumn')}</th>
-                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryStart')}</th>
-                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryEnd')}</th>
-                          <th className="h-10 px-2 text-left font-medium">{t('fieldHistoryWhen')}</th>
+                          <th className="h-10 px-2 text-left font-medium">
+                            {t('fieldHistoryUser')}
+                          </th>
+                          <th className="h-10 px-2 text-left font-medium">
+                            {t('fieldHistoryColumn')}
+                          </th>
+                          <th className="h-10 px-2 text-left font-medium">
+                            {t('fieldHistoryStart')}
+                          </th>
+                          <th className="h-10 px-2 text-left font-medium">
+                            {t('fieldHistoryEnd')}
+                          </th>
+                          <th className="h-10 px-2 text-left font-medium">
+                            {t('fieldHistoryWhen')}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {history.data.entries.map((entry) => (
                           <tr key={entry.id} className="border-t border-border">
                             <td className="h-11 max-w-0 px-2">
-                              <span className="block truncate">{entry.actorName ?? t('fieldHistorySomeone')}</span>
+                              <span className="block truncate">
+                                {entry.actorName ?? t('fieldHistorySomeone')}
+                              </span>
                             </td>
                             <td className="h-11 max-w-0 px-2">
                               <span className="block truncate">{entry.columnName}</span>
@@ -351,7 +426,9 @@ export function RecordPage() {
                             <td className="h-11 max-w-0 px-2">
                               <span className="block truncate">{entry.after || t('empty')}</span>
                             </td>
-                            <td className="h-11 whitespace-nowrap px-2">{new Date(entry.createdAt).toLocaleString()}</td>
+                            <td className="h-11 whitespace-nowrap px-2">
+                              {new Date(entry.createdAt).toLocaleString()}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -367,29 +444,30 @@ export function RecordPage() {
             body: (
               <div className="flex min-h-40 flex-col">
                 <NotesBlockEditor
-          rowId={row.id}
-          markdown={notes}
-          readOnly={readOnly}
-          onChange={(next) => {
-            setNotes(next)
-            scheduleNotes(next)
-          }}
-          onFocusChange={(focused) => {
-            notesFocused.current = focused
-            setNotesEditing(row.id, focused)
-            if (focused) {
-              reportPresence({
-                tableId,
-                focus: { kind: 'notes', tableId, rowId: row.id },
-                editing: true,
-              })
-              return
-            }
-            void sync.flush(`row:${row.id}:notes`).finally(() => {
-              if (!sync.has(`row:${row.id}:notes`)) applyStashedNotes(queryClient, tableId, row.id)
-              reportPresence({ focus: null, editing: false, draft: null })
-            })
-          }}
+                  rowId={row.id}
+                  markdown={notes}
+                  readOnly={readOnly}
+                  onChange={(next) => {
+                    setNotes(next)
+                    scheduleNotes(next)
+                  }}
+                  onFocusChange={(focused) => {
+                    notesFocused.current = focused
+                    setNotesEditing(row.id, focused)
+                    if (focused) {
+                      reportPresence({
+                        tableId,
+                        focus: { kind: 'notes', tableId, rowId: row.id },
+                        editing: true,
+                      })
+                      return
+                    }
+                    void sync.flush(`row:${row.id}:notes`).finally(() => {
+                      if (!sync.has(`row:${row.id}:notes`))
+                        applyStashedNotes(queryClient, tableId, row.id)
+                      reportPresence({ focus: null, editing: false, draft: null })
+                    })
+                  }}
                 />
               </div>
             ),
@@ -410,7 +488,13 @@ export function RecordPage() {
           if (!column) return
           setMediaUploadingKey(`${target.rowId}:${target.columnId}`)
           void uploadMedia(file, { tableId })
-            .then((saved) => cellEdit.applyMediaCell(current, column, mergeMediaIntoCell(current.cells[column.id], [saved.id])))
+            .then((saved) =>
+              cellEdit.applyMediaCell(
+                current,
+                column,
+                mergeMediaIntoCell(current.cells[column.id], [saved.id]),
+              ),
+            )
             .finally(() => setMediaUploadingKey(null))
         }}
       />
@@ -423,9 +507,9 @@ export function RecordPage() {
           const column = columns.find((item) => item.id === mediaLibrary.columnId)
           const current = readCachedRow(queryClient, tableId, mediaLibrary.rowId) ?? row
           if (!column) return
-          void cellEdit.applyMediaCell(current, column, mergeMediaIntoCell(current.cells[column.id], added)).then(
-            () => setMediaLibrary(null),
-          )
+          void cellEdit
+            .applyMediaCell(current, column, mergeMediaIntoCell(current.cells[column.id], added))
+            .then(() => setMediaLibrary(null))
         }}
       />
       <MediaPreviewDrawer
@@ -437,7 +521,8 @@ export function RecordPage() {
                 const column = columns.find((item) => item.id === mediaPreview.columnId)
                 const current = readCachedRow(queryClient, tableId, mediaPreview.rowId) ?? row
                 if (!column) return
-                const ids = (current.cells[column.id] as { fileIds?: string[] } | null)?.fileIds ?? []
+                const ids =
+                  (current.cells[column.id] as { fileIds?: string[] } | null)?.fileIds ?? []
                 const next = ids.filter((id) => id !== mediaPreview.file.id)
                 void cellEdit
                   .applyMediaCell(current, column, next.length ? { fileIds: next } : null)

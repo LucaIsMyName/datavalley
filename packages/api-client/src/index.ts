@@ -38,8 +38,15 @@ export class DatavalleyClient {
     })
     const text = await response.text()
     const data = parseBody(text)
-    if (!response.ok) throw new ApiClientError(response.status, data ?? { error: { message: response.statusText || 'Request failed' } })
-    if (data === null) throw new ApiClientError(response.status, { error: { code: 'invalid_response', message: 'The server sent a response that is not JSON' } })
+    if (!response.ok)
+      throw new ApiClientError(
+        response.status,
+        data ?? { error: { message: response.statusText || 'Request failed' } },
+      )
+    if (data === null)
+      throw new ApiClientError(response.status, {
+        error: { code: 'invalid_response', message: 'The server sent a response that is not JSON' },
+      })
     return data as T
   }
 }
@@ -126,6 +133,7 @@ export type TableRecord = {
   position: string
   headerConfig: Record<string, unknown>
   footerConfig: Record<string, unknown>
+  documentConfig: Record<string, unknown>
   formatRules: FormatRule[]
   archivedAt: string | null
   lockedAt: string | null

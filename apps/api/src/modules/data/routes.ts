@@ -42,14 +42,41 @@ import {
   updateTable,
   updateTag,
 } from '../tables/service.js'
-import { bulkDelete, bulkPatch, createRow, deleteRow, duplicateRows, exportCsv, fillDown, footer, getRecord, importCsv, linkRelationRecord, listRows, moveRow, patchRow, tableSummary } from '../rows/service.js'
+import {
+  bulkDelete,
+  bulkPatch,
+  createRow,
+  deleteRow,
+  duplicateRows,
+  exportCsv,
+  fillDown,
+  footer,
+  getRecord,
+  importCsv,
+  linkRelationRecord,
+  listRows,
+  moveRow,
+  patchRow,
+  tableSummary,
+} from '../rows/service.js'
 import { findDuplicateRows } from '../rows/duplicates.js'
 import { listFieldHistory } from '../rows/history.js'
 import { exportPerson, removePerson } from '../rows/privacy.js'
+import { quotePdf, recordPdf } from '../rows/pdf.js'
 import { quoteSummary } from '../rows/quote.js'
 import { listMyWork } from '../rows/work.js'
 import { publishTableSignal } from '../realtime/publish.js'
-import { canonicalizeFormatRules, compileCondition, evaluateStored, fillFormulas, formulaCatalog, formulaDependenciesFor, previewFormula, readCellFormula, saveFormula } from '../formulas/service.js'
+import {
+  canonicalizeFormatRules,
+  compileCondition,
+  evaluateStored,
+  fillFormulas,
+  formulaCatalog,
+  formulaDependenciesFor,
+  previewFormula,
+  readCellFormula,
+  saveFormula,
+} from '../formulas/service.js'
 import { requireTable } from '../tables/service.js'
 import {
   configurePlugin,
@@ -103,32 +130,68 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
       .where(eq(pluginConnections.id, connectionId))
       .limit(1)
     if (!connection) throw notFound()
-    if (connection.projectId) await assertCan(db, subject, action, { type: 'project', id: connection.projectId })
+    if (connection.projectId)
+      await assertCan(db, subject, action, { type: 'project', id: connection.projectId })
     else await assertCan(db, subject, 'manage_plugins', { type: 'system', id: null })
   }
 
   app.get('/projects/:projectId/tables', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { tables: await listTables(db, request.subject, (request.params as { projectId: string }).projectId) }
-  })
-  app.post('/projects/:projectId/tables', { schema: { body: dataSchema.createTableBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { name?: string; description?: string; template?: 'demo' }
-    return { table: await createTable(db, request.subject, (request.params as { projectId: string }).projectId, body) }
-  })
-  app.post('/projects/:projectId/tables/mirror', { schema: { body: dataSchema.mirrorTableBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { sourceTableId: string; name?: string }
     return {
-      table: await createTableMirror(db, request.subject, (request.params as { projectId: string }).projectId, body),
+      tables: await listTables(
+        db,
+        request.subject,
+        (request.params as { projectId: string }).projectId,
+      ),
     }
   })
-  app.put('/projects/:projectId/tables/order', { schema: { body: dataSchema.reorderIdsBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { tableIds: string[] }
-    await reorderTables(db, request.subject, (request.params as { projectId: string }).projectId, body.tableIds)
-    return { ok: true }
-  })
+  app.post(
+    '/projects/:projectId/tables',
+    { schema: { body: dataSchema.createTableBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { name?: string; description?: string; template?: 'demo' }
+      return {
+        table: await createTable(
+          db,
+          request.subject,
+          (request.params as { projectId: string }).projectId,
+          body,
+        ),
+      }
+    },
+  )
+  app.post(
+    '/projects/:projectId/tables/mirror',
+    { schema: { body: dataSchema.mirrorTableBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { sourceTableId: string; name?: string }
+      return {
+        table: await createTableMirror(
+          db,
+          request.subject,
+          (request.params as { projectId: string }).projectId,
+          body,
+        ),
+      }
+    },
+  )
+  app.put(
+    '/projects/:projectId/tables/order',
+    { schema: { body: dataSchema.reorderIdsBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { tableIds: string[] }
+      await reorderTables(
+        db,
+        request.subject,
+        (request.params as { projectId: string }).projectId,
+        body.tableIds,
+      )
+      return { ok: true }
+    },
+  )
   app.post('/projects/:projectId/tables/import', async (request) => {
     if (!request.subject) throw unauthorized()
     let csv = ''
@@ -142,25 +205,42 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
       else if (part.fieldname === 'delimiter') delimiter = String(part.value ?? '')
     }
     return {
-      table: await createTableFromCsv(db, request.subject, (request.params as { projectId: string }).projectId, {
-        name,
-        csv,
-        headerRow,
-        delimiter,
-      }),
+      table: await createTableFromCsv(
+        db,
+        request.subject,
+        (request.params as { projectId: string }).projectId,
+        {
+          name,
+          csv,
+          headerRow,
+          delimiter,
+        },
+      ),
     }
   })
   app.get('/tables/:tableId', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { table: await getTable(db, request.subject, (request.params as { tableId: string }).tableId) }
+    return {
+      table: await getTable(db, request.subject, (request.params as { tableId: string }).tableId),
+    }
   })
-  app.patch('/tables/:tableId', { schema: { body: dataSchema.patchTableBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const tableId = (request.params as { tableId: string }).tableId
-    const body = { ...(request.body as Record<string, unknown>) }
-    if (body.formatRules !== undefined) body.formatRules = await canonicalizeFormatRules(db, request.subject, tableId, body.formatRules)
-    return { table: await updateTable(db, request.subject, tableId, body as never) }
-  })
+  app.patch(
+    '/tables/:tableId',
+    { schema: { body: dataSchema.patchTableBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const tableId = (request.params as { tableId: string }).tableId
+      const body = { ...(request.body as Record<string, unknown>) }
+      if (body.formatRules !== undefined)
+        body.formatRules = await canonicalizeFormatRules(
+          db,
+          request.subject,
+          tableId,
+          body.formatRules,
+        )
+      return { table: await updateTable(db, request.subject, tableId, body as never) }
+    },
+  )
   app.delete('/tables/:tableId', async (request) => {
     if (!request.subject) throw unauthorized()
     await deleteTable(db, request.subject, (request.params as { tableId: string }).tableId)
@@ -168,45 +248,112 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.post('/tables/:tableId/archive', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { table: await setTableArchived(db, request.subject, (request.params as { tableId: string }).tableId, true) }
+    return {
+      table: await setTableArchived(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        true,
+      ),
+    }
   })
-  app.post('/tables/:tableId/duplicate', { schema: { body: dataSchema.duplicateTableBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { includeData?: boolean }
-    return { table: await duplicateTable(db, request.subject, (request.params as { tableId: string }).tableId, body.includeData !== false) }
-  })
+  app.post(
+    '/tables/:tableId/duplicate',
+    { schema: { body: dataSchema.duplicateTableBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { includeData?: boolean }
+      return {
+        table: await duplicateTable(
+          db,
+          request.subject,
+          (request.params as { tableId: string }).tableId,
+          body.includeData !== false,
+        ),
+      }
+    },
+  )
   app.post('/tables/:tableId/lock', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { table: await lockTable(db, request.subject, (request.params as { tableId: string }).tableId) }
+    return {
+      table: await lockTable(db, request.subject, (request.params as { tableId: string }).tableId),
+    }
   })
   app.post('/tables/:tableId/unlock', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { table: await unlockTable(db, request.subject, (request.params as { tableId: string }).tableId) }
+    return {
+      table: await unlockTable(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+      ),
+    }
   })
-  app.post('/tables/:tableId/move', { schema: { body: dataSchema.moveTableBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { projectId: string }
-    return { table: await moveTable(db, request.subject, (request.params as { tableId: string }).tableId, body.projectId) }
-  })
+  app.post(
+    '/tables/:tableId/move',
+    { schema: { body: dataSchema.moveTableBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { projectId: string }
+      return {
+        table: await moveTable(
+          db,
+          request.subject,
+          (request.params as { tableId: string }).tableId,
+          body.projectId,
+        ),
+      }
+    },
+  )
   app.post('/tables/:tableId/columns', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { column: await addColumn(db, request.subject, (request.params as { tableId: string }).tableId, request.body as never) }
+    return {
+      column: await addColumn(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        request.body as never,
+      ),
+    }
   })
   app.patch('/columns/:columnId', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { column: await updateColumn(db, request.subject, (request.params as { columnId: string }).columnId, request.body as never) }
+    return {
+      column: await updateColumn(
+        db,
+        request.subject,
+        (request.params as { columnId: string }).columnId,
+        request.body as never,
+      ),
+    }
   })
-  app.post('/columns/:columnId/options', { schema: { body: dataSchema.columnOptionCreateBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { label: string }
-    const columnId = (request.params as { columnId: string }).columnId
-    return { option: await createColumnOption(db, request.subject, columnId, body.label) }
-  })
-  app.patch('/columns/:columnId/options/:optionId', { schema: { body: dataSchema.columnOptionPatchBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const params = request.params as { columnId: string; optionId: string }
-    return { option: await updateColumnOption(db, request.subject, params.columnId, params.optionId, request.body as never) }
-  })
+  app.post(
+    '/columns/:columnId/options',
+    { schema: { body: dataSchema.columnOptionCreateBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { label: string }
+      const columnId = (request.params as { columnId: string }).columnId
+      return { option: await createColumnOption(db, request.subject, columnId, body.label) }
+    },
+  )
+  app.patch(
+    '/columns/:columnId/options/:optionId',
+    { schema: { body: dataSchema.columnOptionPatchBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const params = request.params as { columnId: string; optionId: string }
+      return {
+        option: await updateColumnOption(
+          db,
+          request.subject,
+          params.columnId,
+          params.optionId,
+          request.body as never,
+        ),
+      }
+    },
+  )
   app.delete('/columns/:columnId/options/:optionId', async (request) => {
     if (!request.subject) throw unauthorized()
     const params = request.params as { columnId: string; optionId: string }
@@ -217,73 +364,159 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     await deleteColumn(db, request.subject, (request.params as { columnId: string }).columnId)
     return { ok: true }
   })
-  app.put('/tables/:tableId/columns/order', { schema: { body: dataSchema.reorderColumnsBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { columnIds: string[] }
-    await reorderColumns(db, request.subject, (request.params as { tableId: string }).tableId, body.columnIds)
-    return { ok: true }
-  })
-  app.post('/columns/:columnId/convert', { schema: { body: dataSchema.convertColumnBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { type: string; dryRun?: boolean }
-    return convertColumn(db, request.subject, (request.params as { columnId: string }).columnId, body.type, body.dryRun === true)
-  })
-  app.post('/columns/:columnId/relation', { schema: { body: dataSchema.relationBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { toTableId: string; cardinality: string }
-    return { column: await attachRelation(db, request.subject, (request.params as { columnId: string }).columnId, body) }
-  })
-  app.post('/tables/:tableId/columns/duplicate', { schema: { body: dataSchema.duplicateColumnsBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { columnIds: string[] }
-    return { columns: await duplicateColumns(db, request.subject, (request.params as { tableId: string }).tableId, body.columnIds) }
-  })
+  app.put(
+    '/tables/:tableId/columns/order',
+    { schema: { body: dataSchema.reorderColumnsBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { columnIds: string[] }
+      await reorderColumns(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.columnIds,
+      )
+      return { ok: true }
+    },
+  )
+  app.post(
+    '/columns/:columnId/convert',
+    { schema: { body: dataSchema.convertColumnBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { type: string; dryRun?: boolean }
+      return convertColumn(
+        db,
+        request.subject,
+        (request.params as { columnId: string }).columnId,
+        body.type,
+        body.dryRun === true,
+      )
+    },
+  )
+  app.post(
+    '/columns/:columnId/relation',
+    { schema: { body: dataSchema.relationBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { toTableId: string; cardinality: string }
+      return {
+        column: await attachRelation(
+          db,
+          request.subject,
+          (request.params as { columnId: string }).columnId,
+          body,
+        ),
+      }
+    },
+  )
+  app.post(
+    '/tables/:tableId/columns/duplicate',
+    { schema: { body: dataSchema.duplicateColumnsBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { columnIds: string[] }
+      return {
+        columns: await duplicateColumns(
+          db,
+          request.subject,
+          (request.params as { tableId: string }).tableId,
+          body.columnIds,
+        ),
+      }
+    },
+  )
   app.get('/tables/:tableId/rows', async (request) => {
     if (!request.subject) throw unauthorized()
-    const query = request.query as { limit?: string; cursor?: string; q?: string; sort?: string; direction?: string; filter?: string }
+    const query = request.query as {
+      limit?: string
+      cursor?: string
+      q?: string
+      sort?: string
+      direction?: string
+      filter?: string
+    }
     const filter = parseFilterQuery(query.filter)
     return listRows(db, request.subject, (request.params as { tableId: string }).tableId, {
       limit: query.limit ? Number(query.limit) : 50,
       cursor: query.cursor,
       q: query.q,
-      sort: query.sort ? { columnId: query.sort, direction: query.direction === 'desc' ? 'desc' : 'asc' } : null,
+      sort: query.sort
+        ? { columnId: query.sort, direction: query.direction === 'desc' ? 'desc' : 'asc' }
+        : null,
       filter,
     })
   })
-  app.post('/tables/:tableId/rows', { schema: { body: dataSchema.createRowBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { cells?: Record<string, unknown>; beforeId?: string; afterId?: string }
-    return {
-      row: await createRow(
-        db,
-        request.subject,
-        (request.params as { tableId: string }).tableId,
-        body.cells ?? {},
-        {
-          beforeId: body.beforeId,
-          afterId: body.afterId,
-        },
-        true,
-        env,
-      ),
-    }
-  })
-  app.post('/tables/:tableId/rows/move', { schema: { body: dataSchema.moveRowBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { rowId: string; beforeId?: string; afterId?: string }
-    return { row: await moveRow(db, request.subject, (request.params as { tableId: string }).tableId, body.rowId, body) }
-  })
+  app.post(
+    '/tables/:tableId/rows',
+    { schema: { body: dataSchema.createRowBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as {
+        cells?: Record<string, unknown>
+        beforeId?: string
+        afterId?: string
+      }
+      return {
+        row: await createRow(
+          db,
+          request.subject,
+          (request.params as { tableId: string }).tableId,
+          body.cells ?? {},
+          {
+            beforeId: body.beforeId,
+            afterId: body.afterId,
+          },
+          true,
+          env,
+        ),
+      }
+    },
+  )
+  app.post(
+    '/tables/:tableId/rows/move',
+    { schema: { body: dataSchema.moveRowBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { rowId: string; beforeId?: string; afterId?: string }
+      return {
+        row: await moveRow(
+          db,
+          request.subject,
+          (request.params as { tableId: string }).tableId,
+          body.rowId,
+          body,
+        ),
+      }
+    },
+  )
   app.get('/rows/:rowId/record', async (request) => {
     if (!request.subject) throw unauthorized()
     return getRecord(db, request.subject, (request.params as { rowId: string }).rowId)
   })
   app.get('/rows/:rowId/history', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { entries: await listFieldHistory(db, request.subject, (request.params as { rowId: string }).rowId) }
+    return {
+      entries: await listFieldHistory(
+        db,
+        request.subject,
+        (request.params as { rowId: string }).rowId,
+      ),
+    }
   })
   app.get('/rows/:rowId/quote', async (request) => {
     if (!request.subject) throw unauthorized()
     return quoteSummary(db, request.subject, (request.params as { rowId: string }).rowId)
+  })
+  app.get('/rows/:rowId/pdf', async (request, reply) => {
+    if (!request.subject) throw unauthorized()
+    const file = await recordPdf(db, request.subject, (request.params as { rowId: string }).rowId)
+    return sendPdf(reply, file)
+  })
+  app.get('/rows/:rowId/quote.pdf', async (request, reply) => {
+    if (!request.subject) throw unauthorized()
+    const file = await quotePdf(db, request.subject, (request.params as { rowId: string }).rowId)
+    return sendPdf(reply, file)
   })
   app.get('/rows/:rowId/privacy', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -310,45 +543,101 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.patch('/rows/:rowId', { schema: { body: dataSchema.patchRowBody } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    const body = request.body as { version: number; cells?: Record<string, unknown>; color?: string | null; backgrounds?: Record<string, string | null>; formats?: Record<string, FormatRule[]>; notes?: string }
-    return { row: await patchRow(db, request.subject, (request.params as { rowId: string }).rowId, body, env) }
+    const body = request.body as {
+      version: number
+      cells?: Record<string, unknown>
+      color?: string | null
+      backgrounds?: Record<string, string | null>
+      formats?: Record<string, FormatRule[]>
+      notes?: string
+    }
+    return {
+      row: await patchRow(
+        db,
+        request.subject,
+        (request.params as { rowId: string }).rowId,
+        body,
+        env,
+      ),
+    }
   })
   app.delete('/rows/:rowId', async (request) => {
     if (!request.subject) throw unauthorized()
     await deleteRow(db, request.subject, (request.params as { rowId: string }).rowId)
     return { ok: true }
   })
-  app.patch('/tables/:tableId/cells/bulk', { schema: { body: dataSchema.bulkPatchBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { updates: { rowId: string; version: number; cells: Record<string, unknown> }[] }
-    const rows = await bulkPatch(db, request.subject, (request.params as { tableId: string }).tableId, body.updates, env)
-    return { rows }
-  })
-  app.post('/tables/:tableId/rows/bulk-delete', { schema: { body: dataSchema.rowIdsBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { rowIds: string[] }
-    const notes = await bulkDelete(db, request.subject, (request.params as { tableId: string }).tableId, body.rowIds)
-    return { ok: true, notes }
-  })
-  app.post('/tables/:tableId/rows/duplicate', { schema: { body: dataSchema.rowIdsBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { rowIds: string[] }
-    return duplicateRows(db, request.subject, (request.params as { tableId: string }).tableId, body.rowIds)
-  })
-  app.post('/tables/:tableId/fill', { schema: { body: dataSchema.fillDownBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    await fillDown(
-      db,
-      request.subject,
-      (request.params as { tableId: string }).tableId,
-      request.body as { columnId: string; rowIds: string[]; versions?: Record<string, number> },
-    )
-    return { ok: true }
-  })
+  app.patch(
+    '/tables/:tableId/cells/bulk',
+    { schema: { body: dataSchema.bulkPatchBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as {
+        updates: { rowId: string; version: number; cells: Record<string, unknown> }[]
+      }
+      const rows = await bulkPatch(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.updates,
+        env,
+      )
+      return { rows }
+    },
+  )
+  app.post(
+    '/tables/:tableId/rows/bulk-delete',
+    { schema: { body: dataSchema.rowIdsBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { rowIds: string[] }
+      const notes = await bulkDelete(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.rowIds,
+      )
+      return { ok: true, notes }
+    },
+  )
+  app.post(
+    '/tables/:tableId/rows/duplicate',
+    { schema: { body: dataSchema.rowIdsBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { rowIds: string[] }
+      return duplicateRows(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.rowIds,
+      )
+    },
+  )
+  app.post(
+    '/tables/:tableId/fill',
+    { schema: { body: dataSchema.fillDownBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      await fillDown(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        request.body as { columnId: string; rowIds: string[]; versions?: Record<string, number> },
+      )
+      return { ok: true }
+    },
+  )
   app.post('/tables/:tableId/tags', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { name: string }
-    return { tag: await createTag(db, request.subject, (request.params as { tableId: string }).tableId, body.name) }
+    return {
+      tag: await createTag(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.name,
+      ),
+    }
   })
   app.patch('/tables/:tableId/tags/:tagId', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -359,18 +648,33 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/tables/:tableId/statuses', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { name: string }
-    return { status: await createStatus(db, request.subject, (request.params as { tableId: string }).tableId, body.name) }
+    return {
+      status: await createStatus(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.name,
+      ),
+    }
   })
   app.patch('/tables/:tableId/statuses/:statusId', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { color?: string; name?: string }
     const params = request.params as { tableId: string; statusId: string }
-    return { status: await updateStatus(db, request.subject, params.tableId, params.statusId, body) }
+    return {
+      status: await updateStatus(db, request.subject, params.tableId, params.statusId, body),
+    }
   })
   app.get('/tables/:tableId/footer', async (request) => {
     if (!request.subject) throw unauthorized()
     const query = request.query as { filter?: string; columns?: string }
-    const columnIds = query.columns == null ? undefined : query.columns.split(',').map((id) => id.trim()).filter(Boolean)
+    const columnIds =
+      query.columns == null
+        ? undefined
+        : query.columns
+            .split(',')
+            .map((id) => id.trim())
+            .filter(Boolean)
     return {
       footer: await footer(
         db,
@@ -387,7 +691,12 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     if (!query.dimension) throw badRequest('Choose a column')
     return tableSummary(db, request.subject, (request.params as { tableId: string }).tableId, {
       dimensionId: query.dimension,
-      valueIds: query.values ? query.values.split(',').map((id) => id.trim()).filter(Boolean) : [],
+      valueIds: query.values
+        ? query.values
+            .split(',')
+            .map((id) => id.trim())
+            .filter(Boolean)
+        : [],
       filter: parseFilterQuery(query.filter),
     })
   })
@@ -403,36 +712,64 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
       else if (part.fieldname === 'delimiter') delimiter = String(part.value ?? '')
     }
     if (!csv) throw badRequest('Choose a CSV file')
-    return importCsv(db, request.subject, (request.params as { tableId: string }).tableId, csv, { headerRow, delimiter })
+    return importCsv(db, request.subject, (request.params as { tableId: string }).tableId, csv, {
+      headerRow,
+      delimiter,
+    })
   })
-  app.post('/tables/:tableId/export', { schema: { body: dataSchema.exportTableBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    await requirePlugin(db, 'csv', 'rows:read')
-    const body = (request.body ?? {}) as { filter?: FilterNode }
-    const result = await exportCsv(db, request.subject, (request.params as { tableId: string }).tableId, body.filter)
-    return result
-  })
+  app.post(
+    '/tables/:tableId/export',
+    { schema: { body: dataSchema.exportTableBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      await requirePlugin(db, 'csv', 'rows:read')
+      const body = (request.body ?? {}) as { filter?: FilterNode }
+      const result = await exportCsv(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        body.filter,
+      )
+      return result
+    },
+  )
   app.get('/tables/:tableId/state', async (request) => {
     if (!request.subject) throw unauthorized()
     return readUserTableState(db, request.subject, (request.params as { tableId: string }).tableId)
   })
   app.put('/tables/:tableId/state', async (request) => {
     if (!request.subject) throw unauthorized()
-    return saveUserTableState(db, request.subject, (request.params as { tableId: string }).tableId, (request.body ?? {}) as { sort?: unknown; filter?: unknown; display?: unknown })
+    return saveUserTableState(
+      db,
+      request.subject,
+      (request.params as { tableId: string }).tableId,
+      (request.body ?? {}) as { sort?: unknown; filter?: unknown; display?: unknown },
+    )
   })
   app.get('/tables/:tableId/views', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { views: await listViews(db, request.subject, (request.params as { tableId: string }).tableId) }
+    return {
+      views: await listViews(db, request.subject, (request.params as { tableId: string }).tableId),
+    }
   })
   app.post('/tables/:tableId/views', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { view: await saveView(db, request.subject, (request.params as { tableId: string }).tableId, request.body as never) }
+    return {
+      view: await saveView(
+        db,
+        request.subject,
+        (request.params as { tableId: string }).tableId,
+        request.body as never,
+      ),
+    }
   })
   app.patch('/tables/:tableId/views/:viewId', async (request) => {
     if (!request.subject) throw unauthorized()
     const params = request.params as { tableId: string; viewId: string }
     const body = request.body as { name?: string }
-    return { view: await renameView(db, request.subject, params.tableId, params.viewId, body.name ?? '') }
+    return {
+      view: await renameView(db, request.subject, params.tableId, params.viewId, body.name ?? ''),
+    }
   })
   app.delete('/tables/:tableId/views/:viewId', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -442,29 +779,53 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/tables/:tableId/conditions/compile', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { expression?: string }
-    const canonical = await compileCondition(db, request.subject, (request.params as { tableId: string }).tableId, body.expression ?? '')
+    const canonical = await compileCondition(
+      db,
+      request.subject,
+      (request.params as { tableId: string }).tableId,
+      body.expression ?? '',
+    )
     return { canonical }
   })
-  app.post('/formulas/validate', { schema: { body: dataSchema.formulaValidateBody } }, async (request) => {
-    if (!request.subject) throw unauthorized()
-    const body = request.body as { tableId: string; expression: string; rowId?: string }
-    return previewFormula(db, request.subject, body.tableId, body.expression, body.rowId)
-  })
+  app.post(
+    '/formulas/validate',
+    { schema: { body: dataSchema.formulaValidateBody } },
+    async (request) => {
+      if (!request.subject) throw unauthorized()
+      const body = request.body as { tableId: string; expression: string; rowId?: string }
+      return previewFormula(db, request.subject, body.tableId, body.expression, body.rowId)
+    },
+  )
   app.post('/formulas/evaluate', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { formulaId: string; rowId: string }
     const value = await evaluateStored(db, request.subject, body.formulaId, body.rowId)
-    await writeAudit(db, request.subject, { action: 'formula.evaluate', resourceType: 'formula', resourceId: body.formulaId })
+    await writeAudit(db, request.subject, {
+      action: 'formula.evaluate',
+      resourceType: 'formula',
+      resourceId: body.formulaId,
+    })
     return { value }
   })
   app.get('/formulas/:id/dependencies', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { dependencies: await formulaDependenciesFor(db, request.subject, (request.params as { id: string }).id) }
+    return {
+      dependencies: await formulaDependenciesFor(
+        db,
+        request.subject,
+        (request.params as { id: string }).id,
+      ),
+    }
   })
   app.post('/columns/:columnId/formula', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { expression: string }
-    return saveFormula(db, request.subject, (request.params as { columnId: string }).columnId, body.expression)
+    return saveFormula(
+      db,
+      request.subject,
+      (request.params as { columnId: string }).columnId,
+      body.expression,
+    )
   })
   app.get('/rows/:rowId/columns/:columnId/formula', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -490,10 +851,22 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/tables/:tableId/relations', async (request) => {
     if (!request.subject) throw unauthorized()
     const params = request.params as { tableId: string }
-    const body = request.body as { toTableId: string; cardinality: string; name: string; onDelete?: 'restrict' | 'set_null' }
+    const body = request.body as {
+      toTableId: string
+      cardinality: string
+      name: string
+      onDelete?: 'restrict' | 'set_null'
+    }
     const table = await requireTable(db, request.subject, params.tableId, 'manage_structure')
-    await assertCan(db, request.subject, 'view', { type: 'table', id: body.toTableId, parents: { project: table.projectId } })
-    const column = await addColumn(db, request.subject, params.tableId, { name: body.name, type: 'relation' })
+    await assertCan(db, request.subject, 'view', {
+      type: 'table',
+      id: body.toTableId,
+      parents: { project: table.projectId },
+    })
+    const column = await addColumn(db, request.subject, params.tableId, {
+      name: body.name,
+      type: 'relation',
+    })
     const [relation] = await db
       .insert(relations)
       .values({
@@ -511,7 +884,11 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.delete('/relations/:id', async (request) => {
     if (!request.subject) throw unauthorized()
-    const [relation] = await db.select().from(relations).where(eq(relations.id, (request.params as { id: string }).id)).limit(1)
+    const [relation] = await db
+      .select()
+      .from(relations)
+      .where(eq(relations.id, (request.params as { id: string }).id))
+      .limit(1)
     if (!relation) throw notFound()
     await requireTable(db, request.subject, relation.fromTableId, 'manage_structure')
     await db.delete(relations).where(eq(relations.id, relation.id))
@@ -521,7 +898,13 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/relations/:id/records', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { fromRowId: string; toRowId: string }
-    return linkRelationRecord(db, request.subject, (request.params as { id: string }).id, body.fromRowId, body.toRowId)
+    return linkRelationRecord(
+      db,
+      request.subject,
+      (request.params as { id: string }).id,
+      body.fromRowId,
+      body.toRowId,
+    )
   })
   app.get('/favorites', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -530,13 +913,28 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   app.post('/favorites', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { resourceType: string; resourceId: string }
-    await db.insert(userFavorites).values({ userId: request.subject.id, resourceType: body.resourceType, resourceId: body.resourceId }).onConflictDoNothing()
+    await db
+      .insert(userFavorites)
+      .values({
+        userId: request.subject.id,
+        resourceType: body.resourceType,
+        resourceId: body.resourceId,
+      })
+      .onConflictDoNothing()
     return { ok: true }
   })
   app.delete('/favorites', async (request) => {
     if (!request.subject) throw unauthorized()
     const body = request.body as { resourceType: string; resourceId: string }
-    await db.delete(userFavorites).where(and(eq(userFavorites.userId, request.subject.id), eq(userFavorites.resourceType, body.resourceType), eq(userFavorites.resourceId, body.resourceId)))
+    await db
+      .delete(userFavorites)
+      .where(
+        and(
+          eq(userFavorites.userId, request.subject.id),
+          eq(userFavorites.resourceType, body.resourceType),
+          eq(userFavorites.resourceId, body.resourceId),
+        ),
+      )
     return { ok: true }
   })
   app.get('/recents', async (request) => {
@@ -549,15 +947,34 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.post('/plugins/:id/enable', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { plugin: await setPluginEnabled(db, request.subject, (request.params as { id: string }).id, true) }
+    return {
+      plugin: await setPluginEnabled(
+        db,
+        request.subject,
+        (request.params as { id: string }).id,
+        true,
+      ),
+    }
   })
   app.post('/plugins/:id/disable', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { plugin: await setPluginEnabled(db, request.subject, (request.params as { id: string }).id, false) }
+    return {
+      plugin: await setPluginEnabled(
+        db,
+        request.subject,
+        (request.params as { id: string }).id,
+        false,
+      ),
+    }
   })
   app.post('/plugins/:id/configure', async (request) => {
     if (!request.subject) throw unauthorized()
-    return configurePlugin(db, request.subject, (request.params as { id: string }).id, (request.body as { config: Record<string, unknown> }).config)
+    return configurePlugin(
+      db,
+      request.subject,
+      (request.params as { id: string }).id,
+      (request.body as { config: Record<string, unknown> }).config,
+    )
   })
   app.get('/api-keys', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -569,7 +986,9 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.post('/api-keys/:id/rotate', async (request) => {
     if (!request.subject) throw unauthorized()
-    return { apiKey: await rotateApiKey(db, request.subject, (request.params as { id: string }).id) }
+    return {
+      apiKey: await rotateApiKey(db, request.subject, (request.params as { id: string }).id),
+    }
   })
   app.post('/api-keys/:id/revoke', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -613,7 +1032,12 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
   })
   app.get('/media', { schema: { querystring: dataSchema.mediaListQuery } }, async (request) => {
     if (!request.subject) throw unauthorized()
-    const query = request.query as { limit?: string; cursor?: string; q?: string; mime?: 'image' | 'pdf' }
+    const query = request.query as {
+      limit?: string
+      cursor?: string
+      q?: string
+      mime?: 'image' | 'pdf'
+    }
     return listMedia(db, request.subject, {
       limit: query.limit ? Number(query.limit) : 50,
       cursor: query.cursor ?? null,
@@ -627,11 +1051,17 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     const file = await request.file()
     if (!file) throw badRequest('Choose a file')
     return {
-      file: await storeMedia(db, env, request.subject, { tableId: tableId ?? null }, {
-        filename: file.filename,
-        mimetype: file.mimetype,
-        buffer: await file.toBuffer(),
-      }),
+      file: await storeMedia(
+        db,
+        env,
+        request.subject,
+        { tableId: tableId ?? null },
+        {
+          filename: file.filename,
+          mimetype: file.mimetype,
+          buffer: await file.toBuffer(),
+        },
+      ),
     }
   })
   app.get('/media/:id/details', { schema: { params: dataSchema.mediaParams } }, async (request) => {
@@ -652,7 +1082,10 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     // A sandboxed, script-free policy keeps an uploaded SVG or HTML-like file inert even if a browser renders it
     // in place. PDFs are excluded because the built-in PDF viewers refuse to run in a sandbox.
     if (media.file.mime !== 'application/pdf') {
-      reply.header('content-security-policy', "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'")
+      reply.header(
+        'content-security-policy',
+        "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+      )
     }
     return reply.send(media.body)
   })
@@ -702,7 +1135,11 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     const connectionId = (request.params as { connectionId: string }).connectionId
     await assertConnectionAccess(request.subject, connectionId, 'import')
     // Pulling sheet rows is not implemented. Report that instead of recording a sync that imported nothing.
-    throw new AppError(501, 'not_implemented', 'Manual Google Sheets sync is not available. Use an HTTP connector or the signed webhook.')
+    throw new AppError(
+      501,
+      'not_implemented',
+      'Manual Google Sheets sync is not available. Use an HTTP connector or the signed webhook.',
+    )
   })
   app.post('/integrations/:connectionId/webhook', async (request, reply) => {
     const connectionId = (request.params as { connectionId: string }).connectionId
@@ -710,11 +1147,24 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     const signature = request.headers['x-datavalley-signature']
     const timestamp = request.headers['x-datavalley-timestamp']
     const body = request.rawBody ?? JSON.stringify(request.body ?? {})
-    const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
+    const first = (value: string | string[] | undefined) =>
+      Array.isArray(value) ? value[0] : value
     if (!secret || !verifyWebhook(secret, body, first(signature), first(timestamp))) {
-      return reply.status(401).send({ error: { code: 'unauthorized', message: 'Invalid or expired webhook signature' } })
+      return reply
+        .status(401)
+        .send({ error: { code: 'unauthorized', message: 'Invalid or expired webhook signature' } })
     }
     const job = await recordSync(db, connectionId, 'queued', undefined, { webhook: true })
     return { jobId: job.id }
   })
+}
+
+function sendPdf(
+  reply: { header: (name: string, value: string) => void; send: (body: Buffer) => unknown },
+  file: { name: string; body: Buffer },
+) {
+  reply.header('content-type', 'application/pdf')
+  reply.header('content-disposition', `attachment; filename="${file.name}"`)
+  reply.header('x-content-type-options', 'nosniff')
+  return reply.send(file.body)
 }

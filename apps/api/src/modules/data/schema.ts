@@ -27,6 +27,7 @@ export const patchTableBody = Type.Object({
   icon: Type.Optional(Type.String()),
   headerConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   footerConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  documentConfig: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
   formatRules: Type.Optional(Type.Array(Type.Unknown())),
   activity: Type.Optional(Type.Boolean()),
 })

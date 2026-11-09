@@ -36,7 +36,10 @@ const AppShell = route(() => import('../layouts/app-shell'), 'AppShell', screenF
 const DashboardPage = route(homePages, 'DashboardPage')
 const ProjectsPage = route(() => import('../features/projects/projects-page'), 'ProjectsPage')
 const ProjectPage = route(() => import('../features/projects/project-page'), 'ProjectPage')
-const AutomationsPage = route(() => import('../features/projects/automations-page'), 'AutomationsPage')
+const AutomationsPage = route(
+  () => import('../features/projects/automations-page'),
+  'AutomationsPage',
+)
 const TablePage = route(() => import('../features/tables/page'), 'TablePage')
 const RecordPage = route(() => import('../features/tables/record-page'), 'RecordPage')
 const RecentPage = route(homePages, 'RecentPage')
@@ -62,8 +65,6 @@ const AuditPage = route(() => import('../features/settings/admin-pages'), 'Audit
 const AiPage = route(() => import('../features/settings/ai-page'), 'AiPage')
 const MailTemplatesPage = route(() => import('../features/settings/mail-page'), 'MailTemplatesPage')
 const PublicFormPage = route(() => import('../features/forms/public-form-page'), 'PublicFormPage')
-const QuotePrintPage = route(() => import('../features/tables/quote-print-page'), 'QuotePrintPage')
-
 function RequireAuth() {
   const location = useLocation()
   const user = useSession((state) => state.user)
@@ -74,7 +75,10 @@ function RequireAuth() {
         <LoadingBlock />
       </div>
     )
-  if (!user) return <Navigate to={loginPath(`${location.pathname}${location.search}${location.hash}`)} replace />
+  if (!user)
+    return (
+      <Navigate to={loginPath(`${location.pathname}${location.search}${location.hash}`)} replace />
+    )
   if (user.mustChangePassword) return <Navigate to="/change-password" replace />
   return <Outlet />
 }
@@ -106,7 +110,6 @@ export const router = createBrowserRouter([
       {
         element: <RequireAuth />,
         children: [
-          { path: '/projects/:projectId/tables/:tableId/rows/:rowId/print', element: <QuotePrintPage /> },
           {
             element: <AppShell />,
             children: [

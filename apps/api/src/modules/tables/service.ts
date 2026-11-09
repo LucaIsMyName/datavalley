@@ -45,6 +45,7 @@ import {
   CONNECTOR_BOUND_MESSAGE,
 } from '../connectors/guard.js'
 import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } from './resolve.js'
+import { documentConfigForSave } from './document.js'
 import { seedDemoTable } from './template.js'
 import { publishRealtime, publishTableSignal } from '../realtime/publish.js'
 import { visibleColumns } from '../rows/visible-columns.js'
@@ -54,11 +55,14 @@ function relationConfig(
   links: { id: string; toTableId: string; cardinality: string }[],
 ) {
   const config = { ...((stored ?? {}) as Record<string, unknown>) }
-  const chosen =
-    links.find((link) => link.id === config.relationId) ??
-    links[0]
+  const chosen = links.find((link) => link.id === config.relationId) ?? links[0]
   if (!chosen) return config
-  return { ...config, relationId: chosen.id, toTableId: chosen.toTableId, cardinality: chosen.cardinality }
+  return {
+    ...config,
+    relationId: chosen.id,
+    toTableId: chosen.toTableId,
+    cardinality: chosen.cardinality,
+  }
 }
 
 export type LoadedColumn = ColumnShape & {
@@ -100,7 +104,10 @@ export async function loadColumns(db: AppDatabase, tableId: string): Promise<Loa
     tableId: column.tableId,
     name: column.name,
     type: column.type,
-    config: relationConfig(column.config, links.filter((link) => link.fromColumnId === column.id)),
+    config: relationConfig(
+      column.config,
+      links.filter((link) => link.fromColumnId === column.id),
+    ),
     description: column.description,
     position: column.position,
     hidden: column.hidden,
@@ -143,6 +150,7 @@ export function presentTable(table: typeof tables.$inferSelect) {
     position: table.position,
     headerConfig: table.headerConfig,
     footerConfig: table.footerConfig,
+    documentConfig: recordObject(table.documentConfig),
     formatRules: table.formatRules ?? [],
     archivedAt: table.archivedAt?.toISOString() ?? null,
     lockedAt: table.lockedAt?.toISOString() ?? null,
@@ -586,7 +594,13 @@ export async function getTable(db: AppDatabase, subject: Subject, tableId: strin
     mirrorSource,
     connector: await loadTableConnector(db, shell.id),
     columns: (
-      await visibleColumns(db, subject, shell.id, shell.projectId, await loadColumns(db, physical.id))
+      await visibleColumns(
+        db,
+        subject,
+        shell.id,
+        shell.projectId,
+        await loadColumns(db, physical.id),
+      )
     ).map((column) => presentColumn(column)),
     tags,
     statuses,
@@ -603,6 +617,7 @@ export async function updateTable(
     icon?: string
     headerConfig?: unknown
     footerConfig?: unknown
+    documentConfig?: unknown
     formatRules?: unknown
     activity?: boolean
   },
@@ -614,6 +629,7 @@ export async function updateTable(
     restricted &&
     (input.headerConfig !== undefined ||
       input.footerConfig !== undefined ||
+      input.documentConfig !== undefined ||
       input.formatRules !== undefined)
   ) {
     throw conflict(
@@ -625,6 +641,10 @@ export async function updateTable(
     )
   }
   if (input.icon !== undefined && !isResourceIcon(input.icon)) throw badRequest('Unknown icon')
+  const documentConfig =
+    input.documentConfig === undefined
+      ? undefined
+      : await documentConfigForSave(db, tableId, input.documentConfig)
   try {
     const [updated] = await db
       .update(tables)
@@ -634,6 +654,7 @@ export async function updateTable(
         icon: input.icon,
         headerConfig: restricted ? undefined : (input.headerConfig as never),
         footerConfig: restricted ? undefined : (input.footerConfig as never),
+        documentConfig: documentConfig as never,
         formatRules: restricted ? undefined : (input.formatRules as never),
         activity: input.activity,
         updatedAt: new Date(),
@@ -730,14 +751,12 @@ export async function addColumn(
     let optionPos: string | null = null
     for (const option of input.options ?? []) {
       optionPos = generateKeyBetween(optionPos, null)
-      await db
-        .insert(columnOptions)
-        .values({
-          columnId: column.id,
-          label: option.label,
-          color: option.color ?? null,
-          position: optionPos,
-        })
+      await db.insert(columnOptions).values({
+        columnId: column.id,
+        label: option.label,
+        color: option.color ?? null,
+        position: optionPos,
+      })
     }
     await writeAudit(db, subject, {
       action: 'column.create',
@@ -796,11 +815,18 @@ export async function deleteColumn(db: AppDatabase, subject: Subject, columnId: 
     .limit(1)
   if (!column) throw notFound()
   await requireEditableTable(db, subject, column.tableId, 'manage_structure')
-  const [owner] = await db.select({ headerConfig: tables.headerConfig }).from(tables).where(eq(tables.id, column.tableId)).limit(1)
+  const [owner] = await db
+    .select({ headerConfig: tables.headerConfig })
+    .from(tables)
+    .where(eq(tables.id, column.tableId))
+    .limit(1)
   const header = { ...((owner?.headerConfig ?? {}) as Record<string, unknown>) }
   if (header.mainColumnId === columnId) {
     delete header.mainColumnId
-    await db.update(tables).set({ headerConfig: header, updatedAt: new Date() }).where(eq(tables.id, column.tableId))
+    await db
+      .update(tables)
+      .set({ headerConfig: header, updatedAt: new Date() })
+      .where(eq(tables.id, column.tableId))
   }
   await db.delete(tableColumns).where(eq(tableColumns.id, columnId))
   await writeAudit(db, subject, {
@@ -994,10 +1020,13 @@ export async function attachRelation(
     id: input.toTableId,
     parents: { project: table.projectId },
   })
-  if (!['many_to_one', 'one_to_one', 'one_to_many'].includes(input.cardinality)) throw badRequest('Unknown cardinality')
+  if (!['many_to_one', 'one_to_one', 'one_to_many'].includes(input.cardinality))
+    throw badRequest('Unknown cardinality')
   const config = (column.config ?? {}) as Record<string, unknown>
   const relationId = typeof config.relationId === 'string' ? config.relationId : ''
-  const [byId] = relationId ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1) : []
+  const [byId] = relationId
+    ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1)
+    : []
   const [byColumn] = byId
     ? []
     : await db.select().from(relations).where(eq(relations.fromColumnId, column.id)).limit(1)
@@ -1013,14 +1042,20 @@ export async function attachRelation(
       await publishTableSignal(db, subject.id, column.tableId, 'rows.changed')
     } else if (input.cardinality !== existing.cardinality) {
       if (input.cardinality === 'one_to_one' || input.cardinality === 'one_to_many') {
-        const records = await db.select().from(relationRecords).where(eq(relationRecords.relationId, existing.id))
+        const records = await db
+          .select()
+          .from(relationRecords)
+          .where(eq(relationRecords.relationId, existing.id))
         const seen = new Set<string>()
         for (const record of records) {
           if (seen.has(record.toRowId)) throw conflict('That record is already linked')
           seen.add(record.toRowId)
         }
       }
-      await db.update(relations).set({ cardinality: input.cardinality }).where(eq(relations.id, existing.id))
+      await db
+        .update(relations)
+        .set({ cardinality: input.cardinality })
+        .where(eq(relations.id, existing.id))
     }
     return updateColumn(db, subject, column.id, {
       config: { ...config, relationId: existing.id, toTableId: input.toTableId },
@@ -1089,23 +1124,26 @@ export async function duplicateTable(
       .returning()
     columnMap.set(column.id, created.id)
     for (const option of column.options ?? []) {
-      await db
-        .insert(columnOptions)
-        .values({
-          columnId: created.id,
-          label: option.label,
-          color: option.color,
-          position: option.position,
-        })
+      await db.insert(columnOptions).values({
+        columnId: created.id,
+        label: option.label,
+        color: option.color,
+        position: option.position,
+      })
     }
   }
+  const copiedIds = new Map(columnMap)
+  copiedIds.set(table.id, copy.id)
+  const documentConfig = remapIds(table.documentConfig, copiedIds)
   await db
     .update(tables)
     .set({
       nextRowNumber: table.nextRowNumber,
       formatRules: remapIds(table.formatRules, columnMap) as never,
+      documentConfig: documentConfig as never,
     })
     .where(eq(tables.id, copy.id))
+  copy.documentConfig = documentConfig
   const tagMap = new Map<string, string>()
   for (const tag of await db.select().from(tableTags).where(eq(tableTags.tableId, table.id))) {
     const [created] = await db
@@ -1209,6 +1247,11 @@ export async function moveTable(
   })
   publishRealtime(projectId, { type: 'tables.changed', actorId: subject.id, projectId, tableId })
   return presentTable(updated)
+}
+
+function recordObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return { ...(value as Record<string, unknown>) }
 }
 
 function remapIds(value: unknown, ids: Map<string, string>) {
