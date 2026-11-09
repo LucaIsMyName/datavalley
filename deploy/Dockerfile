@@ -1,4 +1,4 @@
-FROM node:22-bookworm AS build
+FROM node:26-bookworm AS build
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY . .
 RUN npm ci
 RUN npm run build --workspace @datavalley/web
 
-FROM node:22-bookworm-slim AS app
+FROM node:26-bookworm-slim AS app
 
 WORKDIR /app
 ENV NODE_ENV=production
