@@ -29,10 +29,10 @@
     "@radix-ui/react-radio-group": "^1.5.1",
     "@radix-ui/react-select": "^2.4.1",
     "@radix-ui/react-slot": "^1.2.3",
-    "@tanstack/charts": "^1.1.0",
-    "@tanstack/react-query": "^5.81.5",
+    "@tanstack/charts": "^1.4.0",
+    "@tanstack/react-query": "^5.106.1",
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.13.12",
+    "@tanstack/react-virtual": "^3.14.26",
     "@xyflow/react": "^12.12.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -51,10 +51,10 @@
     "sonner": "^2.0.5",
     "tailwind-merge": "^3.3.1",
     "zod": "^3.25.67",
-    "zustand": "^5.0.6"
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.10",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
