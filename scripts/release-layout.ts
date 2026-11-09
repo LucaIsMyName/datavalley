@@ -32,3 +32,40 @@ export function productionMediaRoot(deployPath: string, mediaRoot: string | unde
   const root = deployPath.replace(/\/$/, '')
   return `${root}/shared/${media.replace(/^\.\//, '')}`
 }
+
+export const dockerMediaRoot = '/var/lib/datavalley/media'
+
+const loopbackHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+export function isLoopbackUrl(url: string) {
+  return loopbackHosts.has(new URL(url).hostname)
+}
+
+export function rewriteLoopbackHost(url: string, hostname: string) {
+  const parsed = new URL(url)
+  if (!loopbackHosts.has(parsed.hostname)) return url
+  parsed.hostname = hostname
+  return parsed.toString()
+}
+
+function decodeUrlComponent(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+export function postgresIdentity(url: string) {
+  const parsed = new URL(url)
+  const database = decodeUrlComponent(parsed.pathname.replace(/^\//, '').split('/')[0] ?? '')
+  return {
+    user: decodeUrlComponent(parsed.username),
+    password: decodeUrlComponent(parsed.password),
+    database,
+  }
+}
+
+export function redisPassword(url: string) {
+  return decodeUrlComponent(new URL(url).password)
+}

@@ -7,6 +7,14 @@ set -euo pipefail
 : "${DOMAIN:?DOMAIN is required}"
 : "${API_PORT:?API_PORT is required}"
 
+DEPLOY_MODE="${DEPLOY_MODE:-host}"
+BUNDLE_DB="${BUNDLE_DB:-0}"
+BUNDLE_REDIS="${BUNDLE_REDIS:-0}"
+if [[ "$DEPLOY_MODE" != "host" && "$DEPLOY_MODE" != "docker" ]]; then
+  echo "DEPLOY_MODE must be host or docker." >&2
+  exit 1
+fi
+
 if [[ ! "$RELEASE_STAMP" =~ ^[0-9]{14}$ ]]; then
   echo "RELEASE_STAMP must be YYYYMMDDHHMMSS." >&2
   exit 1
@@ -17,10 +25,8 @@ SHARED_DIR="${DEPLOY_PATH}/shared"
 CURRENT_LINK="${DEPLOY_PATH}/current"
 previous_release=""
 
-if [[ ! -f /etc/os-release ]] || ! grep -qi '^ID=ubuntu' /etc/os-release; then
-  echo "This deploy installs packages on Ubuntu." >&2
-  exit 1
-fi
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/server-os.sh"
+assert_supported_server_os
 
 if [[ "$(id -u)" -eq 0 ]]; then
   SUDO=()
@@ -38,13 +44,185 @@ run() {
 
 export DEBIAN_FRONTEND=noninteractive
 run apt-get update
-run apt-get install -y ca-certificates curl gnupg debian-keyring debian-archive-keyring apt-transport-https
+run apt-get install -y ca-certificates curl gnupg openssl debian-keyring debian-archive-keyring apt-transport-https
 
 public_ip="$(curl -4 -fsS https://ifconfig.me || curl -4 -fsS https://api.ipify.org)"
 resolved="$(getent ahostsv4 "$DOMAIN" | awk '{print $1; exit}')"
 if [[ -z "$resolved" || "$public_ip" != "$resolved" ]]; then
   echo "DOMAIN ${DOMAIN} resolves to '${resolved:-nothing}', and this server's public IPv4 is ${public_ip}." >&2
   exit 1
+fi
+
+wait_healthy() {
+  local tries="$1"
+  local attempt
+  for ((attempt = 1; attempt <= tries; attempt += 1)); do
+    if curl -fsS "https://${DOMAIN}/api/v1/health" >/dev/null; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+allow_firewall() {
+  if command -v ufw >/dev/null 2>&1 && run ufw status | grep -q 'Status: active'; then
+    run ufw allow 22/tcp
+    run ufw allow 80/tcp
+    run ufw allow 443/tcp
+  fi
+}
+
+print_certificate() {
+  echo | openssl s_client -servername "$DOMAIN" -connect "${DOMAIN}:443" 2>/dev/null | openssl x509 -noout -subject -dates
+}
+
+prune_releases() {
+  local keep_old=""
+  local keep_new dir real
+  if [[ -n "$previous_release" ]]; then
+    keep_old="$(readlink -f "$previous_release")"
+  fi
+  keep_new="$(readlink -f "$RELEASE_DIR")"
+  shopt -s nullglob
+  for dir in "$DEPLOY_PATH/releases"/*; do
+    [[ -d "$dir" ]] || continue
+    real="$(readlink -f "$dir")"
+    if [[ "$real" == "$keep_new" || "$real" == "$keep_old" ]]; then
+      continue
+    fi
+    rm -rf "$dir"
+  done
+  shopt -u nullglob
+}
+
+install_docker() {
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    local id codename arch
+    id="$(server_os_id)"
+    codename="$(server_os_value VERSION_CODENAME)"
+    arch="$(dpkg --print-architecture)"
+    run install -m 0755 -d /etc/apt/keyrings
+    run curl -fsSL "https://download.docker.com/linux/${id}/gpg" -o /etc/apt/keyrings/docker.asc
+    run chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${id} ${codename} stable" | run tee /etc/apt/sources.list.d/docker.list >/dev/null
+    run apt-get update
+    run apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  fi
+  run systemctl enable --now docker
+}
+
+compose_up() {
+  local dir="$1"
+  local stamp
+  stamp="$(basename "$dir")"
+  if [[ ! -f "$dir/deploy/compose.yml" ]]; then
+    echo "Release ${dir} has no Docker Compose file." >&2
+    return 1
+  fi
+  local -a profiles=()
+  if [[ "$BUNDLE_DB" == "1" ]]; then
+    profiles+=(--profile bundled-db)
+  fi
+  if [[ "$BUNDLE_REDIS" == "1" ]]; then
+    profiles+=(--profile bundled-redis)
+  fi
+  if [[ -n "${REDIS_URL:-}" ]]; then
+    profiles+=(--profile worker)
+  fi
+  DATAVALLEY_ENV_FILE="$env_file" RELEASE_STAMP="$stamp" \
+    docker compose -p datavalley -f "$dir/deploy/compose.yml" --env-file "$env_file" \
+    "${profiles[@]}" build || return 1
+  DATAVALLEY_ENV_FILE="$env_file" RELEASE_STAMP="$stamp" \
+    docker compose -p datavalley -f "$dir/deploy/compose.yml" --env-file "$env_file" \
+    "${profiles[@]}" up -d --remove-orphans --no-build || return 1
+}
+
+prune_docker_images() {
+  local keep_new keep_old tag tags
+  keep_new="$(basename "$(readlink -f "$RELEASE_DIR")")"
+  keep_old=""
+  if [[ -n "$previous_release" ]]; then
+    keep_old="$(basename "$(readlink -f "$previous_release")")"
+  fi
+  tags="$(docker images datavalley-app --format '{{.Tag}}' 2>/dev/null || true)"
+  while read -r tag; do
+    [[ -z "$tag" || "$tag" == "<none>" ]] && continue
+    if [[ "$tag" == "$keep_new" || "$tag" == "$keep_old" ]]; then
+      continue
+    fi
+    docker image rm "datavalley-app:${tag}" "datavalley-web:${tag}" >/dev/null 2>&1 || true
+  done <<< "$tags"
+}
+
+rollback_docker() {
+  local reason="$1"
+  if [[ -z "$previous_release" || ! -d "$previous_release" || ! -f "$previous_release/deploy/compose.yml" ]]; then
+    echo "$reason" >&2
+    exit 1
+  fi
+  echo "${reason} Restoring ${previous_release}." >&2
+  ln -sfn "$previous_release" "$CURRENT_LINK"
+  if compose_up "$previous_release" && wait_healthy 12; then
+    echo "Restored the previous release. This deploy failed." >&2
+  else
+    echo "The previous release did not become healthy." >&2
+  fi
+  exit 1
+}
+
+deploy_docker() {
+  local saved_mode="$DEPLOY_MODE"
+  local saved_bundle_db="$BUNDLE_DB"
+  local saved_bundle_redis="$BUNDLE_REDIS"
+  if [[ ! -f "$RELEASE_DIR/package.json" ]]; then
+    echo "Release ${RELEASE_DIR} is missing." >&2
+    exit 1
+  fi
+  env_file="${SHARED_DIR}/.env"
+  if [[ ! -f "$env_file" ]]; then
+    echo "Missing ${env_file}" >&2
+    exit 1
+  fi
+  run chmod 600 "$env_file"
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+  DEPLOY_MODE="$saved_mode"
+  BUNDLE_DB="$saved_bundle_db"
+  BUNDLE_REDIS="$saved_bundle_redis"
+
+  if run systemctl is-active --quiet caddy; then
+    echo "Host caddy.service is active. Stop that install before deploying with DEPLOY_MODE=docker." >&2
+    exit 1
+  fi
+  install_docker
+
+  if [[ -L "$CURRENT_LINK" ]]; then
+    previous_release="$(readlink -f "$CURRENT_LINK")"
+  fi
+  if [[ -n "$previous_release" && "$previous_release" == "$(readlink -f "$RELEASE_DIR")" ]]; then
+    previous_release=""
+  fi
+
+  if ! compose_up "$RELEASE_DIR"; then
+    rollback_docker "Docker Compose failed to start."
+  fi
+  ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
+  allow_firewall
+  if ! wait_healthy 12; then
+    rollback_docker "https://${DOMAIN}/api/v1/health did not succeed."
+  fi
+  prune_releases
+  prune_docker_images
+  print_certificate
+  echo "Deployed https://${DOMAIN}"
+}
+
+if [[ "$DEPLOY_MODE" == "docker" ]]; then
+  deploy_docker
+  exit 0
 fi
 
 if ! run apt-get install -y postgresql-16; then
@@ -195,18 +373,6 @@ ensure_readable() {
   fi
 }
 
-wait_healthy() {
-  local tries="$1"
-  local attempt
-  for ((attempt = 1; attempt <= tries; attempt += 1)); do
-    if curl -fsS "https://${DOMAIN}/api/v1/health" >/dev/null; then
-      return 0
-    fi
-    sleep 5
-  done
-  return 1
-}
-
 restart_services() {
   write_units || return 1
   write_caddy || return 1
@@ -322,11 +488,7 @@ if ! restart_services; then
   rollback_or_exit
 fi
 
-if run ufw status | grep -q 'Status: active'; then
-  run ufw allow 22/tcp
-  run ufw allow 80/tcp
-  run ufw allow 443/tcp
-fi
+allow_firewall
 
 if ! run systemctl is-active --quiet datavalley-api || ! run systemctl is-active --quiet caddy; then
   rollback_or_exit
@@ -339,22 +501,6 @@ if ! wait_healthy 12; then
   rollback_or_exit
 fi
 
-if [[ -n "$previous_release" ]]; then
-  keep_old="$(readlink -f "$previous_release")"
-else
-  keep_old=""
-fi
-keep_new="$(readlink -f "$RELEASE_DIR")"
-shopt -s nullglob
-for dir in "$DEPLOY_PATH/releases"/*; do
-  [[ -d "$dir" ]] || continue
-  real="$(readlink -f "$dir")"
-  if [[ "$real" == "$keep_new" || "$real" == "$keep_old" ]]; then
-    continue
-  fi
-  rm -rf "$dir"
-done
-shopt -u nullglob
-
-echo | openssl s_client -servername "$DOMAIN" -connect "${DOMAIN}:443" 2>/dev/null | openssl x509 -noout -subject -dates
+prune_releases
+print_certificate
 echo "Deployed https://${DOMAIN}"

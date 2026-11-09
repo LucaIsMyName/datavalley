@@ -61,7 +61,7 @@ For PostgreSQL options, SMTP, migrations, and worker setup, see [docs/local-setu
 |----------|--------|
 | [docs/api.md](docs/api.md) | API reference (same as `/doc/api`) |
 | [docs/local-setup.md](docs/local-setup.md) | Local development and environment |
-| [docs/deploy.md](docs/deploy.md) | Production deploy to a VPS (`npm run deploy`) |
+| [docs/deploy.md](docs/deploy.md) | Production deploy to an Ubuntu or Debian VPS (`npm run deploy`) |
 | [docs/formulas.md](docs/formulas.md) | Formula language, function reference, and recipes |
 | [docs/data-model.md](docs/data-model.md) | Database and table storage model |
 | [docs/permissions.md](docs/permissions.md) | Grants and access checks |
@@ -84,6 +84,6 @@ npm run deploy       # Remote install (see docs/deploy.md)
 - Set strong `SESSION_SECRET`, `CSRF_SECRET`, and `CREDENTIALS_KEY` (see `.env.production.example`).
 - Set `REDIS_URL` when running multiple API processes or the worker, so API-key rate limits, live edit events, and job queues stay consistent. Without Redis, live edits still work on the single API process.
 - Configure SMTP for password reset emails.
-- `npm run deploy` keeps the previous release and switches back to it if `https://DOMAIN/api/v1/health` does not succeed. It does not copy the local database to the server.
+- `npm run deploy` keeps the previous release and switches back to it if `https://DOMAIN/api/v1/health` does not succeed. It does not copy the local database to the server. The VPS can be Ubuntu or Debian. Set `DEPLOY_MODE=docker` to run that instance with Docker Compose instead of systemd. Caddy obtains the HTTPS certificate either way.
 
 Details: [docs/deploy.md](docs/deploy.md).

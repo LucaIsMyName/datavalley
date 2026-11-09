@@ -1,0 +1,23 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	@events path /api/v1/projects/*/events
+	handle @events {
+		reverse_proxy api:{$API_PORT:3000} {
+			flush_interval -1
+		}
+	}
+	handle /api/* {
+		reverse_proxy api:{$API_PORT:3000}
+	}
+	handle /docs* {
+		reverse_proxy api:{$API_PORT:3000}
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

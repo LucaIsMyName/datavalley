@@ -1,5 +1,16 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { productionMediaRoot, releasePaths, releaseStamp, remoteCopyToolsShell } from './release-layout'
+import {
+  dockerMediaRoot,
+  isLoopbackUrl,
+  postgresIdentity,
+  productionMediaRoot,
+  redisPassword,
+  releasePaths,
+  releaseStamp,
+  remoteCopyToolsShell,
+  rewriteLoopbackHost,
+} from './release-layout'
 
 describe('release layout', () => {
   it('formats a UTC stamp as YYYYMMDDHHMMSS', () => {
@@ -33,5 +44,52 @@ describe('release layout', () => {
     expect(productionMediaRoot('/opt/datavalley', '/var/lib/datavalley/media')).toBe(
       '/var/lib/datavalley/media',
     )
+  })
+
+  it('rewrites loopback database and redis hosts to compose service names', () => {
+    expect(isLoopbackUrl('postgres://datavalley:secret@127.0.0.1:5432/datavalley')).toBe(true)
+    expect(isLoopbackUrl('postgres://datavalley:secret@localhost:5432/datavalley')).toBe(true)
+    expect(isLoopbackUrl('postgres://datavalley:secret@[::1]:5432/datavalley')).toBe(true)
+    expect(isLoopbackUrl('postgresql://datavalley:secret@db.internal:5432/datavalley')).toBe(false)
+    expect(
+      rewriteLoopbackHost('postgres://datavalley:secret@127.0.0.1:5432/datavalley', 'postgres'),
+    ).toBe('postgres://datavalley:secret@postgres:5432/datavalley')
+    expect(
+      rewriteLoopbackHost('postgres://datavalley:secret@localhost:5432/datavalley', 'postgres'),
+    ).toBe('postgres://datavalley:secret@postgres:5432/datavalley')
+    expect(
+      rewriteLoopbackHost('postgresql://datavalley:p%40ss@127.0.0.1:5432/datavalley', 'postgres'),
+    ).toBe('postgresql://datavalley:p%40ss@postgres:5432/datavalley')
+    expect(
+      rewriteLoopbackHost('postgresql://datavalley:secret@db.internal:5432/datavalley', 'postgres'),
+    ).toBe('postgresql://datavalley:secret@db.internal:5432/datavalley')
+    expect(rewriteLoopbackHost('redis://127.0.0.1:6379', 'redis')).toBe('redis://redis:6379')
+    expect(rewriteLoopbackHost('redis://:secret@localhost:6379/0', 'redis')).toBe(
+      'redis://:secret@redis:6379/0',
+    )
+    expect(rewriteLoopbackHost('redis://cache.internal:6379', 'redis')).toBe(
+      'redis://cache.internal:6379',
+    )
+  })
+
+  it('reads postgres and redis credentials from the service URL', () => {
+    expect(postgresIdentity('postgres://datavalley:secret@127.0.0.1:5432/datavalley')).toEqual({
+      user: 'datavalley',
+      password: 'secret',
+      database: 'datavalley',
+    })
+    expect(postgresIdentity('postgresql://datavalley:p%40ss@127.0.0.1:5432/datavalley')).toEqual({
+      user: 'datavalley',
+      password: 'p@ss',
+      database: 'datavalley',
+    })
+    expect(redisPassword('redis://127.0.0.1:6379')).toBe('')
+    expect(redisPassword('redis://:s%3Ecret@localhost:6379/0')).toBe('s>cret')
+  })
+
+  it('keeps the docker media path mounted by compose', () => {
+    const compose = readFileSync(new URL('../deploy/compose.yml', import.meta.url), 'utf8')
+    expect(compose).toContain(dockerMediaRoot)
+    expect(dockerMediaRoot).toBe('/var/lib/datavalley/media')
   })
 })
