@@ -1,6 +1,6 @@
 {
   "name": "datavalley",
-  "version": "0.0.171",
+  "version": "0.0.172",
   "private": true,
   "type": "module",
   "description": "Self-hosted modular CRM",
@@ -27,7 +27,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/formula-engine/tsconfig.json --noEmit && tsc -p packages/plugin-sdk/tsconfig.json --noEmit && tsc -p packages/api-client/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/worker/tsconfig.json --noEmit",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/formula-engine/tsconfig.json --noEmit && tsc -p packages/plugin-sdk/tsconfig.json --noEmit && tsc -p packages/api-client/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/worker/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "lint": "eslint .",
     "migrate": "tsx apps/api/src/database/migrate-cli.ts",
     "openapi:generate": "tsx apps/api/src/scripts/generate-openapi.ts",

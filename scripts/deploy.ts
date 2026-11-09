@@ -14,7 +14,7 @@ import {
   releaseStamp,
   remoteCopyToolsShell,
   rewriteLoopbackHost,
-} from './release-layout.ts'
+} from './release-layout.js'
 
 const deployOnly = [
   'SSH_HOST',
