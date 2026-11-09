@@ -1,7 +1,14 @@
 import { DollarSign, EyeOff, Palette, Pencil, Trash2, Type } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
 import { isMenuAccordion, type MenuEntry, type MenuItem } from '../../components/context-menu.js'
-import { buildColumnHeaderMenu } from './column-menu.js'
+import {
+  buildColumnHeaderMenu,
+  buildNewColumnTypeList,
+  COLUMN_TYPES,
+  NEW_COLUMN_CURRENCIES,
+  resolveNewColumnCreateParams,
+} from './column-menu.js'
+import { defaultIcon } from './icons.js'
 
 function menuFor(
   column: { type: string; config?: Record<string, unknown> },
@@ -211,5 +218,32 @@ describe('column header menu', () => {
         }
       }
     }
+  })
+})
+
+describe('buildNewColumnTypeList', () => {
+  it('includes every column type with its default header icon', () => {
+    const list = buildNewColumnTypeList()
+    for (const type of COLUMN_TYPES) {
+      const row = list.find((entry) => entry.id === `type-${type}`)
+      expect(row).toMatchObject({ type, iconName: defaultIcon(type) })
+    }
+  })
+
+  it('nests currency rows immediately after number', () => {
+    const list = buildNewColumnTypeList()
+    const numberIndex = list.findIndex((entry) => entry.id === 'type-number')
+    const nested = list.slice(numberIndex + 1, numberIndex + 1 + NEW_COLUMN_CURRENCIES.length)
+    expect(nested.map((entry) => entry.id)).toEqual(NEW_COLUMN_CURRENCIES.map((currency) => `new-currency-${currency}`))
+    expect(list[numberIndex + 1 + NEW_COLUMN_CURRENCIES.length]?.id).toBe('type-date')
+    expect(nested.every((entry) => entry.indented)).toBe(true)
+  })
+
+  it('maps currency selection to currency column config', () => {
+    expect(resolveNewColumnCreateParams('new-currency-EUR')).toEqual({
+      type: 'currency',
+      config: { variant: 'money', currency: 'EUR' },
+    })
+    expect(resolveNewColumnCreateParams('type-number')).toEqual({ type: 'number' })
   })
 })

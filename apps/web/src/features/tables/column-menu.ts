@@ -57,7 +57,8 @@ export const COLUMN_TYPES = [
 ] as const
 
 const NUMBER_VARIANTS = ['float', 'integer', 'money'] as const
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CHF', 'JPY'] as const
+export const NEW_COLUMN_CURRENCIES = ['USD', 'EUR', 'GBP', 'CHF', 'JPY'] as const
+const CURRENCIES = NEW_COLUMN_CURRENCIES
 const ROW_STYLES = ['sequence', 'uuid'] as const
 
 const VARIANT_ICONS: Record<(typeof NUMBER_VARIANTS)[number], LucideIcon> = {
@@ -115,6 +116,50 @@ function footerChoices(type: string) {
   if (type === 'number' || type === 'currency')
     return ['count', 'sum', 'avg', 'median', 'min', 'max', 'empty', 'filled']
   return ['count', 'unique', 'empty', 'filled', 'percent_empty', 'percent_filled']
+}
+
+export type NewColumnTypeEntry = {
+  id: string
+  type: string
+  labelKey: string
+  iconName: string
+  icon: LucideIcon
+  indented?: boolean
+  config?: Record<string, unknown>
+}
+
+export function buildNewColumnTypeList(): NewColumnTypeEntry[] {
+  const entries: NewColumnTypeEntry[] = []
+  for (const type of COLUMN_TYPES) {
+    const iconName = defaultIcon(type)
+    entries.push({
+      id: `type-${type}`,
+      type,
+      labelKey: `type_${type}`,
+      iconName,
+      icon: COLUMN_ICONS[iconName] ?? Hash,
+    })
+    if (type === 'number') {
+      for (const currency of CURRENCIES) {
+        entries.push({
+          id: `new-currency-${currency}`,
+          type: 'currency',
+          labelKey: currency,
+          iconName: defaultIcon('currency'),
+          icon: CURRENCY_ICONS[currency],
+          indented: true,
+          config: { variant: 'money', currency },
+        })
+      }
+    }
+  }
+  return entries
+}
+
+export function resolveNewColumnCreateParams(entryId: string): { type: string; config?: Record<string, unknown> } {
+  const entry = buildNewColumnTypeList().find((item) => item.id === entryId)
+  if (!entry) throw new Error(`Unknown new column entry: ${entryId}`)
+  return { type: entry.type, ...(entry.config ? { config: entry.config } : {}) }
 }
 
 function action(

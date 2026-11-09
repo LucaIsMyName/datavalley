@@ -200,7 +200,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [selected, setSelected] = useState({ row: 0, column: 0 })
   const [fill, setFill] = useState<{ columnId: string; from: number; to: number } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
-  const [newColumnType, setNewColumnType] = useState('text')
   const [stateReady, setStateReady] = useState(false)
   const [renamingColumn, setRenamingColumn] = useState<string | null>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
@@ -649,7 +648,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
   }, [])
 
   function openNewColumn(beforeId: string | undefined, point: ViewportAnchor) {
-    setNewColumnType('text')
     setPopover({ kind: 'new-column', beforeId, ...point })
   }
 
@@ -2121,8 +2119,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
         setSearchInput={setSearchInput}
         tableId={tableId}
         setSearch={setSearch}
-        newColumnType={newColumnType}
-        setNewColumnType={setNewColumnType}
         createColumn={createColumn}
         dataReadOnly={dataReadOnly}
         queryClient={queryClient}

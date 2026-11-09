@@ -7,7 +7,7 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { Input } from '../../components/ui/input'
 import { SelectField } from '../../components/ui/select'
 import { patchCachedTable } from './cache'
-import { COLUMN_TYPES } from './column-menu'
+import { buildNewColumnTypeList } from './column-menu'
 import { filterOperatorKey, cardinalityKey } from './grid-ux'
 import { operatorsFor } from './grid-model'
 import { COLUMN_ICONS, ColumnIcon } from './icons'
@@ -25,8 +25,6 @@ export function GridPopovers(input: Record<string, any>) {
     setSearchInput,
     tableId,
     setSearch,
-    newColumnType,
-    setNewColumnType,
     createColumn,
     dataReadOnly,
     queryClient,
@@ -62,7 +60,11 @@ export function GridPopovers(input: Record<string, any>) {
       prefer="below"
       align="start"
       anchor={popover}
-      className="w-[min(20rem,calc(100vw-2rem))] border border-border bg-card p-3 shadow-md"
+      className={
+        popover.kind === 'new-column'
+          ? 'min-w-52 w-[min(16rem,calc(100vw-2rem))] border border-border bg-card p-1 shadow-md'
+          : 'w-[min(20rem,calc(100vw-2rem))] border border-border bg-card p-3 shadow-md'
+      }
     >
       {popover.kind === 'find' ? (
         <Input
@@ -76,16 +78,23 @@ export function GridPopovers(input: Record<string, any>) {
         />
       ) : null}
       {popover.kind === 'new-column' ? (
-        <div className="flex flex-col gap-2">
-          <SelectField
-            label={t('columnType')}
-            value={newColumnType}
-            onValueChange={setNewColumnType}
-            options={COLUMN_TYPES.map((type) => ({ value: type, label: t(`type_${type}`) }))}
-          />
-          <Button type="button" onClick={() => void createColumn(newColumnType)}>
-            {t('confirm')}
-          </Button>
+        <div className="max-h-[min(24rem,70vh)] overflow-y-auto" role="menu">
+          {buildNewColumnTypeList().map((entry) => {
+            const Icon = entry.icon
+            const label = entry.labelKey.startsWith('type_') ? t(entry.labelKey) : entry.labelKey
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                role="menuitem"
+                className={`flex h-8 w-full items-center gap-2 text-left text-sm hover:bg-accent ${entry.indented ? 'pl-7 pr-2' : 'px-2'}`}
+                onClick={() => void createColumn(entry.type, entry.config)}
+              >
+                <Icon className="size-3.5 shrink-0" aria-hidden />
+                <span className="min-w-0 truncate">{label}</span>
+              </button>
+            )
+          })}
         </div>
       ) : null}
       {popover.kind === 'select-options' && popoverColumn ? (

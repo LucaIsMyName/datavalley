@@ -63,7 +63,7 @@ export function useColumnCommands(scope: Scope) {
     rules,
     setFormatTarget,
   } = scope
-  async function createColumn(type: string) {
+  async function createColumn(type: string, config?: Record<string, unknown>) {
     if (dataReadOnly) return
     const beforeId = popover?.kind === 'new-column' ? popover.beforeId : undefined
     const point = popover
@@ -78,6 +78,7 @@ export function useColumnCommands(scope: Scope) {
           t('columnName'),
         ),
         type,
+        ...(config ? { config } : {}),
         ...(beforeId ? { beforeId } : {}),
       }),
     })
@@ -86,8 +87,8 @@ export function useColumnCommands(scope: Scope) {
       name: created.column.name,
       type: created.column.type,
       nextId: beforeId ?? null,
-      description: '',
-      config: {},
+      description: created.column.description,
+      config: created.column.config,
       hidden: false,
       width: created.column.width,
       frozen: false,
