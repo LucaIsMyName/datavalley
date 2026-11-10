@@ -82,7 +82,7 @@ export function parseAutomationRule(value: unknown): AutomationRule | null {
 }
 
 export function withBuiltin(rules: AutomationRule[]): AutomationRule[] {
-  const builtin = rules.find((rule) => rule.builtin) ?? builtinStageRule(true)
+  const builtin = rules.find((rule) => rule.builtin)
   const custom: CustomAutomationRule[] = []
   const seen = new Set<string>()
   for (const rule of rules) {
@@ -91,7 +91,7 @@ export function withBuiltin(rules: AutomationRule[]): AutomationRule[] {
     custom.push(rule)
     if (custom.length >= MAX_AUTOMATION_RULES) break
   }
-  return [builtin, ...custom]
+  return builtin ? [builtin, ...custom] : custom
 }
 
 export function rulesFromSettings(settings: unknown): AutomationRule[] | null {
@@ -102,7 +102,7 @@ export function rulesFromSettings(settings: unknown): AutomationRule[] | null {
 }
 
 export function effectiveAutomationRules(settings: unknown): AutomationRule[] {
-  return rulesFromSettings(settings) ?? [builtinStageRule(true)]
+  return rulesFromSettings(settings) ?? []
 }
 
 export {

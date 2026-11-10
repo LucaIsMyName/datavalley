@@ -1,6 +1,5 @@
 import {
   conditionMatches,
-  effectiveAutomationRules,
   effectiveFlows,
   fillAutomationTemplate,
   switchBranch,
@@ -16,7 +15,6 @@ import { readCell } from '../../column-types/index.js'
 import { AppError } from '../../errors.js'
 import type { Subject } from '../../security/subject.js'
 import { loadColumns, type LoadedColumn } from '../tables/service.js'
-import { createStageFollowUps } from './stage-task.js'
 
 type StageChange = { rowId: string; columnId: string; before: unknown; after: unknown }
 export type AutomationEvent = 'row_created' | 'column_changed' | 'row_deleted'
@@ -37,7 +35,7 @@ type Walk = {
 
 export async function runProjectAutomations(
   db: AppDatabase,
-  subject: Subject,
+  _subject: Subject,
   table: { id: string; name: string; projectId: string },
   columns: LoadedColumn[],
   changes: StageChange[],
@@ -52,10 +50,6 @@ export async function runProjectAutomations(
     .from(projects)
     .where(eq(projects.id, table.projectId))
     .limit(1)
-  const rules = effectiveAutomationRules(project?.settings).filter((rule) => rule.enabled)
-  if (event === 'column_changed' && rules.some((rule) => rule.builtin)) {
-    await createStageFollowUps(db, subject, table, columns, moved, hooks.create)
-  }
   const flows = effectiveFlows(project?.settings).filter((flow) => flow.enabled)
   if (flows.length === 0) return
   const labels = await nameLabels(db, table.id)

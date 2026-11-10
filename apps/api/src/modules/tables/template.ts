@@ -1,8 +1,10 @@
+import { validateFlow, type AutomationCatalogTable, type AutomationFlow } from '@datavalley/shared'
 import { eq } from 'drizzle-orm'
 import { generateKeyBetween } from 'fractional-indexing'
 import type { AppDatabase } from '../../database/client.js'
 import {
   columnOptions,
+  projects,
   relationRecords,
   relations,
   tableCells,
@@ -718,4 +720,245 @@ export async function seedDemoTable(db: AppDatabase, tableId: string, userId: st
     rowNumber += 1
   }
   await db.update(tables).set({ nextRowNumber: rowNumber }).where(eq(tables.id, tableId))
+}
+
+export async function seedAutomationTest(db: AppDatabase, projectId: string, userId: string) {
+  const orders = await insertTable(db, projectId, userId, 'Orders', 'Rows that start the sample flows')
+  const tasks = await insertTable(db, projectId, userId, 'Tasks', 'Rows the sample flows create')
+  let orderPos: string | null = null
+  const orderName = await insertColumn(db, orders.id, orderPos, { name: 'Name', type: 'text' })
+  orderPos = orderName.position
+  const status = await insertColumn(db, orders.id, orderPos, {
+    name: 'Status',
+    type: 'select',
+    options: [
+      { label: 'Open', color: 'blue' },
+      { label: 'Hold', color: 'amber' },
+    ],
+  })
+  orderPos = status.position
+  const amount = await insertColumn(db, orders.id, orderPos, { name: 'Amount', type: 'number' })
+  orderPos = amount.position
+  await insertColumn(db, orders.id, orderPos, { name: 'Paid', type: 'checkbox' })
+  const taskName = await insertColumn(db, tasks.id, null, { name: 'Name', type: 'text' })
+  const orderLink = await insertColumn(db, tasks.id, taskName.position, { name: 'Order', type: 'relation' })
+  await relate(db, tasks.id, orders.id, orderLink.column.id)
+  const statusOptions = await db.select().from(columnOptions).where(eq(columnOptions.columnId, status.column.id))
+  const open = statusOptions.find((option) => option.label === 'Open')
+  if (!open) throw new Error('Missing Open status')
+  const paid = await db
+    .select()
+    .from(tableColumns)
+    .where(eq(tableColumns.tableId, orders.id))
+  const paidColumn = paid.find((column) => column.name === 'Paid')
+  if (!paidColumn) throw new Error('Missing Paid')
+  const catalog: AutomationCatalogTable[] = [
+    {
+      id: orders.id,
+      name: 'Orders',
+      columns: [
+        { id: orderName.column.id, name: 'Name', type: 'text', toTableId: null, choices: [] },
+        {
+          id: status.column.id,
+          name: 'Status',
+          type: 'select',
+          toTableId: null,
+          choices: statusOptions.map((option) => ({ id: option.id, label: option.label })),
+        },
+        { id: amount.column.id, name: 'Amount', type: 'number', toTableId: null, choices: [] },
+        { id: paidColumn.id, name: 'Paid', type: 'checkbox', toTableId: null, choices: [] },
+      ],
+    },
+    {
+      id: tasks.id,
+      name: 'Tasks',
+      columns: [
+        { id: taskName.column.id, name: 'Name', type: 'text', toTableId: null, choices: [] },
+        { id: orderLink.column.id, name: 'Order', type: 'relation', toTableId: orders.id, choices: [] },
+      ],
+    },
+  ]
+  const flows = automationTestFlows({
+    ordersId: orders.id,
+    tasksId: tasks.id,
+    nameId: orderName.column.id,
+    statusId: status.column.id,
+    openId: open.id,
+    amountId: amount.column.id,
+    paidId: paidColumn.id,
+    taskNameId: taskName.column.id,
+    linkId: orderLink.column.id,
+  })
+  for (const flow of flows) {
+    const issues = validateFlow(flow, catalog)
+    if (issues.length > 0) throw new Error(`Automation Test flow ${flow.name}: ${issues.map((issue) => issue.code).join(', ')}`)
+  }
+  const [project] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  const previous = (project?.settings ?? {}) as Record<string, unknown>
+  await db
+    .update(projects)
+    .set({ settings: { ...previous, automations: { rules: [], flows } }, updatedAt: new Date() })
+    .where(eq(projects.id, projectId))
+}
+
+function automationTestFlows(ids: {
+  ordersId: string
+  tasksId: string
+  nameId: string
+  statusId: string
+  openId: string
+  amountId: string
+  paidId: string
+  taskNameId: string
+  linkId: string
+}): AutomationFlow[] {
+  const spot = (x: number, y = 0) => ({ x, y })
+  const make = (id: string, title: string, y = 0): AutomationFlow['nodes'][number] => ({
+    id,
+    type: 'action',
+    action: 'create',
+    tableId: ids.tasksId,
+    linkColumnId: null,
+    fields: [{ columnId: ids.taskNameId, value: { kind: 'literal', value: title } }],
+    position: spot(420, y),
+  })
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: 'When an order is added',
+      enabled: true,
+      nodes: [
+        { id: 'create-start', type: 'trigger', tableId: ids.ordersId, event: 'row_created', columnId: ids.nameId, position: spot(40) },
+        {
+          id: 'create-task',
+          type: 'action',
+          action: 'create',
+          tableId: ids.tasksId,
+          linkColumnId: null,
+          fields: [{ columnId: ids.taskNameId, value: { kind: 'template', template: 'Task for {{label}}' } }],
+          position: spot(320),
+        },
+      ],
+      edges: [{ id: 'create-edge', source: 'create-start', target: 'create-task', when: null }],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'When an order is deleted',
+      enabled: true,
+      nodes: [
+        { id: 'delete-start', type: 'trigger', tableId: ids.ordersId, event: 'row_deleted', columnId: ids.nameId, position: spot(40) },
+        {
+          id: 'delete-task',
+          type: 'action',
+          action: 'create',
+          tableId: ids.tasksId,
+          linkColumnId: null,
+          fields: [{ columnId: ids.taskNameId, value: { kind: 'template', template: 'Removed {{label}}' } }],
+          position: spot(320),
+        },
+      ],
+      edges: [{ id: 'delete-edge', source: 'delete-start', target: 'delete-task', when: null }],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Paid or not',
+      enabled: true,
+      nodes: [
+        { id: 'paid-start', type: 'trigger', tableId: ids.ordersId, event: 'column_changed', columnId: ids.paidId, position: spot(40) },
+        { id: 'paid-check', type: 'condition', columnId: ids.paidId, op: 'is_true', value: null, position: spot(280) },
+        make('paid-yes', 'Yes row'),
+        make('paid-no', 'No row', 140),
+      ],
+      edges: [
+        { id: 'paid-to-check', source: 'paid-start', target: 'paid-check', when: null },
+        { id: 'paid-to-yes', source: 'paid-check', target: 'paid-yes', when: 'yes' },
+        { id: 'paid-to-no', source: 'paid-check', target: 'paid-no', when: 'no' },
+      ],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Status path',
+      enabled: true,
+      nodes: [
+        { id: 'status-start', type: 'trigger', tableId: ids.ordersId, event: 'column_changed', columnId: ids.statusId, position: spot(40) },
+        {
+          id: 'status-branch',
+          type: 'switch',
+          columnId: ids.statusId,
+          cases: [{ id: 'status-open', optionIds: [ids.openId] }],
+          position: spot(280),
+        },
+        make('status-case', 'Case row'),
+        make('status-else', 'Else row', 140),
+      ],
+      edges: [
+        { id: 'status-to-branch', source: 'status-start', target: 'status-branch', when: null },
+        { id: 'status-to-case', source: 'status-branch', target: 'status-case', when: 'status-open' },
+        { id: 'status-to-else', source: 'status-branch', target: 'status-else', when: 'else' },
+      ],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Update rows',
+      enabled: true,
+      nodes: [
+        { id: 'update-start', type: 'trigger', tableId: ids.ordersId, event: 'column_changed', columnId: ids.amountId, position: spot(40) },
+        {
+          id: 'update-source',
+          type: 'action',
+          action: 'update_source',
+          tableId: ids.ordersId,
+          linkColumnId: null,
+          fields: [{ columnId: ids.nameId, value: { kind: 'literal', value: 'Source row' } }],
+          position: spot(280),
+        },
+        {
+          id: 'update-linked',
+          type: 'action',
+          action: 'update_linked',
+          tableId: ids.tasksId,
+          linkColumnId: ids.linkId,
+          fields: [{ columnId: ids.taskNameId, value: { kind: 'literal', value: 'Linked row' } }],
+          position: spot(520),
+        },
+        {
+          id: 'update-make',
+          type: 'action',
+          action: 'create',
+          tableId: ids.tasksId,
+          linkColumnId: null,
+          fields: [
+            { columnId: ids.taskNameId, value: { kind: 'literal', value: 'Draft' } },
+            { columnId: ids.linkId, value: { kind: 'template', template: '{{row}}' } },
+          ],
+          position: spot(760),
+        },
+        {
+          id: 'update-created',
+          type: 'action',
+          action: 'update_created',
+          tableId: ids.tasksId,
+          linkColumnId: null,
+          fields: [{ columnId: ids.taskNameId, value: { kind: 'literal', value: 'Created row' } }],
+          position: spot(1000),
+        },
+      ],
+      edges: [
+        { id: 'update-to-source', source: 'update-start', target: 'update-source', when: null },
+        { id: 'update-to-linked', source: 'update-source', target: 'update-linked', when: null },
+        { id: 'update-to-make', source: 'update-linked', target: 'update-make', when: null },
+        { id: 'update-to-created', source: 'update-make', target: 'update-created', when: null },
+      ],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Turned off',
+      enabled: false,
+      nodes: [
+        { id: 'off-start', type: 'trigger', tableId: ids.ordersId, event: 'column_changed', columnId: ids.nameId, position: spot(40) },
+        make('off-task', 'Should not run'),
+      ],
+      edges: [{ id: 'off-edge', source: 'off-start', target: 'off-task', when: null }],
+    },
+  ]
 }

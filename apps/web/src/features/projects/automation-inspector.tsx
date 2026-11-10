@@ -10,6 +10,7 @@ import {
   type AutomationFlow,
   type FieldValue,
   type FlowActionKind,
+  type FlowEdge,
   type FlowField,
   type FlowNode,
 } from '@datavalley/shared'
@@ -24,19 +25,25 @@ export function AutomationInspector({
   flow,
   tables,
   nodeId,
+  edgeId,
   readOnly,
   onChange,
+  onChangeEdge,
   onRemove,
 }: {
   flow: AutomationFlow
   tables: AutomationCatalogTable[]
   nodeId: string | null
+  edgeId: string | null
   readOnly: boolean
   onChange: (node: FlowNode) => void
+  onChangeEdge: (edge: FlowEdge) => void
   onRemove: (id: string) => void
 }) {
   const { t } = useTranslation()
   const node = flow.nodes.find((item) => item.id === nodeId)
+  const edge = flow.edges.find((item) => item.id === edgeId)
+  if (!node && edge) return <EdgeFields flow={flow} tables={tables} edge={edge} readOnly={readOnly} onChange={onChangeEdge} />
   if (!node) return <p className="text-sm text-muted-foreground">{t('flowSelect')}</p>
   const trigger = flow.nodes.find((item) => item.type === 'trigger')
   const triggerTable = tables.find((table) => table.id === trigger?.tableId) ?? tables[0]
@@ -62,6 +69,58 @@ export function AutomationInspector({
       {node.type === 'action' ? (
         <ActionFields node={node} tables={tables} triggerTable={triggerTable} readOnly={readOnly} onChange={onChange} />
       ) : null}
+    </div>
+  )
+}
+
+function EdgeFields({
+  flow,
+  tables,
+  edge,
+  readOnly,
+  onChange,
+}: {
+  flow: AutomationFlow
+  tables: AutomationCatalogTable[]
+  edge: FlowEdge
+  readOnly: boolean
+  onChange: (edge: FlowEdge) => void
+}) {
+  const { t } = useTranslation()
+  const source = flow.nodes.find((node) => node.id === edge.source)
+  const options =
+    source?.type === 'condition'
+      ? [
+          { value: 'yes', label: t('flowYes') },
+          { value: 'no', label: t('flowNo') },
+        ]
+      : source?.type === 'switch'
+        ? [
+            ...source.cases.map((item) => ({
+              value: item.id,
+              label: item.optionIds
+                .map((id) => tables.flatMap((table) => table.columns).find((column) => column.id === source.columnId)?.choices.find((choice) => choice.id === id)?.label ?? id)
+                .join(', '),
+            })),
+            { value: 'else', label: t('flowElse') },
+          ]
+        : []
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-sm font-medium">{t('flowLine')}</h2>
+      {options.length > 0 ? (
+        <SelectField
+          label={t('flowLineWhen')}
+          value={edge.when ?? options[0]?.value ?? ''}
+          onValueChange={(when) => {
+            if (readOnly) return
+            onChange({ ...edge, when })
+          }}
+          options={options}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">{t('flowLineAlways')}</p>
+      )}
     </div>
   )
 }

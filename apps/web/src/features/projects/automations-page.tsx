@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   SWITCH_COLUMN_TYPES,
-  builtinStageRule,
   operatorsFor,
   validateFlow,
   type AutomationCatalogTable,
@@ -9,6 +8,7 @@ import {
   type AutomationRule,
   type FlowNode,
 } from '@datavalley/shared'
+import { GitBranch, Play, Split, Zap, type LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
@@ -19,7 +19,7 @@ import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
-import { AutomationCanvas } from './automation-canvas'
+import { AutomationCanvas, type CanvasSelection } from './automation-canvas'
 import { AutomationInspector } from './automation-inspector'
 import { FlowProblemList } from './flow-problems'
 
@@ -32,6 +32,13 @@ type Payload = {
 
 type StepKind = 'trigger' | 'condition' | 'switch' | 'action'
 
+const palette: { kind: StepKind; icon: LucideIcon; title: string; hint: string }[] = [
+  { kind: 'trigger', icon: Zap, title: 'flowTrigger', hint: 'flowHintTrigger' },
+  { kind: 'condition', icon: GitBranch, title: 'flowCondition', hint: 'flowHintCondition' },
+  { kind: 'switch', icon: Split, title: 'flowSwitch', hint: 'flowHintSwitch' },
+  { kind: 'action', icon: Play, title: 'flowAction', hint: 'flowHintAction' },
+]
+
 export function AutomationsPage() {
   const { projectId = '' } = useParams()
   const { t } = useTranslation()
@@ -43,13 +50,13 @@ export function AutomationsPage() {
   const [rules, setRules] = useState<AutomationRule[]>([])
   const [flows, setFlows] = useState<AutomationFlow[]>([])
   const [flowId, setFlowId] = useState('')
-  const [nodeId, setNodeId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<CanvasSelection>(null)
   const [saving, setSaving] = useState(false)
   const tables = query.data?.tables ?? []
   const canEdit = query.data?.canEdit ?? false
   const flow = flows.find((item) => item.id === flowId) ?? flows[0]
   const issues = flow ? validateFlow(flow, tables) : []
-  const builtin = rules.find((rule) => rule.builtin) ?? builtinStageRule(true)
+  const customRules = rules.filter((rule) => !rule.builtin)
   const hydrated = useRef(false)
 
   useEffect(() => {
@@ -62,6 +69,12 @@ export function AutomationsPage() {
 
   function updateFlow(next: AutomationFlow) {
     setFlows((current) => current.map((item) => (item.id === next.id ? next : item)))
+  }
+
+  function patchFlow(recipe: (item: AutomationFlow) => AutomationFlow) {
+    const id = flow?.id
+    if (!id) return
+    setFlows((current) => current.map((item) => (item.id === id ? recipe(item) : item)))
   }
 
   async function persist(body: { rules: AutomationRule[]; flows?: AutomationFlow[] }, keepFlows = false) {
@@ -88,38 +101,23 @@ export function AutomationsPage() {
     if (!flow || !canEdit) return
     const node = blankNode(kind, position, tables, flow)
     updateFlow({ ...flow, nodes: [...flow.nodes, node] })
-    setNodeId(node.id)
+    setSelection({ kind: 'node', id: node.id })
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:p-6 border-t border-border">
-      <div className="flex flex-wrap items-center gap-3">
-        <Checkbox
-          id="builtin-stage"
-          checked={builtin.enabled}
-          disabled={!canEdit || saving}
-          onCheckedChange={(checked) =>
-            void persist(
-              { rules: rules.map((rule) => (rule.builtin ? { ...rule, enabled: checked === true } : rule)) },
-              true,
-            )
-          }
-        />
-        <Label htmlFor="builtin-stage" className="font-normal">
-          {t('automationBuiltin')}
-        </Label>
-      </div>
+      <p className="text-sm text-muted-foreground">{t('automationHelp')}</p>
       {query.isLoading ? <p className="text-sm text-muted-foreground">{t('loading')}</p> : null}
       {canEdit || !query.data ? null : <p className="text-sm text-muted-foreground">{t('flowReadOnly')}</p>}
       <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
-        <div className="flex w-full shrink-0 flex-col gap-2 md:w-44">
+        <div className="flex w-full shrink-0 flex-col gap-2 md:w-56">
           {flows.length > 0 ? (
             <SelectField
               label={t('automations')}
               value={flow?.id ?? ''}
               onValueChange={(id) => {
                 setFlowId(id)
-                setNodeId(null)
+                setSelection(null)
               }}
               options={flows.map((item) => ({ value: item.id, label: item.name || t('flowNew') }))}
             />
@@ -133,24 +131,28 @@ export function AutomationsPage() {
                   const created = blankFlow(tables[0], t('flowNew'))
                   setFlows((current) => [...current, created])
                   setFlowId(created.id)
-                  setNodeId(created.nodes[0]?.id ?? null)
+                  setSelection(created.nodes[0] ? { kind: 'node', id: created.nodes[0].id } : null)
                 }}
               >
                 {t('flowNew')}
               </Button>
               <p className="text-xs text-muted-foreground">{t('flowPalette')}</p>
-              {(['trigger', 'condition', 'switch', 'action'] as const).map((kind) => (
+              {palette.map((step) => (
                 <button
-                  key={kind}
+                  key={step.kind}
                   type="button"
                   draggable
                   onDragStart={(event) => {
-                    event.dataTransfer.setData('application/datavalley-flow', kind)
+                    event.dataTransfer.setData('application/datavalley-flow', step.kind)
                     event.dataTransfer.effectAllowed = 'move'
                   }}
-                  className="border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent"
+                  className="flex items-start gap-2 border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent"
                 >
-                  {t(kind === 'trigger' ? 'flowTrigger' : kind === 'condition' ? 'flowCondition' : kind === 'switch' ? 'flowSwitch' : 'flowAction')}
+                  <step.icon className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span>
+                    <span className="block">{t(step.title)}</span>
+                    <span className="block text-xs text-muted-foreground">{t(step.hint)}</span>
+                  </span>
                 </button>
               ))}
             </>
@@ -163,28 +165,36 @@ export function AutomationsPage() {
               tables={tables}
               issues={issues}
               readOnly={!canEdit}
-              selectedId={nodeId}
-              onSelect={setNodeId}
+              selection={selection}
+              onSelect={setSelection}
               onMove={(id, position) =>
-                updateFlow({
-                  ...flow,
-                  nodes: flow.nodes.map((node) => (node.id === id ? { ...node, position } : node)),
-                })
+                patchFlow((item) => ({
+                  ...item,
+                  nodes: item.nodes.map((node) => (node.id === id ? { ...node, position } : node)),
+                }))
               }
-              onConnectEdge={(edge) => updateFlow({ ...flow, edges: [...flow.edges, edge] })}
-              onRemove={(ids) => {
+              onConnectEdge={(edge) => patchFlow((item) => ({ ...item, edges: [...item.edges, edge] }))}
+              onRemoveNodes={(ids) => {
                 const gone = new Set(ids)
-                updateFlow({
-                  ...flow,
-                  nodes: flow.nodes.filter((node) => !gone.has(node.id)),
-                  edges: flow.edges.filter((edge) => !gone.has(edge.source) && !gone.has(edge.target)),
-                })
-                if (nodeId && gone.has(nodeId)) setNodeId(null)
+                patchFlow((item) => ({
+                  ...item,
+                  nodes: item.nodes.filter((node) => !gone.has(node.id)),
+                  edges: item.edges.filter((edge) => !gone.has(edge.source) && !gone.has(edge.target)),
+                }))
+                setSelection((current) => (current?.kind === 'node' && gone.has(current.id) ? null : current))
+              }}
+              onRemoveEdges={(ids) => {
+                const gone = new Set(ids)
+                patchFlow((item) => ({
+                  ...item,
+                  edges: item.edges.filter((edge) => !gone.has(edge.id)),
+                }))
+                setSelection((current) => (current?.kind === 'edge' && gone.has(current.id) ? null : current))
               }}
               onAdd={addStep}
             />
           ) : (
-            <p className="p-4 text-sm text-muted-foreground">{t('automationHelp')}</p>
+            <p className="p-4 text-sm text-muted-foreground">{t('flowEmpty')}</p>
           )}
         </div>
         <div className="flex max-h-80 w-full shrink-0 flex-col gap-3 overflow-auto border border-border p-3 md:max-h-none md:w-80">
@@ -214,22 +224,26 @@ export function AutomationsPage() {
               <AutomationInspector
                 flow={flow}
                 tables={tables}
-                nodeId={nodeId}
+                nodeId={selection?.kind === 'node' ? selection.id : null}
+                edgeId={selection?.kind === 'edge' ? selection.id : null}
                 readOnly={!canEdit}
                 onChange={(node) => updateFlow({ ...flow, nodes: flow.nodes.map((item) => (item.id === node.id ? node : item)) })}
+                onChangeEdge={(edge) =>
+                  updateFlow({ ...flow, edges: flow.edges.map((item) => (item.id === edge.id ? edge : item)) })
+                }
                 onRemove={(id) => {
                   updateFlow({
                     ...flow,
                     nodes: flow.nodes.filter((node) => node.id !== id),
                     edges: flow.edges.filter((edge) => edge.source !== id && edge.target !== id),
                   })
-                  setNodeId(null)
+                  setSelection(null)
                 }}
               />
               <FlowProblemList issues={issues} />
               {canEdit ? (
                 <div className="flex gap-2">
-                  <Button disabled={saving || (flow.enabled && issues.length > 0)} onClick={() => void persist({ rules: [builtin], flows })}>
+                  <Button disabled={saving || (flow.enabled && issues.length > 0)} onClick={() => void persist({ rules: customRules, flows })}>
                     {t('flowSave')}
                   </Button>
                   <Button
@@ -239,8 +253,8 @@ export function AutomationsPage() {
                       const next = flows.filter((item) => item.id !== flow.id)
                       setFlows(next)
                       setFlowId(next[0]?.id ?? '')
-                      setNodeId(null)
-                      void persist({ rules: [builtin], flows: next })
+                      setSelection(null)
+                      void persist({ rules: customRules, flows: next })
                     }}
                   >
                     {t('flowDelete')}

@@ -3,7 +3,7 @@ import { ApiSession, createHarness, createUser, login, type Harness } from '../.
 
 const password = 'correct horse battery'
 
-describe('project roles and stage follow-ups', () => {
+describe('project roles', () => {
   let harness: Harness
 
   afterEach(async () => {
@@ -83,7 +83,7 @@ describe('project roles and stage follow-ups', () => {
     expect(schema.statusCode).toBe(404)
   })
 
-  it('creates a follow-up task when a deal stage changes', async () => {
+  it('does not create a follow-up task when a deal stage changes', async () => {
     harness = await createHarness()
     await createUser(harness.db, harness.env, harness.organizationId, {
       username: 'ada',
@@ -119,9 +119,7 @@ describe('project roles and stage follow-ups', () => {
     })
     expect(patched.statusCode).toBe(200)
     const after = await session.inject({ method: 'GET', url: `/api/v1/tables/${tasksId}/rows` })
-    const titles = (after.json().rows as { title: string }[]).map((row) => row.title)
-    expect(after.json().rows).toHaveLength(beforeCount + 1)
-    expect(titles).toContain('Follow up: Proposal')
+    expect(after.json().rows).toHaveLength(beforeCount)
     const again = await session.inject({
       method: 'PATCH',
       url: `/api/v1/rows/${deal.id}`,
@@ -129,6 +127,6 @@ describe('project roles and stage follow-ups', () => {
     })
     expect(again.statusCode).toBe(200)
     const stable = await session.inject({ method: 'GET', url: `/api/v1/tables/${tasksId}/rows` })
-    expect(stable.json().rows).toHaveLength(beforeCount + 1)
+    expect(stable.json().rows).toHaveLength(beforeCount)
   })
 })

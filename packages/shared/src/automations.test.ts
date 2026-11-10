@@ -20,9 +20,9 @@ const custom: CustomAutomationRule = {
 }
 
 describe('automation rules', () => {
-  it('keeps the stage follow-up on until a project stores rules', () => {
-    expect(effectiveAutomationRules({})).toEqual([builtinStageRule(true)])
-    expect(effectiveAutomationRules({ automations: { rules: [] } })).toEqual([builtinStageRule(true)])
+  it('runs nothing until a project stores its own rules', () => {
+    expect(effectiveAutomationRules({})).toEqual([])
+    expect(effectiveAutomationRules({ automations: { rules: [] } })).toEqual([])
     expect(
       effectiveAutomationRules({
         automations: { rules: [{ id: 'stage-follow-up', builtin: true, enabled: false }] },

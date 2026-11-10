@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["backup.test.ts", "deploy.ts", "dev.ts", "release-layout.ts", "release-layout.test.ts", "server-os.test.ts"]
+  "include": ["backup.test.ts", "deploy.ts", "dev.ts", "release-layout.ts", "release-layout.test.ts", "seed-automation-test.ts", "server-os.test.ts"]
 }
