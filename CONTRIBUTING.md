@@ -1,6 +1,5 @@
+@ -1,47 +0,0 @@
 # Contributing to Datavalley
-
-Thanks for helping. Bug reports, fixes, and focused features are all welcome.
 
 ## Before you start
 

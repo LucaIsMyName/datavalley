@@ -272,6 +272,7 @@ async function presentRowRecord(
       presentRows(visible, [fresh], stored, await titleContextFor(db, tableId, visible, stored)),
     ),
   )
+  if (!presented) throw notFound()
   return presented
 }
 
@@ -899,7 +900,12 @@ export async function createRow(
       'row_created',
     )
   }
-  return { id: row.id, position: row.position, version: row.version }
+  const [freshVersion] = await db
+    .select({ version: tableRows.version })
+    .from(tableRows)
+    .where(eq(tableRows.id, row.id))
+    .limit(1)
+  return { id: row.id, position: row.position, version: freshVersion?.version ?? row.version }
 }
 
 export async function moveRow(
@@ -1071,7 +1077,12 @@ export async function patchRow(
   }))
   await recordCellHistory(db, subject.kind === 'user' ? subject.id : null, table.id, columns, historyChanges)
   await followStageChanges(db, subject, table, columns, historyChanges, env)
-  return presented
+  // Automations can rewrite this row after the response was assembled. Return that write so the editor keeps the new version.
+  const settled = await presentRowRecord(db, subject, table.id, table.projectId, row.id)
+  if (settled.version !== presented.version) {
+    publishRowUpdated(subject.id, table.projectId, table.id, settled)
+  }
+  return settled
 }
 
 export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string, notify = true) {
@@ -1224,7 +1235,16 @@ export async function bulkPatch(
   )
   await recordCellHistory(db, subject.kind === 'user' ? subject.id : null, dataTableId, columns, historyChanges)
   await followStageChanges(db, subject, { ...table, id: dataTableId }, columns, historyChanges, env)
-  return presented
+  const settled = await Promise.all(
+    presented.map((row) => presentRowRecord(db, subject, dataTableId, table.projectId, row.id)),
+  )
+  for (const fresh of settled) {
+    const previous = presented.find((row) => row.id === fresh.id)
+    if (previous && fresh.version !== previous.version) {
+      publishRowUpdated(subject.id, table.projectId, table.id, fresh)
+    }
+  }
+  return settled
 }
 
 async function writeAutomationCells(

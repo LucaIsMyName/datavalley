@@ -61,6 +61,7 @@ import {
   invalidateFooter,
   invalidateOtherRowQueries,
   mapCachedRows,
+  mergeSavedRow,
   patchCachedTable,
   readCachedRow,
 } from './cache'
@@ -1463,7 +1464,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 })
                 .then((result) => {
                   mapCachedRows(queryClient, tableId, (item) =>
-                    item.id === row.id ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } } : item,
+                    item.id === row.id ? mergeSavedRow(item, result.row) : item,
                   )
                 })
                 .catch((error: unknown) => {

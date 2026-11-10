@@ -9,6 +9,7 @@ import {
   invalidateFooter,
   invalidateOtherRowQueries,
   mapCachedRows,
+  mergeSavedRow,
   readCachedRow,
   replaceCachedRows,
 } from './cache'
@@ -158,9 +159,7 @@ export function useRowCellEdit({
         accept: (result) => {
           dropStashedCell(row.id, columnId)
           mapCachedRows(queryClient, tableId, (item) =>
-            item.id === row.id
-              ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } }
-              : item,
+            item.id === row.id ? mergeSavedRow(item, result.row) : item,
           )
           cellBaseline.current.delete(key)
           clearInvalid(key)
@@ -263,9 +262,7 @@ export function useRowCellEdit({
       }
 
       mapCachedRows(queryClient, tableId, (item) =>
-        item.id === row.id
-          ? { ...item, ...result.row, cells: { ...item.cells, ...result.row.cells } }
-          : item,
+        item.id === row.id ? mergeSavedRow(item, result.row) : item,
       )
 
       const saved = result.row.cells[columnId] ?? null

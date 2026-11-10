@@ -13,10 +13,19 @@ export function mapCachedRows(queryClient: QueryClient, tableId: string, update:
   })
 }
 
+/** Keep a newer cached row. A slow save must not paint over a row the server has already moved past. */
+export function mergeSavedRow(current: RowRecord, saved: RowRecord): RowRecord {
+  if (saved.version < current.version) return current
+  return { ...current, ...saved, cells: { ...current.cells, ...saved.cells } }
+}
+
 export function replaceCachedRows(queryClient: QueryClient, tableId: string, rows: RowRecord[]) {
   if (rows.length === 0) return
   const byId = new Map(rows.map((row) => [row.id, row]))
-  mapCachedRows(queryClient, tableId, (item) => byId.get(item.id) ?? item)
+  mapCachedRows(queryClient, tableId, (item) => {
+    const saved = byId.get(item.id)
+    return saved ? mergeSavedRow(item, saved) : item
+  })
 }
 
 export function readCachedRow(queryClient: QueryClient, tableId: string, rowId: string) {

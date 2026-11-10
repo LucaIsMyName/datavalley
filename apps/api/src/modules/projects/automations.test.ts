@@ -376,12 +376,38 @@ describe('activity timeline and automation rules', () => {
       payload: { version: order.version, cells: { [shop.amountId]: 2 } },
     })
     expect(patched.statusCode).toBe(200)
+    const saved = patched.json().row as { version: number; title: string; cells: Record<string, unknown> }
+    expect(saved.title).toBe('Source row')
+    expect(saved.cells[shop.nameId]).toBe('Source row')
+    expect(saved.version).toBeGreaterThan(order.version)
     expect(await rowTitles(shop.session, shop.ordersId)).toContain('Source row')
     const titles = await rowTitles(shop.session, shop.tasksId)
     expect(titles).toContain('Linked row')
     expect(titles).toContain('Created row')
     expect(titles).not.toContain('Draft')
     expect(titles).not.toContain('Old')
+  })
+
+  it('keeps a name edit when only the amount column starts a flow', async () => {
+    const shop = await orders()
+    await saveFlows(shop, [updates(shop)])
+    const created = await shop.session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${shop.ordersId}/rows`,
+      payload: { cells: { [shop.nameId]: 'Widget' } },
+    })
+    const row = created.json().row as { id: string; version: number }
+    const patched = await shop.session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${row.id}`,
+      payload: { version: row.version, cells: { [shop.nameId]: 'Acme order' } },
+    })
+    expect(patched.statusCode).toBe(200)
+    const saved = patched.json().row as { title: string; cells: Record<string, unknown> }
+    expect(saved.title).toBe('Acme order')
+    expect(saved.cells[shop.nameId]).toBe('Acme order')
+    expect(await rowTitles(shop.session, shop.ordersId)).toEqual(['Acme order'])
+    expect(await rowTitles(shop.session, shop.tasksId)).toEqual([])
   })
 
   it('does nothing for a disabled flow, another table, or another column', async () => {

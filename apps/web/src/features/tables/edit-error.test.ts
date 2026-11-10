@@ -10,6 +10,12 @@ describe('edit failure message', () => {
     expect(editFailureMessage(error, fallback, { cell: true })).toBeNull()
   })
 
+  it('leaves the version-conflict toast in place', () => {
+    const conflict = new ApiClientError(409, { error: { code: 'version_conflict', message: 'Row was updated elsewhere' } })
+    expect(editFailureMessage(conflict, fallback, { cell: true })).toBeNull()
+    expect(editFailureMessage(new Error('version_conflict'), fallback, { cell: true })).toBeNull()
+  })
+
   it('toasts the fallback when a cell save fails for another reason', () => {
     const rejected = new ApiClientError(500, { error: { message: 'Request failed' } })
     expect(editFailureMessage(rejected, fallback, { cell: true })).toBe(fallback)

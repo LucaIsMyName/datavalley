@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import { invalidateFooter, invalidateOtherRowQueries, invalidateRowTitles, replaceCachedRows } from './cache.js'
+import { invalidateFooter, invalidateOtherRowQueries, invalidateRowTitles, mergeSavedRow, replaceCachedRows } from './cache.js'
 
 describe('footer cache', () => {
   it('invalidates every footer query for the table and leaves other tables alone', async () => {
@@ -33,6 +33,12 @@ describe('footer cache', () => {
     ])
     expect(data?.pages[0]?.rows[0]?.cells.name).toBe('new')
     expect(data?.pages[0]?.rows[1]).toBe(kept)
+  })
+
+  it('keeps a cached row that is already newer than the save response', () => {
+    const current = { id: 'row-1', version: 4, cells: { name: 'Source row' } } as never
+    const stale = { id: 'row-1', version: 3, cells: { name: 'Acme' } } as never
+    expect(mergeSavedRow(current, stale)).toBe(current)
   })
 
   it('invalidates row caches for every other table', async () => {
