@@ -54,6 +54,7 @@ import { previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
 import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
 import { runProjectAutomations } from './automations.js'
+import { rowDeleteRestriction } from './delete-guard.js'
 import { footerColumns, groupSummary, queryRows, type SortSpec } from './query.js'
 import { publishRealtime, publishRowUpdated, publishTableSignal } from '../realtime/publish.js'
 import { visibleColumns } from './visible-columns.js'
@@ -1075,23 +1076,9 @@ export async function patchRow(
 
 export async function deleteRow(db: AppDatabase, subject: Subject, rowId: string, notify = true) {
   const { row, table } = await assertRow(db, subject, rowId, 'delete')
-  const links = await db.select().from(relationRecords).where(eq(relationRecords.toRowId, row.id))
-  if (links.length) {
-    const related = await db
-      .select()
-      .from(relations)
-      .where(
-        inArray(
-          relations.id,
-          links.map((link) => link.relationId),
-        ),
-      )
-    const blocking = related.filter(
-      (relation) =>
-        relation.onDelete === 'restrict' && links.some((link) => link.relationId === relation.id),
-    )
-    if (blocking.length)
-      throw conflict('Other records still reference this row', { count: links.length })
+  const restriction = await rowDeleteRestriction(db, row.id)
+  if (restriction.restricted) {
+    throw conflict('Other records still reference this row', { count: restriction.references })
   }
   const columns = await loadColumns(db, table.id)
   await followStageChanges(

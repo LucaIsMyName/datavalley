@@ -31,6 +31,7 @@ describe('totp login', () => {
     expect(confirm.statusCode).toBe(200)
     const recoveryCodes = confirm.json().recoveryCodes as string[]
     expect(recoveryCodes.length).toBeGreaterThan(0)
+    expect((await session.inject({ method: 'GET', url: '/api/v1/auth/me' })).json().user.totpEnabled).toBe(true)
 
     await session.inject({ method: 'POST', url: '/api/v1/auth/logout' })
 
@@ -91,6 +92,9 @@ describe('totp login', () => {
       payload: { login: 'mfa', password, totpCode: totpToken(secret) },
     })
     expect(locked.statusCode).toBe(429)
+
+    expect((await fresh.inject({ method: 'POST', url: '/api/v1/totp/disable' })).statusCode).toBe(200)
+    expect((await fresh.inject({ method: 'GET', url: '/api/v1/auth/me' })).json().user.totpEnabled).toBe(false)
 
     await harness.close()
   })

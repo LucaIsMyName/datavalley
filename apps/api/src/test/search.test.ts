@@ -158,8 +158,10 @@ describe('search', () => {
     expect(literal.json().columns.map((hit: { id: string }) => hit.id)).not.toContain(customerId)
     const percent = await session.inject({ method: 'GET', url: `/api/v1/search?q=${encodeURIComponent('100%')}` })
     expect(percent.json().columns.map((hit: { id: string }) => hit.id)).toContain(customerId)
-    const plugin = await session.inject({ method: 'GET', url: '/api/v1/search?q=Sheets' })
-    expect(plugin.json().integrations).toContainEqual(expect.objectContaining({ id: 'google-sheets', title: 'Google Sheets', href: '/integrations' }))
+    const plugin = await session.inject({ method: 'GET', url: '/api/v1/search?q=CSV' })
+    expect(plugin.json().integrations).toContainEqual(expect.objectContaining({ id: 'csv', title: 'CSV', href: '/integrations' }))
+    const sheets = await session.inject({ method: 'GET', url: '/api/v1/search?q=Sheets' })
+    expect(sheets.json().integrations).toEqual([])
 
     expect((await session.inject({ method: 'GET', url: '/api/v1/search?q=Vault' })).json().projects).toEqual([])
     expect((await session.inject({ method: 'GET', url: '/api/v1/search?q=SENTINEL' })).json().rows).toEqual([])

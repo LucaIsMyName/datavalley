@@ -14,6 +14,15 @@ import type { Subject } from '../../security/subject.js'
 const IDLE_MS = 24 * 60 * 60 * 1000
 const ABSOLUTE_MS = 14 * 24 * 60 * 60 * 1000
 
+export async function withTotpEnabled(db: AppDatabase, user: typeof users.$inferSelect) {
+  const [totp] = await db
+    .select({ enabled: userTotp.enabled })
+    .from(userTotp)
+    .where(eq(userTotp.userId, user.id))
+    .limit(1)
+  return { ...publicUser(user), totpEnabled: Boolean(totp?.enabled) }
+}
+
 export function publicUser(user: typeof users.$inferSelect) {
   return {
     id: user.id,

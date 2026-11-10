@@ -79,6 +79,7 @@ describe('automation flows', () => {
     const stored = converted[0]
     stored.name = 'Stored'
     expect(effectiveFlows({ automations: { rules: [custom], flows: [stored] } })[0].name).toBe('Stored')
+    expect(effectiveFlows({ automations: { rules: [custom], flows: [] } }).map((item) => item.id)).toEqual([custom.id])
   })
 
   it('rejects a number written into a checkbox, a bad relation, a deleted-row edit, and a cycle', () => {

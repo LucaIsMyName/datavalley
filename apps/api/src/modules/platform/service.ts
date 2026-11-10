@@ -210,10 +210,15 @@ export async function ensurePlugins(db: AppDatabase) {
   }
 }
 
+/** Google Sheets can be connected, but row import is not implemented, so it stays out of the product UI. */
+const HIDDEN_PLUGINS = new Set(['google-sheets'])
+
 export async function listPlugins(db: AppDatabase) {
   const rows = await db.select().from(plugins)
   return Promise.all(
-    rows.map(async (plugin) => {
+    rows
+      .filter((plugin) => !HIDDEN_PLUGINS.has(plugin.id))
+      .map(async (plugin) => {
       const [config] = await db.select().from(pluginConfigurations).where(eq(pluginConfigurations.pluginId, plugin.id))
       const scopes = await db.select().from(pluginPermissions).where(eq(pluginPermissions.pluginId, plugin.id))
       return {

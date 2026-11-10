@@ -144,7 +144,7 @@ export type {
 
 export function effectiveFlows(settings: unknown): AutomationFlow[] {
   const stored = flowsFromSettings(settings)
-  if (stored) return stored
+  if (stored && stored.length > 0) return stored
   const rules = rulesFromSettings(settings)
   if (!rules) return []
   return rules.filter((rule): rule is CustomAutomationRule => !rule.builtin).map(flowFromRule)

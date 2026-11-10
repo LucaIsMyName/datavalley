@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { connectorRowLinks } from '../../database/schema.js'
+import { connectorRowLinks, permissionGrants } from '../../database/schema.js'
 import { ApiSession, createHarness, createUser, login, type Harness } from '../../test/harness.js'
 
 const password = 'correct horse battery'
@@ -282,6 +282,87 @@ describe('public forms, quotes, and privacy', () => {
       .from(connectorRowLinks)
       .where(eq(connectorRowLinks.rowId, dealId))
     expect(links).toHaveLength(1)
+  })
+
+  it('hides a person and related rows the member cannot view', async () => {
+    harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const bea = await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'bea',
+      email: 'bea@example.com',
+      password,
+    })
+    const admin = await new ApiSession(harness.app).prepare()
+    expect((await login(admin, 'ada', password)).statusCode).toBe(200)
+    const member = await new ApiSession(harness.app).prepare()
+    expect((await login(member, 'bea', password)).statusCode).toBe(200)
+    const project = await admin.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: { name: 'Pipeline', template: 'crm' },
+    })
+    const projectId = project.json().project.id as string
+    expect(
+      (
+        await admin.inject({
+          method: 'PUT',
+          url: `/api/v1/projects/${projectId}/permissions`,
+          payload: { userId: bea.id, grants: [{ action: 'view', effect: 'allow' }] },
+        })
+      ).statusCode,
+    ).toBe(200)
+    const listed = await admin.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const tables = listed.json().tables as { id: string; name: string }[]
+    const peopleId = tables.find((table) => table.name === 'People')?.id
+    const dealsId = tables.find((table) => table.name === 'Deals')?.id
+    const people = await admin.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const personId = people.json().rows[0].id as string
+    const deals = await admin.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}/rows` })
+    const dealRows = deals.json().rows as { id: string; cells: Record<string, string> }[]
+    const dealDetail = await admin.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}` })
+    const personColumn = (dealDetail.json().table.columns as { id: string; name: string }[]).find(
+      (column) => column.name === 'Person',
+    )?.id
+    const dealId = dealRows.find((row) => row.cells[personColumn ?? ''] === personId)?.id ?? dealRows[0].id
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: bea.id,
+      resourceType: 'row',
+      resourceId: dealId,
+      action: 'view',
+      effect: 'deny',
+    })
+
+    const exported = await member.inject({ method: 'GET', url: `/api/v1/rows/${personId}/privacy` })
+    expect(exported.statusCode).toBe(200)
+    const body = JSON.stringify(exported.json())
+    expect(body).not.toContain(dealId)
+    expect(exported.json().related.map((item: { id: string }) => item.id)).not.toContain(dealId)
+
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: bea.id,
+      resourceType: 'row',
+      resourceId: personId,
+      action: 'view',
+      effect: 'deny',
+    })
+    expect((await member.inject({ method: 'GET', url: `/api/v1/rows/${personId}/privacy` })).statusCode).toBe(404)
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: bea.id,
+      resourceType: 'row',
+      resourceId: personId,
+      action: 'delete',
+      effect: 'deny',
+    })
+    expect((await member.inject({ method: 'DELETE', url: `/api/v1/rows/${personId}/privacy` })).statusCode).toBe(404)
+    expect((await admin.inject({ method: 'GET', url: `/api/v1/rows/${personId}/record` })).statusCode).toBe(200)
   })
 })
 

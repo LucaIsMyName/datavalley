@@ -86,7 +86,6 @@ import {
   deleteApiKey,
   disableTotp,
   enrollTotp,
-  googleAuthUrl,
   listApiKeys,
   listAudit,
   listNotifications,
@@ -99,16 +98,13 @@ import {
   publicConnections,
   readMedia,
   readState,
-  recordSync,
   requirePlugin,
   deleteView,
   renameView,
   revokeApiKey,
   rotateApiKey,
-  saveGoogleConnection,
   saveView,
   setPluginEnabled,
-  signState,
   storeMedia,
   verifyWebhook,
 } from '../platform/service.js'
@@ -1089,33 +1085,21 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     }
     return reply.send(media.body)
   })
-  app.get('/integrations/google-sheets/connect', async (request, reply) => {
+  app.get('/integrations/google-sheets/connect', async (request) => {
     if (!request.subject) throw unauthorized()
     const projectId = (request.query as { projectId?: string }).projectId
     if (!projectId) throw badRequest('projectId is required')
     await assertCan(db, request.subject, 'manage_structure', { type: 'project', id: projectId })
-    const state = signState(env, { projectId, userId: request.subject.id })
-    return reply.redirect(googleAuthUrl(env, state))
+    throw new AppError(501, 'not_implemented', 'Google Sheets import is not available. Use an HTTP connector.')
   })
   app.get('/integrations/google-sheets/callback', async (request) => {
+    if (!request.subject) throw unauthorized()
     const query = request.query as { code?: string; state?: string }
     if (!query.state) throw unauthorized()
     const state = readState(env, query.state)
-    if (!query.code) throw badRequest('Missing OAuth code')
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code: query.code,
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: env.GOOGLE_REDIRECT_URI,
-        grant_type: 'authorization_code',
-      }),
-    })
-    if (!response.ok) throw badRequest('Google token exchange failed')
-    const tokens = await response.json()
-    return { connection: await saveGoogleConnection(db, env, state.projectId, tokens) }
+    if (request.subject.id !== state.userId) throw unauthorized()
+    await assertCan(db, request.subject, 'manage_structure', { type: 'project', id: state.projectId })
+    throw new AppError(501, 'not_implemented', 'Google Sheets import is not available. Use an HTTP connector.')
   })
   app.get('/projects/:projectId/connections', async (request) => {
     if (!request.subject) throw unauthorized()
@@ -1135,11 +1119,7 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
     const connectionId = (request.params as { connectionId: string }).connectionId
     await assertConnectionAccess(request.subject, connectionId, 'import')
     // Pulling sheet rows is not implemented. Report that instead of recording a sync that imported nothing.
-    throw new AppError(
-      501,
-      'not_implemented',
-      'Manual Google Sheets sync is not available. Use an HTTP connector or the signed webhook.',
-    )
+    throw new AppError(501, 'not_implemented', 'Google Sheets import is not available. Use an HTTP connector.')
   })
   app.post('/integrations/:connectionId/webhook', async (request, reply) => {
     const connectionId = (request.params as { connectionId: string }).connectionId
@@ -1154,8 +1134,15 @@ export function registerDataRoutes(app: FastifyInstance, db: AppDatabase, env: E
         .status(401)
         .send({ error: { code: 'unauthorized', message: 'Invalid or expired webhook signature' } })
     }
-    const job = await recordSync(db, connectionId, 'queued', undefined, { webhook: true })
-    return { jobId: job.id }
+    const [connection] = await db
+      .select({ pluginId: pluginConnections.pluginId })
+      .from(pluginConnections)
+      .where(eq(pluginConnections.id, connectionId))
+      .limit(1)
+    if (connection?.pluginId === 'google-sheets') {
+      throw new AppError(501, 'not_implemented', 'Google Sheets import is not available. Use an HTTP connector.')
+    }
+    throw new AppError(501, 'not_implemented', 'Integration webhooks are not available. Use an HTTP connector.')
   })
 }
 

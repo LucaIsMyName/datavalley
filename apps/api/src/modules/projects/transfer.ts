@@ -33,13 +33,14 @@ import {
 } from '../../database/schema.js'
 import { parseCell, readCell, type ColumnShape } from '../../column-types/index.js'
 import { AppError, badRequest, notFound } from '../../errors.js'
-import { assertCan, refreshRequestGrants } from '../../security/access.js'
+import { allows, assertCan, refreshRequestGrants, resolveGrants } from '../../security/access.js'
 import { invalidateGrantsCache } from '../../security/grants-cache.js'
 import { writeAudit } from '../../security/audit.js'
 import type { Subject } from '../../security/subject.js'
 import { canonicalizeFormatRules, readCellFormula, saveFormula } from '../formulas/service.js'
 import { exportDocumentConfig, importDocumentConfig } from '../tables/document.js'
 import { loadColumns, type LoadedColumn } from '../tables/service.js'
+import { visibleColumns } from '../rows/visible-columns.js'
 import { getProject } from './service.js'
 
 const uuidInText = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
@@ -262,6 +263,7 @@ export async function exportProject(
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
   if (!project) throw notFound()
   await assertCan(db, subject, 'view', { type: 'project', id: project.id })
+  const grants = await resolveGrants(db, subject)
 
   const ctx = await buildExportContext(db, projectId)
   const tableRows_ = await db
@@ -301,7 +303,13 @@ export async function exportProject(
       continue
     }
     const dataTableId = table.id
-    const columns = await loadColumns(db, dataTableId)
+    const columns = await visibleColumns(
+      db,
+      subject,
+      table.id,
+      projectId,
+      await loadColumns(db, dataTableId),
+    )
     const columnById = new Map(columns.map((column) => [column.id, column]))
 
     const portableColumns = await Promise.all(
@@ -370,12 +378,37 @@ export async function exportProject(
     }
 
     const portableRows = []
+    const exportedRowIds = new Set<string>()
     for (const row of rows) {
+      if (
+        !allows(subject, grants, 'view', {
+          type: 'row',
+          id: row.id,
+          parents: { table: table.id, project: projectId },
+        })
+      ) {
+        continue
+      }
+      exportedRowIds.add(row.id)
       const portableCells: PortableCell[] = []
       for (const cell of cellsByRow.get(row.id) ?? []) {
         const column = columnById.get(cell.columnId)
         if (!column) continue
-        const value = serializeCellValue(column, readCell(column, cell), ctx, table.name)
+        const raw = readCell(column, cell)
+        if (column.type === 'relation' && typeof raw === 'string') {
+          const toTableId = String(column.config.toTableId ?? '')
+          if (
+            toTableId &&
+            !allows(subject, grants, 'view', {
+              type: 'row',
+              id: raw,
+              parents: { table: toTableId, project: projectId },
+            })
+          ) {
+            continue
+          }
+        }
+        const value = serializeCellValue(column, raw, ctx, table.name)
         const hasBackground = cell.background != null && cell.background !== ''
         const formatRules = await portableFormatRules(
           db,
@@ -414,7 +447,7 @@ export async function exportProject(
     for (const formula of storedFormulas) {
       const column = columnById.get(formula.columnId ?? '')
       const row = rows.find((item) => item.id === formula.rowId)
-      if (!column || !row) continue
+      if (!column || !row || !exportedRowIds.has(row.id)) continue
       const { source } = await readCellFormula(
         db,
         subject,

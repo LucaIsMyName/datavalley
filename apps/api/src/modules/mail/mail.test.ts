@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest'
+import { permissionGrants } from '../../database/schema.js'
 import { ApiSession, createHarness, createUser, login, type Harness } from '../../test/harness.js'
 
 const password = 'correct horse battery'
@@ -85,5 +86,92 @@ describe('mail on a record', () => {
     expect(onDeal.json().messages.map((item: { subject: string }) => item.subject)).toEqual(['Hello Website'])
     const onPerson = await admin.inject({ method: 'GET', url: `/api/v1/rows/${personRowId}/mail` })
     expect(onPerson.json().messages.map((item: { subject: string }) => item.subject)).toEqual(['Hello Website'])
+  })
+
+  it('does not reveal mail on a denied row or a denied related person', async () => {
+    harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const bea = await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'bea',
+      email: 'bea@example.com',
+      password,
+    })
+    const admin = await new ApiSession(harness.app).prepare()
+    expect((await login(admin, 'ada', password)).statusCode).toBe(200)
+    const member = await new ApiSession(harness.app).prepare()
+    expect((await login(member, 'bea', password)).statusCode).toBe(200)
+    const project = await admin.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: { name: 'Pipeline', template: 'crm' },
+    })
+    const projectId = project.json().project.id as string
+    expect(
+      (
+        await admin.inject({
+          method: 'PUT',
+          url: `/api/v1/projects/${projectId}/permissions`,
+          payload: {
+            userId: bea.id,
+            grants: [
+              { action: 'view', effect: 'allow' },
+              { action: 'edit', effect: 'allow' },
+            ],
+          },
+        })
+      ).statusCode,
+    ).toBe(200)
+    const listed = await admin.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const tables = listed.json().tables as { id: string; name: string }[]
+    const dealsId = tables.find((table) => table.name === 'Deals')?.id
+    const detail = await admin.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}` })
+    const columns = detail.json().table.columns as { id: string; name: string }[]
+    const personColumn = columns.find((column) => column.name === 'Person')?.id ?? ''
+    const rows = await admin.inject({ method: 'GET', url: `/api/v1/tables/${dealsId}/rows` })
+    const deal = rows.json().rows[0] as { id: string; cells: Record<string, string> }
+    const personRowId = deal.cells[personColumn]
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: bea.id,
+      resourceType: 'row',
+      resourceId: personRowId,
+      action: 'view',
+      effect: 'deny',
+    })
+
+    const preview = await member.inject({ method: 'GET', url: `/api/v1/rows/${deal.id}/mail` })
+    expect(preview.statusCode).toBe(200)
+    const previewJson = JSON.stringify(preview.json())
+    expect(previewJson).not.toContain('ada@northwind.example')
+    expect(previewJson).not.toContain('Ada Lovelace')
+
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: bea.id,
+      resourceType: 'row',
+      resourceId: deal.id,
+      action: 'view',
+      effect: 'deny',
+    })
+    expect((await member.inject({ method: 'GET', url: `/api/v1/rows/${deal.id}/mail` })).statusCode).toBe(404)
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: bea.id,
+      resourceType: 'row',
+      resourceId: deal.id,
+      action: 'edit',
+      effect: 'deny',
+    })
+    const sent = await member.inject({
+      method: 'POST',
+      url: `/api/v1/rows/${deal.id}/mail`,
+      payload: { to: 'ada@northwind.example', subject: 'Hello', body: 'Secret {{Person}}' },
+    })
+    expect(sent.statusCode).toBe(404)
   })
 })

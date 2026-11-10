@@ -73,6 +73,7 @@ export type User = {
   timezone: string
   theme: string
   createdAt: string
+  totpEnabled?: boolean
 }
 
 export type Project = {

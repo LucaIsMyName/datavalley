@@ -208,7 +208,7 @@ describe('advanced crm behavior', () => {
     const replayed = await hook({ 'x-datavalley-signature': sign(now - 600), 'x-datavalley-timestamp': String(now - 600) })
     expect(replayed.statusCode).toBe(401)
     const goodHook = await hook({ 'x-datavalley-signature': sign(now), 'x-datavalley-timestamp': String(now) })
-    expect(goodHook.statusCode).toBe(200)
+    expect(goodHook.statusCode).toBe(501)
     const connections = await admin.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/connections` })
     expect(JSON.stringify(connections.json())).not.toContain(secret)
 

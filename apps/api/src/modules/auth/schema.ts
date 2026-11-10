@@ -32,4 +32,5 @@ export const userResponse = Type.Object({
   timezone: Type.String(),
   theme: Type.String(),
   createdAt: Type.String(),
+  totpEnabled: Type.Optional(Type.Boolean()),
 })

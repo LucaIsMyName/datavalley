@@ -58,7 +58,7 @@ None
 
 ```ts
 await api.ensureCsrf()
-const result = await api.request<{ user: { id: string; username: string; email: string; role: string; disabled: boolean; mustChangePassword: boolean; locale: string; timezone: string; theme: string; createdAt: string }; mustChangePassword: boolean }>("/auth/login", {
+const result = await api.request<{ user: { id: string; username: string; email: string; role: string; disabled: boolean; mustChangePassword: boolean; locale: string; timezone: string; theme: string; createdAt: string; totpEnabled?: boolean }; mustChangePassword: boolean }>("/auth/login", {
   method: "POST",
   body: JSON.stringify({
     "login": "admin@example.com",
@@ -103,7 +103,7 @@ None
 **Example**
 
 ```ts
-const result = await api.request<{ user: { id: string; username: string; email: string; role: string; disabled: boolean; mustChangePassword: boolean; locale: string; timezone: string; theme: string; createdAt: string } }>("/auth/me")
+const result = await api.request<{ user: { id: string; username: string; email: string; role: string; disabled: boolean; mustChangePassword: boolean; locale: string; timezone: string; theme: string; createdAt: string; totpEnabled?: boolean } }>("/auth/me")
 ```
 
 ### `POST /api/v1/auth/forgot-password`
@@ -258,7 +258,7 @@ None
 
 ```ts
 await api.ensureCsrf()
-const result = await api.request<{ user: { id: string; username: string; email: string; role: string; disabled: boolean; mustChangePassword: boolean; locale: string; timezone: string; theme: string; createdAt: string } }>("/users", {
+const result = await api.request<{ user: { id: string; username: string; email: string; role: string; disabled: boolean; mustChangePassword: boolean; locale: string; timezone: string; theme: string; createdAt: string; totpEnabled?: boolean } }>("/users", {
   method: "POST",
   body: JSON.stringify({
     "username": "username",

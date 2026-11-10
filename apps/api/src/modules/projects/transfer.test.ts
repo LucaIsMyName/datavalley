@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ProjectTransferDocument } from '@datavalley/shared'
+import { permissionGrants } from '../../database/schema.js'
 import { ApiSession, createHarness, createUser, login, userByName } from '../../test/harness.js'
 import { bindRequestGrants } from '../../security/request-context.js'
 import { invalidateGrantsCache, writeGrantsCache } from '../../security/grants-cache.js'
@@ -168,5 +169,80 @@ describe('project transfer', () => {
       vi.unstubAllEnvs()
       await harness.close()
     }
+  })
+
+  it('leaves denied rows and columns out of a project export', async () => {
+    const harness = await createHarness()
+    const ada = await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const session = await new ApiSession(harness.app).prepare()
+    expect((await login(session, 'ada', password)).statusCode).toBe(200)
+    const project = await session.inject({ method: 'POST', url: '/api/v1/projects', payload: { name: 'Restricted' } })
+    const projectId = project.json().project.id as string
+    const table = await session.inject({
+      method: 'POST',
+      url: `/api/v1/projects/${projectId}/tables`,
+      payload: { name: 'Payroll' },
+    })
+    expect(table.statusCode).toBe(200)
+    const tableId = table.json().table.id as string
+    const open = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Name', type: 'text' },
+    })
+    const hidden = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/columns`,
+      payload: { name: 'Salary', type: 'text' },
+    })
+    const nameId = open.json().column.id as string
+    const salaryId = hidden.json().column.id as string
+    const visible = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [nameId]: 'Ada', [salaryId]: 'secret-pay' } },
+    })
+    const hiddenRow = await session.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [nameId]: 'Hidden person', [salaryId]: 'also-secret' } },
+    })
+    const hiddenRowId = hiddenRow.json().row.id as string
+    await harness.db.insert(permissionGrants).values([
+      {
+        subjectType: 'user',
+        subjectId: ada.id,
+        resourceType: 'column',
+        resourceId: salaryId,
+        action: 'view',
+        effect: 'deny',
+      },
+      {
+        subjectType: 'user',
+        subjectId: ada.id,
+        resourceType: 'row',
+        resourceId: hiddenRowId,
+        action: 'view',
+        effect: 'deny',
+      },
+    ])
+
+    const exported = await session.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/export` })
+    expect(exported.statusCode).toBe(200)
+    const document = exported.json() as ProjectTransferDocument
+    const payroll = document.tables.find((item) => item.name === 'Payroll')
+    expect(payroll?.columns.map((column) => column.name)).toEqual(['Name'])
+    expect(payroll?.rows).toHaveLength(1)
+    expect(JSON.stringify(document)).not.toContain('secret-pay')
+    expect(JSON.stringify(document)).not.toContain('Hidden person')
+    expect(JSON.stringify(document)).not.toContain('also-secret')
+    expect(visible.statusCode).toBe(200)
+
+    await harness.close()
   })
 })

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   extractJsonRecords,
   extractRecordsFromPayload,
@@ -26,9 +26,20 @@ import { loadColumns, type LoadedColumn } from '../tables/service.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { assertTableDataEditable } from '../tables/resolve.js'
 import { notifySyncFailure } from '../rows/notices.js'
+import { rowDeleteRestriction } from '../rows/delete-guard.js'
+import { advanceRowVersion } from '../rows/versions.js'
 import { fetchConnectorPayload, type ConnectorAuthConfig } from './fetch.js'
 import { connectorApiKey } from './service.js'
 import { generateKeyBetween } from 'fractional-indexing'
+
+type ConnectorPayloadFetch = typeof fetchConnectorPayload
+
+let payloadFetch: ConnectorPayloadFetch = fetchConnectorPayload
+
+/** Tests substitute the outbound request so sync can run without a public host. */
+export function setConnectorSyncFetchForTests(fetchPayload: ConnectorPayloadFetch | null) {
+  payloadFetch = fetchPayload ?? fetchConnectorPayload
+}
 
 export async function executeConnectorSyncJob(
   db: AppDatabase,
@@ -86,7 +97,7 @@ async function runConnectorSync(
   }
   const auth = connector.auth as ConnectorAuthConfig
   const apiKey = connectorApiKey(env, connector)
-  const body = await fetchConnectorPayload(connector.source as never, auth, apiKey)
+  const body = await payloadFetch(connector.source as never, auth, apiKey)
   const format = connector.format as 'json' | 'csv' | 'xml' | 'html'
   const jsonRoot = format === 'json' ? parseJsonBody(body) : undefined
   const mappedRows = extractRecordsFromPayload(format, body, parse)
@@ -235,7 +246,7 @@ async function syncBinding(
   const policy = retention.retention as { mode: string; missingAfterDays?: number }
   let deleted = 0
   if (policy.mode === 'drop_missing' && parse.externalIdPath) {
-    deleted = await applyRetention(db, table.id, seenKeys, policy.missingAfterDays ?? 7)
+    deleted = await applyRetention(db, table.id, seenKeys, policy.missingAfterDays ?? 7, actor)
   }
   await db
     .update(tableConnectorBindings)
@@ -257,6 +268,7 @@ async function writeMappedCells(
   columnMap: Record<string, string>,
   mapped: Record<string, string>,
 ) {
+  const touched: string[] = []
   for (const [fieldKey, columnId] of Object.entries(columnMap)) {
     const column = columns.find((item) => item.id === columnId)
     if (!column || column.type === 'formula' || column.type === 'row_id') continue
@@ -265,6 +277,7 @@ async function writeMappedCells(
       await db
         .delete(tableCells)
         .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
+      touched.push(columnId)
       continue
     }
     const parsed = parseCell(column, raw)
@@ -283,7 +296,11 @@ async function writeMappedCells(
       valueJsonb: (parsed.valueJsonb ?? null) as never,
       formatRules: [],
     })
+    touched.push(columnId)
   }
+  if (touched.length === 0) return
+  const version = await advanceRowVersion(db, rowId, null, touched)
+  if (version.status !== 'saved') throw new Error('Could not record the synced row version')
 }
 
 async function applyRetention(
@@ -291,6 +308,7 @@ async function applyRetention(
   tableId: string,
   seenKeys: Set<string>,
   missingAfterDays: number,
+  actor: Subject | null,
 ) {
   const cutoff = new Date(Date.now() - missingAfterDays * 86_400_000)
   const links = await db
@@ -298,16 +316,27 @@ async function applyRetention(
     .from(connectorRowLinks)
     .where(eq(connectorRowLinks.tableId, tableId))
   const doomed = links.filter((link) => !seenKeys.has(link.externalKey) && link.lastSeenAt < cutoff)
-  if (doomed.length === 0) return 0
-  const rowIds = doomed.map((link) => link.rowId)
-  await db.delete(connectorRowLinks).where(
-    inArray(
-      connectorRowLinks.id,
-      doomed.map((link) => link.id),
-    ),
-  )
-  await db.delete(tableRows).where(inArray(tableRows.id, rowIds))
-  return rowIds.length
+  let deleted = 0
+  for (const link of doomed) {
+    const [row] = await db.select({ id: tableRows.id }).from(tableRows).where(eq(tableRows.id, link.rowId)).limit(1)
+    if (!row) {
+      await db.delete(connectorRowLinks).where(eq(connectorRowLinks.id, link.id))
+      continue
+    }
+    const restriction = await rowDeleteRestriction(db, link.rowId)
+    if (restriction.restricted) continue
+    await db.delete(tableRows).where(eq(tableRows.id, link.rowId))
+    if (actor) {
+      await writeAudit(db, actor, {
+        action: 'row.delete',
+        resourceType: 'row',
+        resourceId: link.rowId,
+        metadata: { connector: true },
+      })
+    }
+    deleted += 1
+  }
+  return deleted
 }
 
 function validateRetention(

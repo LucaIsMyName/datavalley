@@ -217,6 +217,35 @@ describe('organization AI', () => {
     expect(sampleJson).not.toContain('secret-pay')
     expect(sampleJson).not.toContain(hiddenId)
     expect((sample as { rows: { id: string }[] }).rows.some((item) => item.id === rowId)).toBe(true)
+
+    const hiddenRow = await admin.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${tableId}/rows`,
+      payload: { cells: { [openId]: 'Visible title', [hiddenId]: 'hidden-salary' } },
+    })
+    const hiddenRowId = hiddenRow.json().row.id as string
+    await harness.db.insert(permissionGrants).values({
+      subjectType: 'user',
+      subjectId: (await userByName(harness.db, 'bob')).id,
+      resourceType: 'row',
+      resourceId: hiddenRowId,
+      action: 'view',
+      effect: 'deny',
+    })
+    const proposal = await runTool({ db: harness.db, subject: bob, effects }, 'propose_changes', {
+      tableId,
+      changes: [
+        { rowId, columnId: hiddenId, value: 'nope' },
+        { rowId: hiddenRowId, columnId: openId, value: 'nope' },
+        { rowId, columnId: openId, value: 'Renamed' },
+      ],
+    })
+    expect(proposal).toMatchObject({ ok: true, count: 1 })
+    const proposed = JSON.stringify(proposal)
+    expect(proposed).not.toContain('secret-pay')
+    expect(proposed).not.toContain('hidden-salary')
+    expect(proposed).toContain('Renamed')
+    expect(effects.proposals).toHaveLength(1)
   })
 
   it('returns a formula expression without inserting a formula', async () => {

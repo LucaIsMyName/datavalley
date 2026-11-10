@@ -3,6 +3,8 @@ import type { AiCellChange } from '@datavalley/shared'
 import { readCell } from '../../../column-types/index.js'
 import { tableCells, tableRows } from '../../../database/schema.js'
 import { badRequest } from '../../../errors.js'
+import { allows, resolveGrants } from '../../../security/access.js'
+import { visibleColumns } from '../../rows/visible-columns.js'
 import { loadColumns, resolveTableContext } from '../../tables/service.js'
 import { asRecord, asString, plainValue } from './types.js'
 import type { AiTool } from './types.js'
@@ -32,8 +34,15 @@ export const proposeChangesTool: AiTool = {
   },
   async run(host, args) {
     const { shell, physical } = await resolveTableContext(host.db, host.subject, asString(args.tableId), 'view')
-    const columns = await loadColumns(host.db, physical.id)
+    const columns = await visibleColumns(
+      host.db,
+      host.subject,
+      shell.id,
+      shell.projectId,
+      await loadColumns(host.db, physical.id),
+    )
     const columnById = new Map(columns.map((column) => [column.id, column]))
+    const grants = await resolveGrants(host.db, host.subject)
     const requested = (Array.isArray(args.changes) ? args.changes : []).slice(0, 100).map((item) => asRecord(item))
     const rowIds = [...new Set(requested.map((item) => asString(item.rowId)).filter(Boolean))]
     const rows = rowIds.length
@@ -54,6 +63,15 @@ export const proposeChangesTool: AiTool = {
       const row = rowById.get(rowId)
       const column = columnById.get(columnId)
       if (!row || !column || !plainValue(item.value)) continue
+      if (
+        !allows(host.subject, grants, 'view', {
+          type: 'row',
+          id: row.id,
+          parents: { table: shell.id, project: shell.projectId },
+        })
+      ) {
+        continue
+      }
       if (column.type === 'formula' || column.type === 'lookup' || column.type === 'row_id') continue
       const existing = cellByKey.get(`${rowId}:${columnId}`)
       changes.push({

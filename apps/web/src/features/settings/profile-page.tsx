@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as Dialog from '@radix-ui/react-dialog'
 import type { User } from '@datavalley/api-client'
+import { toast } from 'sonner'
+import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Card } from '../../components/ui/card'
 import { Input } from '../../components/ui/input'
@@ -19,6 +21,11 @@ function ProfileForm({ user }: { user: User }) {
   const [theme, setTheme] = useState(user.theme)
   const [timezone, setTimezone] = useState(user.timezone)
   const [totpEnroll, setTotpEnroll] = useState<{ secret: string; url: string } | null>(null)
+  const [totpCode, setTotpCode] = useState('')
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null)
+  const [totpError, setTotpError] = useState('')
+  const [totpPending, setTotpPending] = useState(false)
+  const [disableOpen, setDisableOpen] = useState(false)
 
   async function save(next: {
     locale: string
@@ -29,7 +36,7 @@ function ProfileForm({ user }: { user: User }) {
       method: 'PATCH',
       body: JSON.stringify(next),
     })
-    setUser(result.user)
+    setUser({ ...result.user, totpEnabled: useSession.getState().user?.totpEnabled })
     await i18n.changeLanguage(next.locale)
     localStorage.setItem('locale', next.locale)
     applyTheme(next.theme)
@@ -92,23 +99,44 @@ function ProfileForm({ user }: { user: User }) {
       </div>
       <Card className="max-w-md p-4">
         <h2 className="font-medium">{t('totp')}</h2>
-        <Button
-          className="mt-3"
-          variant="outline"
-          onClick={async () => {
-            const enrolled = await api.request<{ secret: string; url: string }>('/totp/enroll', {
-              method: 'POST',
-            })
-            setTotpEnroll(enrolled)
-          }}
-        >
-          {t('enroll')}
-        </Button>
+        {user.totpEnabled ? (
+          <>
+            <p className="mt-2 text-sm text-muted-foreground">{t('totpEnabled')}</p>
+            <Button className="mt-3" variant="outline" onClick={() => setDisableOpen(true)}>
+              {t('disable')}
+            </Button>
+          </>
+        ) : (
+          <Button
+            className="mt-3"
+            variant="outline"
+            onClick={async () => {
+              setTotpError('')
+              setRecoveryCodes(null)
+              setTotpCode('')
+              try {
+                const enrolled = await api.request<{ secret: string; url: string }>('/totp/enroll', {
+                  method: 'POST',
+                })
+                setTotpEnroll(enrolled)
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : t('error'))
+              }
+            }}
+          >
+            {t('enroll')}
+          </Button>
+        )}
       </Card>
       <Dialog.Root
         open={Boolean(totpEnroll)}
         onOpenChange={(open) => {
-          if (!open) setTotpEnroll(null)
+          if (!open) {
+            setTotpEnroll(null)
+            setTotpCode('')
+            setTotpError('')
+            setRecoveryCodes(null)
+          }
         }}
       >
         <Dialog.Portal>
@@ -145,6 +173,57 @@ function ProfileForm({ user }: { user: User }) {
                   {t('copy')}
                 </Button>
               </div>
+              {recoveryCodes ? (
+                <div>
+                  <p className="font-medium">{t('totpRecovery')}</p>
+                  <p className="mt-1 text-muted-foreground">{t('totpRecoveryHint')}</p>
+                  <ul className="mt-2 grid gap-1 font-mono">
+                    {recoveryCodes.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <form
+                  className="grid gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    if (!totpCode.trim() || totpPending) return
+                    setTotpPending(true)
+                    setTotpError('')
+                    void api
+                      .request<{ recoveryCodes: string[] }>('/totp/confirm', {
+                        method: 'POST',
+                        body: JSON.stringify({ code: totpCode.trim() }),
+                      })
+                      .then((result) => {
+                        setRecoveryCodes(result.recoveryCodes)
+                        setUser({ ...user, totpEnabled: true })
+                      })
+                      .catch((error: unknown) => {
+                        setTotpError(error instanceof Error ? error.message : t('error'))
+                      })
+                      .finally(() => setTotpPending(false))
+                  }}
+                >
+                  <Label htmlFor="totp-code">{t('totpCode')}</Label>
+                  <Input
+                    id="totp-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={totpCode}
+                    onChange={(event) => setTotpCode(event.target.value)}
+                  />
+                  {totpError ? (
+                    <p role="alert" className="text-sm text-destructive">
+                      {totpError}
+                    </p>
+                  ) : null}
+                  <Button type="submit" disabled={totpPending || totpCode.trim().length === 0}>
+                    {t('totpConfirm')}
+                  </Button>
+                </form>
+              )}
             </div>
             <div className="mt-4 flex justify-end">
               <Dialog.Close className="inline-flex h-9 items-center border border-border px-3 text-sm hover:bg-accent">
@@ -154,6 +233,30 @@ function ProfileForm({ user }: { user: User }) {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+      <ConfirmDialog
+        open={disableOpen}
+        title={t('disable')}
+        body={t('totpDisableWarning')}
+        confirmLabel={t('disable')}
+        cancelLabel={t('cancel')}
+        pending={totpPending}
+        onClose={() => {
+          if (!totpPending) setDisableOpen(false)
+        }}
+        onConfirm={() => {
+          setTotpPending(true)
+          void api
+            .request('/totp/disable', { method: 'POST' })
+            .then(() => {
+              setUser({ ...user, totpEnabled: false })
+              setDisableOpen(false)
+            })
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : t('error'))
+            })
+            .finally(() => setTotpPending(false))
+        }}
+      />
     </Page>
   )
 }

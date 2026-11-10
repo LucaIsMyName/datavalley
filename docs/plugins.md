@@ -1,6 +1,6 @@
 # Plugins
 
-Builtin plugins register through `@datavalley/plugin-sdk` and run in the API process. CSV import and export is the reference plugin. Google Sheets is optional and uses operator-supplied `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. The app does not embed a Google client secret.
+Builtin plugins register through `@datavalley/plugin-sdk` and run in the API process. CSV import and export is the reference plugin. Google Sheets import is not available; use an HTTP connector for external data. The app does not embed a Google client secret.
 
 Plugin code does not receive a database handle. It receives a host API that checks scopes such as `rows:read` and `rows:write`. A disabled plugin does not run. Saved credentials are encrypted with `CREDENTIALS_KEY` and are not returned by read APIs.
 

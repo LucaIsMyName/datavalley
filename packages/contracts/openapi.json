@@ -111,6 +111,9 @@
                         },
                         "createdAt": {
                           "type": "string"
+                        },
+                        "totpEnabled": {
+                          "type": "boolean"
                         }
                       }
                     },
@@ -195,6 +198,9 @@
                         },
                         "createdAt": {
                           "type": "string"
+                        },
+                        "totpEnabled": {
+                          "type": "boolean"
                         }
                       }
                     }
@@ -454,6 +460,9 @@
                         },
                         "createdAt": {
                           "type": "string"
+                        },
+                        "totpEnabled": {
+                          "type": "boolean"
                         }
                       }
                     }

@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import { AppError, unauthorized } from '../../errors.js'
-import { changePassword, listSessions, login, logout, publicUser, requestPasswordReset, resetPasswordWithToken, revokeSession } from './service.js'
+import { changePassword, listSessions, login, logout, requestPasswordReset, resetPasswordWithToken, revokeSession, withTotpEnabled } from './service.js'
 import { changePasswordBody, forgotPasswordBody, loginBody, resetPasswordBody, userResponse } from './schema.js'
 
 const SESSION_COOKIE = 'dv_session'
@@ -29,7 +29,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: AppDatabase, env: E
       path: '/',
       maxAge: MAX_AGE,
     })
-    return { user: publicUser(result.user), mustChangePassword: result.user.mustChangePassword }
+    return { user: await withTotpEnabled(db, result.user), mustChangePassword: result.user.mustChangePassword }
   })
 
   app.post('/auth/logout', async (request, reply) => {
@@ -41,7 +41,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: AppDatabase, env: E
 
   app.get('/auth/me', { schema: { response: { 200: Type.Object({ user: userResponse }) } } }, async (request) => {
     if (!request.subject?.user) throw unauthorized()
-    return { user: publicUser(request.subject.user) }
+    return { user: await withTotpEnabled(db, request.subject.user) }
   })
 
   app.post('/auth/forgot-password', { schema: { body: forgotPasswordBody }, config: { rateLimit: { max: env.LOGIN_RATE_LIMIT_MAX, timeWindow: '15 minutes' } } }, async (request) => {

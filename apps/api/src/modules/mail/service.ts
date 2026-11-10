@@ -6,10 +6,12 @@ import type { AppDatabase } from '../../database/client.js'
 import { mailMessages, mailTemplates, projects, tableCells, tableRows, tables, users } from '../../database/schema.js'
 import { AppError, badRequest, notFound } from '../../errors.js'
 import { sendMail } from '../../mail/smtp.js'
+import { assertCan } from '../../security/access.js'
 import type { Subject } from '../../security/subject.js'
 import { historyLabel } from '../rows/history.js'
 import { rowDisplayTitle } from '../rows/titles.js'
-import { loadColumns, requireEditableTable, resolveTableContext } from '../tables/service.js'
+import { visibleColumns } from '../rows/visible-columns.js'
+import { loadColumns, requireEditableTable, resolveTableContext, type LoadedColumn } from '../tables/service.js'
 
 const addressPattern = /^[^\s@]+@[^\s@]+$/
 
@@ -123,41 +125,53 @@ async function rowContext(db: AppDatabase, tableId: string, rowId: string) {
   return { columns, values, labels, mainColumnId }
 }
 
-async function rowTitle(db: AppDatabase, tableId: string, rowId: string) {
-  const context = await rowContext(db, tableId, rowId)
-  return rowDisplayTitle(
-    context.columns,
-    context.values,
-    context.labels,
-    rowId,
-    context.mainColumnId,
-  )
+type RowContext = Awaited<ReturnType<typeof rowContext>>
+
+async function visibleRow(db: AppDatabase, subject: Subject, tableId: string, rowId: string) {
+  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
+  await assertCan(db, subject, 'view', {
+    type: 'row',
+    id: rowId,
+    parents: { table: shell.id, project: shell.projectId },
+  })
+  const context = await rowContext(db, physical.id, rowId)
+  const columns = await visibleColumns(db, subject, shell.id, shell.projectId, context.columns)
+  return { ...context, columns }
 }
 
-async function rowFields(db: AppDatabase, tableId: string, rowId: string) {
-  const context = await rowContext(db, tableId, rowId)
+async function visibleRowIfAllowed(db: AppDatabase, subject: Subject, tableId: string, rowId: string) {
+  try {
+    return await visibleRow(db, subject, tableId, rowId)
+  } catch (error) {
+    if (error instanceof AppError && error.status === 404) return null
+    throw error
+  }
+}
+
+async function rowFields(db: AppDatabase, subject: Subject, context: RowContext) {
   const fields: Record<string, string> = {}
   for (const column of context.columns) {
     if (column.type === 'relation') {
       const targetId = context.values[column.id]
       const toTableId = String(column.config.toTableId ?? '')
       if (typeof targetId !== 'string' || !targetId || !toTableId) continue
-      const title = await rowTitle(db, toTableId, targetId)
+      const linked = await visibleRowIfAllowed(db, subject, toTableId, targetId)
+      if (!linked) continue
+      const title = rowDisplayTitle(linked.columns, linked.values, linked.labels, targetId, linked.mainColumnId)
       if (title) fields[column.name] = title
       continue
     }
     const label = historyLabel(column, context.values[column.id], context.labels).trim()
     if (label) fields[column.name] = label
   }
-  return { fields, columns: context.columns, values: context.values, labels: context.labels, mainColumnId: context.mainColumnId }
+  return fields
 }
 
-async function addressesOnRow(db: AppDatabase, tableId: string, rowId: string, label: string) {
-  const context = await rowContext(db, tableId, rowId)
+function addressesOnRow(columns: LoadedColumn[], values: Record<string, unknown>, label: string, rowId: string) {
   const found: { address: string; label: string; rowId: string }[] = []
-  for (const column of context.columns) {
+  for (const column of columns) {
     if (column.type !== 'mail') continue
-    const value = context.values[column.id]
+    const value = values[column.id]
     if (typeof value !== 'string' || !addressPattern.test(value.trim())) continue
     found.push({ address: value.trim(), label: `${label} · ${column.name}`, rowId })
   }
@@ -172,19 +186,27 @@ async function loadRow(db: AppDatabase, rowId: string) {
 
 export async function listRowMail(db: AppDatabase, subject: Subject, rowId: string) {
   const row = await loadRow(db, rowId)
-  const { physical } = await resolveTableContext(db, subject, row.tableId, 'view')
-  const current = await rowFields(db, physical.id, row.id)
+  const current = await visibleRow(db, subject, row.tableId, row.id)
+  const fields = await rowFields(db, subject, current)
   const title = rowDisplayTitle(current.columns, current.values, current.labels, row.id, current.mainColumnId)
-  const recipients = await addressesOnRow(db, physical.id, row.id, title || 'Record')
+  const recipients = addressesOnRow(current.columns, current.values, title || 'Record', row.id)
   const seen = new Set(recipients.map((item) => item.address.toLowerCase()))
   for (const column of current.columns) {
     if (column.type !== 'relation') continue
     const targetId = current.values[column.id]
     const toTableId = String(column.config.toTableId ?? '')
     if (typeof targetId !== 'string' || !targetId || !toTableId) continue
-    const linkedTitle = current.fields[column.name] || targetId
-    const linked = await addressesOnRow(db, toTableId, targetId, `${column.name} · ${linkedTitle}`)
-    for (const item of linked) {
+    const linked = await visibleRowIfAllowed(db, subject, toTableId, targetId)
+    if (!linked) continue
+    const linkedTitle =
+      rowDisplayTitle(linked.columns, linked.values, linked.labels, targetId, linked.mainColumnId) || targetId
+    const linkedAddresses = addressesOnRow(
+      linked.columns,
+      linked.values,
+      `${column.name} · ${linkedTitle}`,
+      targetId,
+    )
+    for (const item of linkedAddresses) {
       if (seen.has(item.address.toLowerCase())) continue
       seen.add(item.address.toLowerCase())
       recipients.push(item)
@@ -207,7 +229,7 @@ export async function listRowMail(db: AppDatabase, subject: Subject, rowId: stri
     .orderBy(desc(mailMessages.createdAt))
     .limit(30)
   return {
-    fields: current.fields,
+    fields,
     recipients,
     messages: stored.map((message) => ({
       ...message,
@@ -225,6 +247,11 @@ export async function sendRowMail(
 ) {
   const row = await loadRow(db, rowId)
   const table = await requireEditableTable(db, subject, row.tableId, 'edit')
+  await assertCan(db, subject, 'edit', {
+    type: 'row',
+    id: row.id,
+    parents: { table: table.id, project: table.projectId },
+  })
   const [project] = await db.select().from(projects).where(eq(projects.id, table.projectId)).limit(1)
   if (!project) throw notFound()
   const orgId = organizationId(subject)
