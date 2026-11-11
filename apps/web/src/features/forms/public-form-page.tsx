@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -12,7 +13,9 @@ type Field = {
 }
 
 export function PublicFormPage() {
+  const { t } = useTranslation()
   const { token = '' } = useParams()
+  const [loading, setLoading] = useState(true)
   const [tableName, setTableName] = useState('')
   const [fields, setFields] = useState<Field[]>([])
   const [values, setValues] = useState<Record<string, string | boolean>>({})
@@ -34,9 +37,12 @@ export function PublicFormPage() {
         setTableName(body.tableName)
         setFields(body.fields)
         document.title = body.tableName
+        setLoading(false)
       })
       .catch(() => {
-        if (!cancelled) setMissing(true)
+        if (cancelled) return
+        setMissing(true)
+        setLoading(false)
       })
     return () => {
       cancelled = true
@@ -61,19 +67,20 @@ export function PublicFormPage() {
       })
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
-        setError(body?.error?.message || 'Could not send the form')
+        setError(body?.error?.message || t('formSendFailed'))
         return
       }
       setDone(true)
     } catch {
-      setError('Could not send the form')
+      setError(t('formSendFailed'))
     } finally {
       setPending(false)
     }
   }
 
-  if (missing) return <p className="p-6 text-sm">This form is not available.</p>
-  if (done) return <p className="p-6 text-sm">Sent. Thank you.</p>
+  if (loading) return <p className="p-6 text-sm" role="status">{t('loading')}</p>
+  if (missing) return <p className="p-6 text-sm">{t('formUnavailable')}</p>
+  if (done) return <p className="p-6 text-sm">{t('formSent')}</p>
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-col gap-4 p-6">
@@ -104,7 +111,7 @@ export function PublicFormPage() {
                 value={typeof values[field.id] === 'string' ? (values[field.id] as string) : ''}
                 onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))}
               >
-                <option value="">Choose</option>
+                <option value="">{t('formChoose')}</option>
                 {field.options.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
@@ -138,8 +145,8 @@ export function PublicFormPage() {
             {error}
           </p>
         ) : null}
-        <Button type="submit" disabled={pending || fields.length === 0}>
-          Send
+        <Button type="submit" disabled={pending || fields.length === 0} aria-busy={pending}>
+          {t('formSend')}
         </Button>
       </form>
     </main>

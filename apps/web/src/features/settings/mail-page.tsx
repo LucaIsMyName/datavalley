@@ -6,7 +6,7 @@ import { ConfirmDialog } from '../../components/confirm-dialog'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
-import { LoadingBlock, Page } from '../../components/states'
+import { ErrorState, LoadingBlock, Page } from '../../components/states'
 import { api } from '../../lib/api'
 
 type MailTemplate = { id: string; name: string; subject: string; body: string }
@@ -93,6 +93,9 @@ export function MailTemplatesPage() {
     >
       <p className="text-sm text-muted-foreground">{t('mailPlaceholders')}</p>
       {templates.isLoading ? <LoadingBlock /> : null}
+      {templates.isError ? (
+        <ErrorState message={(templates.error as Error).message} onRetry={() => void templates.refetch()} />
+      ) : null}
       {templates.data && !editing ? (
         rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('mailTemplatesEmpty')}</p>

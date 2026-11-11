@@ -97,6 +97,7 @@ import { gridKeyCommand, isGridTypingTarget } from './grid-keyboard'
 import { useColumnCommands } from './use-column-commands'
 import { useRowCommands } from './use-row-commands'
 import { useTableMenus } from './use-table-menus'
+import { orderMainColumnFirst, pinnedMainColumnId } from './grid-column-order'
 import { createTableColumns, GUTTER_WIDTH } from './table-columns'
 import { createGridRowHandlers } from './grid-row-handlers'
 import { EMPTY_ROWS, GridBodyRow } from './grid-row'
@@ -248,7 +249,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const [connectOpen, setConnectOpen] = useState(false)
   const [connectPending, setConnectPending] = useState(false)
   const columns = table?.columns ?? EMPTY_COLUMNS
-  const visible = useMemo(() => columns.filter((column) => !column.hidden), [columns])
+  const mainColumnId = typeof table?.headerConfig?.['mainColumnId'] === 'string' ? table.headerConfig['mainColumnId'] : null
+  const gridColumns = useMemo(() => orderMainColumnFirst(columns, mainColumnId), [columns, mainColumnId])
+  const pinnedColumnId = pinnedMainColumnId(gridColumns, mainColumnId)
+  const visible = useMemo(() => gridColumns.filter((column) => !column.hidden), [gridColumns])
   const rules = (table?.formatRules ?? EMPTY_RULES) as FormatRule[]
   const projectId = table?.projectId ?? ''
   function openFormula(rowId: string, columnId: string, columnName: string) {
@@ -1551,7 +1555,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       grid.getHeaderGroups()[0]?.headers[0]?.getContext(),
                     )}
                   </th>
-                  {columns.map((column) => {
+                  {gridColumns.map((column) => {
                     if (column.hidden) {
                       return (
                         <th
@@ -1582,14 +1586,14 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       <th
                         key={column.id}
                         data-column-id={column.id}
-                        className={`group relative h-10 overflow-visible px-2 text-left font-medium ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''} ${aiMarks.tableId === tableId && aiMarks.columnIds.includes(column.id) && !(spotlight?.columnId === column.id && !spotlight.rowId) ? 'ring-2 ring-inset ring-primary' : ''}`}
-                        style={{ width: widths[column.id] ?? column.width }}
+                        className={`group relative h-10 overflow-visible px-2 text-left font-medium ${column.id === pinnedColumnId ? 'sticky z-20' : ''} ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''} ${aiMarks.tableId === tableId && aiMarks.columnIds.includes(column.id) && !(spotlight?.columnId === column.id && !spotlight.rowId) ? 'ring-2 ring-inset ring-primary' : ''}`}
+                        style={{ width: widths[column.id] ?? column.width, left: column.id === pinnedColumnId ? GUTTER_WIDTH : undefined }}
                         onDragOver={(event: DragEvent) => {
                           const from = dragItem.current
                           if (!from || from.kind !== 'column') return
                           event.preventDefault()
                           const next = beforeDropEdge(
-                            columns.map((item) => item.id),
+                            gridColumns.map((item) => item.id),
                             from.id,
                             column.id,
                           )
@@ -1609,7 +1613,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                           if (!payload.startsWith('column:')) return
                           void reorderColumns(
                             moveIdBefore(
-                              columns.map((item) => item.id),
+                              gridColumns.map((item) => item.id),
                               payload.slice(7),
                               column.id,
                             ),
@@ -1958,7 +1962,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       key={row.id}
                       row={row}
                       rowIndex={virtualRow.index}
-                      columns={columns}
+                      columns={gridColumns}
+                      pinnedColumnId={pinnedColumnId}
                       visible={visible}
                       rules={rules}
                       tags={tags}
@@ -1995,8 +2000,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 {paddingBottom > 0 ? <tr style={{ height: paddingBottom }} /> : null}
                 {footerConfig.enabled ? (
                   <tr>
-                    <td className="h-9 border-r border-t border-border" />
-                    {columns.map((column) => {
+                    <td className="sticky left-0 z-10 h-9 border-r border-t border-border bg-card" />
+                    {gridColumns.map((column) => {
                       if (column.hidden) {
                         return (
                           <td key={column.id} className="h-9 border-r border-t border-border" />
@@ -2004,10 +2009,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       }
                       const calc = footerConfig.columns?.[column.id]
                       const stats = footerQuery.data?.footer?.[column.id]
+                      const pinned = column.id === pinnedColumnId
                       return (
                         <td
                           key={column.id}
-                          className="h-9 border-r border-t border-border px-2 text-xs text-muted-foreground"
+                          className={`h-9 border-r border-t border-border px-2 text-xs text-muted-foreground ${pinned ? 'sticky z-[9] bg-card' : ''}`}
+                          style={pinned ? { left: GUTTER_WIDTH } : undefined}
                         >
                           {calc && stats ? (
                             <>

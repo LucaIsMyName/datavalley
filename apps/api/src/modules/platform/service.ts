@@ -1,10 +1,10 @@
 import { createHmac, randomBytes } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, lte, or, sql } from 'drizzle-orm'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import * as OTPAuth from 'otpauth'
-import type { Action } from '@datavalley/shared'
+import { escapeLike, type Action } from '@datavalley/shared'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
 import {
@@ -34,7 +34,7 @@ import type { RateLimiter } from '../../security/rate-limit.js'
 import { writeAudit } from '../../security/audit.js'
 import { decryptString, encryptString, randomToken, safeEqual, sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
-import { assertMediaReadable, canReadMedia, loadMediaFile } from './media-access.js'
+import { assertMediaReadable, loadMediaFile } from './media-access.js'
 import { findMediaUsages, usageCountFor } from './media-usages.js'
 import { requireEditableTable, requireTable } from '../tables/service.js'
 
@@ -475,6 +475,30 @@ export async function readMedia(db: AppDatabase, env: Env, actor: Subject, id: s
   return { file, body }
 }
 
+async function readableMediaIds(db: AppDatabase, actor: Subject, files: (typeof mediaFiles.$inferSelect)[]) {
+  const readable = new Set<string>()
+  if (!actor.user) return readable
+  const tableIds = [...new Set(files.flatMap((file) => (file.tableId ? [file.tableId] : [])))]
+  const allowedTables = new Set<string>()
+  for (const tableId of tableIds) {
+    try {
+      await requireTable(db, actor, tableId, 'view')
+      allowedTables.add(tableId)
+    } catch {
+      // A file on a table this person cannot view stays out of the page.
+    }
+  }
+  for (const file of files) {
+    if (file.organizationId !== actor.user.organizationId) continue
+    if (file.tableId) {
+      if (allowedTables.has(file.tableId)) readable.add(file.id)
+      continue
+    }
+    if (actor.role === 'admin' || file.createdBy === actor.id) readable.add(file.id)
+  }
+  return readable
+}
+
 export async function listMedia(
   db: AppDatabase,
   actor: Subject,
@@ -482,28 +506,52 @@ export async function listMedia(
 ) {
   if (!actor.user) throw unauthorized()
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
-  const rows = await db
-    .select()
-    .from(mediaFiles)
-    .where(eq(mediaFiles.organizationId, actor.user.organizationId))
-    .orderBy(desc(mediaFiles.createdAt), desc(mediaFiles.id))
-    .limit(500)
-  let filtered = rows
-  const needle = input.q?.trim().toLowerCase()
-  if (needle) filtered = filtered.filter((file) => file.originalName.toLowerCase().includes(needle))
-  if (input.mime === 'image') filtered = filtered.filter((file) => file.mime.startsWith('image/'))
-  if (input.mime === 'pdf') filtered = filtered.filter((file) => file.mime === 'application/pdf')
-  if (input.cursor) {
-    const index = filtered.findIndex((file) => file.id === input.cursor)
-    if (index >= 0) filtered = filtered.slice(index + 1)
+  const organizationId = actor.user.organizationId
+  const needle = input.q?.trim()
+  const filters = [eq(mediaFiles.organizationId, organizationId)]
+  if (needle) filters.push(sql`${mediaFiles.originalName} ILIKE ${`%${escapeLike(needle)}%`} ESCAPE '\\'`)
+  if (input.mime === 'image') filters.push(sql`${mediaFiles.mime} ILIKE 'image/%'`)
+  if (input.mime === 'pdf') filters.push(eq(mediaFiles.mime, 'application/pdf'))
+  let cursor = input.cursor ?? null
+  const matched: (typeof mediaFiles.$inferSelect)[] = []
+  let exhausted = false
+  while (matched.length <= limit && !exhausted) {
+    const pageFilters = [...filters]
+    if (cursor) {
+      const [mark] = await db
+        .select({ id: mediaFiles.id, createdAt: mediaFiles.createdAt })
+        .from(mediaFiles)
+        .where(and(eq(mediaFiles.id, cursor), eq(mediaFiles.organizationId, organizationId)))
+        .limit(1)
+      if (mark) {
+        const older = or(
+          lt(mediaFiles.createdAt, mark.createdAt),
+          and(eq(mediaFiles.createdAt, mark.createdAt), lt(mediaFiles.id, mark.id)),
+        )
+        if (older) pageFilters.push(older)
+      }
+    }
+    const batch = await db
+      .select()
+      .from(mediaFiles)
+      .where(and(...pageFilters))
+      .orderBy(desc(mediaFiles.createdAt), desc(mediaFiles.id))
+      .limit(100)
+    if (batch.length === 0) {
+      exhausted = true
+      break
+    }
+    const allowed = await readableMediaIds(db, actor, batch)
+    for (const file of batch) {
+      if (!allowed.has(file.id)) continue
+      matched.push(file)
+      if (matched.length > limit) break
+    }
+    cursor = batch[batch.length - 1]?.id ?? null
+    if (batch.length < 100) exhausted = true
   }
-  const accessible = []
-  for (const file of filtered) {
-    if (await canReadMedia(db, actor, file)) accessible.push(file)
-    if (accessible.length > limit) break
-  }
-  const page = accessible.slice(0, limit)
-  const nextCursor = accessible.length > limit ? (page.at(-1)?.id ?? null) : null
+  const page = matched.slice(0, limit)
+  const nextCursor = matched.length > limit ? (page.at(-1)?.id ?? null) : null
   const labels = await loadUploadLabels(db, page)
   const usageMap = await findMediaUsages(
     db,
@@ -623,20 +671,52 @@ export async function createJob(db: AppDatabase, type: string, payload: unknown,
 }
 
 export async function runJob(db: AppDatabase, jobId: string, handler: (payload: unknown, attempts: number) => Promise<unknown>) {
-  const [job] = await db.select().from(backgroundJobs).where(eq(backgroundJobs.id, jobId)).limit(1)
-  if (!job) throw notFound()
-  const attempts = job.attempts + 1
+  const claimed = await db.transaction(async (tx) => {
+    const [job] = await tx.select().from(backgroundJobs).where(eq(backgroundJobs.id, jobId)).for('update').limit(1)
+    if (!job) return null
+    if (job.status === 'completed' || (job.status === 'running' && job.result != null)) {
+      if (job.status !== 'completed') {
+        await tx.update(backgroundJobs).set({ status: 'completed', updatedAt: new Date() }).where(eq(backgroundJobs.id, jobId))
+      }
+      return { kind: 'done' as const, result: job.result }
+    }
+    if (job.status === 'failed') return { kind: 'failed' as const, error: job.error ?? 'Job failed' }
+    if (job.status === 'running') return { kind: 'busy' as const }
+    const attempts = job.attempts + 1
+    await tx
+      .update(backgroundJobs)
+      .set({ status: 'running', attempts, updatedAt: new Date() })
+      .where(eq(backgroundJobs.id, jobId))
+    return { kind: 'claimed' as const, payload: job.payload, attempts, maxAttempts: job.maxAttempts }
+  })
+  if (!claimed) throw notFound()
+  if (claimed.kind === 'done') return { status: 'completed' as const, result: claimed.result }
+  if (claimed.kind === 'failed') return { status: 'failed' as const, error: claimed.error }
+  if (claimed.kind === 'busy') return { status: 'completed' as const, result: null }
   try {
-    const result = await handler(job.payload, attempts)
-    await db.update(backgroundJobs).set({ status: 'completed', attempts, result: result as never, updatedAt: new Date() }).where(eq(backgroundJobs.id, jobId))
+    const result = await handler(claimed.payload, claimed.attempts)
+    await db
+      .update(backgroundJobs)
+      .set({ result: result as never, updatedAt: new Date() })
+      .where(eq(backgroundJobs.id, jobId))
+    await db
+      .update(backgroundJobs)
+      .set({ status: 'completed', attempts: claimed.attempts, updatedAt: new Date() })
+      .where(eq(backgroundJobs.id, jobId))
     return { status: 'completed' as const, result }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Job failed'
-    if (attempts < job.maxAttempts) {
-      await db.update(backgroundJobs).set({ status: 'retry', attempts, error: message, updatedAt: new Date() }).where(eq(backgroundJobs.id, jobId))
+    if (claimed.attempts < claimed.maxAttempts) {
+      await db
+        .update(backgroundJobs)
+        .set({ status: 'retry', attempts: claimed.attempts, error: message, updatedAt: new Date() })
+        .where(eq(backgroundJobs.id, jobId))
       throw error
     }
-    await db.update(backgroundJobs).set({ status: 'failed', attempts, error: message, updatedAt: new Date() }).where(eq(backgroundJobs.id, jobId))
+    await db
+      .update(backgroundJobs)
+      .set({ status: 'failed', attempts: claimed.attempts, error: message, updatedAt: new Date() })
+      .where(eq(backgroundJobs.id, jobId))
     return { status: 'failed' as const, error: message }
   }
 }

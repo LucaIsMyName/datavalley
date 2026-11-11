@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from './ui/button'
 import { useCrumbs } from './breadcrumbs'
 
 export function Page({ title, actions, children }: { title: ReactNode; actions?: ReactNode; children: ReactNode }) {
@@ -105,11 +106,16 @@ export function EmptyState({ title, body, actions }: { title: string; body: stri
   )
 }
 
-export function ErrorState({ message }: { message: string }) {
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const { t } = useTranslation()
   return (
-    <div role="alert" className="flex h-40 items-center justify-center border border-danger/40 bg-card px-4 text-center text-sm text-danger">
-      {message || t('error')}
+    <div role="alert" className="flex h-40 flex-col items-center justify-center gap-3 border border-danger/40 bg-card px-4 text-center text-sm text-danger">
+      <p>{message || t('error')}</p>
+      {onRetry ? (
+        <Button type="button" variant="outline" onClick={onRetry}>
+          {t('tryAgain')}
+        </Button>
+      ) : null}
     </div>
   )
 }

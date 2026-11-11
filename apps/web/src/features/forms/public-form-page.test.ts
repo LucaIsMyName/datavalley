@@ -1,9 +1,14 @@
 // @vitest-environment happy-dom
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { createInstance } from 'i18next'
+import { I18nextProvider, initReactI18next } from 'react-i18next'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import en from '../../locales/en/common.json'
 import { PublicFormPage } from './public-form-page'
+
+let provider: ReturnType<typeof createInstance>
 
 let root: Root
 let host: HTMLDivElement
@@ -15,6 +20,17 @@ afterEach(() => {
 })
 
 describe('public form page', () => {
+  beforeAll(async () => {
+    provider = createInstance()
+    await provider.use(initReactI18next).init({
+      lng: 'en',
+      fallbackLng: 'en',
+      defaultNS: 'common',
+      resources: { en: { common: en } },
+      interpolation: { escapeValue: false },
+    })
+  })
+
   it('shows the fields and sends the filled values', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -38,12 +54,16 @@ describe('public form page', () => {
     await act(async () => {
       root.render(
         createElement(
-          MemoryRouter,
-          { initialEntries: ['/forms/tok'] },
+          I18nextProvider,
+          { i18n: provider },
           createElement(
-            Routes,
-            null,
-            createElement(Route, { path: '/forms/:token', element: createElement(PublicFormPage) }),
+            MemoryRouter,
+            { initialEntries: ['/forms/tok'] },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, { path: '/forms/:token', element: createElement(PublicFormPage) }),
+            ),
           ),
         ),
       )

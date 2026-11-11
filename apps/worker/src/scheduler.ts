@@ -67,7 +67,7 @@ export function presetBucket(preset: string, now = new Date()) {
 
 export function startConnectorScheduler(env: Env, db: AppDatabase) {
   const url = env.REDIS_URL?.trim()
-  if (!url) return
+  if (!url) return async () => {}
   const connection = new Redis(url, { maxRetriesPerRequest: null })
   const queue = new Queue('datavalley', { connection })
   const tick = async () => {
@@ -104,5 +104,10 @@ export function startConnectorScheduler(env: Env, db: AppDatabase) {
       console.error('Connector scheduler tick failed', error)
     })
   void run()
-  setInterval(run, 60_000)
+  const timer = setInterval(run, 60_000)
+  return async () => {
+    clearInterval(timer)
+    await queue.close()
+    await connection.quit()
+  }
 }

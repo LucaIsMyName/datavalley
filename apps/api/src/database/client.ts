@@ -48,12 +48,23 @@ export async function createDatabase(env: Env): Promise<DatabaseHandle> {
   pool.on('connect', (client) => {
     void client.query(`SET statement_timeout = ${timeout}`)
   })
-  await applyMigrations(
-    async (sql) => {
-      await pool.query(sql)
-    },
-    async (sql) => (await pool.query<{ id: string }>(sql)).rows,
-  )
+  // One session holds the lock for the whole migration so two processes cannot apply the same file.
+  const locked = await pool.connect()
+  try {
+    await locked.query('SELECT pg_advisory_lock(872341, 162342)')
+    try {
+      await applyMigrations(
+        async (statement) => {
+          await locked.query(statement)
+        },
+        async (statement) => (await locked.query<{ id: string }>(statement)).rows,
+      )
+    } finally {
+      await locked.query('SELECT pg_advisory_unlock(872341, 162342)')
+    }
+  } finally {
+    locked.release()
+  }
   return {
     db: drizzlePg(pool, { schema }) as unknown as AppDatabase,
     close: () => pool.end(),

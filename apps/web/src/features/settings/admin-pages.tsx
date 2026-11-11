@@ -414,6 +414,7 @@ export function ApiKeysPage() {
         <div className="min-h-0" />
       )}
       {keys.isLoading ? <LoadingBlock variant="rows" /> : null}
+      {keys.isError ? <ErrorState message={(keys.error as Error).message} onRetry={() => void keys.refetch()} /> : null}
       {keys.data && keys.data.apiKeys.length === 0 ? (
         <EmptyState title={t('emptyApiKeys')} body={t('emptyApiKeys')} />
       ) : null}

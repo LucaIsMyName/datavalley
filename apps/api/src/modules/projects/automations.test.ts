@@ -1,7 +1,7 @@
 import { builtinStageRule, type AutomationFlow, type CustomAutomationRule } from '@datavalley/shared'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { projects } from '../../database/schema.js'
+import { notifications, projects } from '../../database/schema.js'
 import { ApiSession, createHarness, createUser, login, type Harness } from '../../test/harness.js'
 
 const password = 'correct horse battery'
@@ -495,6 +495,56 @@ describe('activity timeline and automation rules', () => {
       relationId: link.json().relation.id as string,
     }
   }
+
+  it('keeps a rejected automation on the record and in the notification bell', async () => {
+    const { session, projectId } = await crm()
+    const tables = await tableList(session, projectId)
+    const peopleId = idOf(tables, 'People')
+    const people = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}` })
+    const name = column(people.json().table, 'Name')
+    const email = column(people.json().table, 'Email')
+    const saved = await session.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/automations`,
+      payload: {
+        rules: [],
+        flows: [
+          {
+            id: '77777777-7777-4777-8777-777777777777',
+            name: 'Bad mail',
+            enabled: true,
+            nodes: [
+              { id: 'start', type: 'trigger', tableId: peopleId, event: 'column_changed', columnId: name.id, position: { x: 0, y: 0 } },
+              {
+                id: 'write',
+                type: 'action',
+                action: 'update_source',
+                tableId: peopleId,
+                linkColumnId: null,
+                fields: [{ columnId: email.id, value: { kind: 'literal', value: 'not-an-email' } }],
+                position: { x: 80, y: 80 },
+              },
+            ],
+            edges: [{ id: 'wire', source: 'start', target: 'write', when: null }],
+          },
+        ],
+      },
+    })
+    expect(saved.statusCode).toBe(200)
+    const rows = await session.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}/rows` })
+    const person = (rows.json().rows as { id: string; version: number }[])[0]
+    if (!person) throw new Error('Missing person')
+    const patched = await session.inject({
+      method: 'PATCH',
+      url: `/api/v1/rows/${person.id}`,
+      payload: { version: person.version, cells: { [name.id]: 'Changed' } },
+    })
+    expect(patched.statusCode).toBe(200)
+    const history = await session.inject({ method: 'GET', url: `/api/v1/rows/${person.id}/history` })
+    expect(JSON.stringify(history.json())).toContain('must be an email address')
+    const notices = await harness.db.select().from(notifications)
+    expect(notices.some((notice) => notice.type === 'automation.failed' && notice.body.includes('email'))).toBe(true)
+  })
 
   async function crm() {
     harness = await createHarness()

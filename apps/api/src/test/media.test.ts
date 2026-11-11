@@ -135,6 +135,11 @@ describe('media access', () => {
     const listed = await ada.inject({ method: 'GET', url: '/api/v1/media' })
     expect(listed.statusCode).toBe(200)
     expect(listed.json().files.map((file: { id: string }) => file.id)).toContain(libraryId)
+    const filtered = await ada.inject({ method: 'GET', url: '/api/v1/media?q=dot&mime=image&limit=1' })
+    expect(filtered.statusCode).toBe(200)
+    expect(filtered.json().files.map((file: { id: string }) => file.id)).toEqual([libraryId])
+    const pdfOnly = await ada.inject({ method: 'GET', url: '/api/v1/media?mime=pdf' })
+    expect(pdfOnly.json().files).toEqual([])
 
     const column = await ada.inject({
       method: 'POST',

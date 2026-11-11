@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { toast } from 'sonner'
+import { ErrorState } from '../../components/states'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Input } from '../../components/ui/input'
@@ -109,6 +110,7 @@ export function AutomationsPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:p-6 border-t border-border">
       <p className="text-sm text-muted-foreground">{t('automationHelp')}</p>
       {query.isLoading ? <p className="text-sm text-muted-foreground">{t('loading')}</p> : null}
+      {query.isError ? <ErrorState message={(query.error as Error).message} onRetry={() => void query.refetch()} /> : null}
       {canEdit || !query.data ? null : <p className="text-sm text-muted-foreground">{t('flowReadOnly')}</p>}
       <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
         <div className="flex w-full shrink-0 flex-col gap-2 md:w-56">

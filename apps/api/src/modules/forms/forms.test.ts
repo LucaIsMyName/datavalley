@@ -364,6 +364,92 @@ describe('public forms, quotes, and privacy', () => {
     expect((await member.inject({ method: 'DELETE', url: `/api/v1/rows/${personId}/privacy` })).statusCode).toBe(404)
     expect((await admin.inject({ method: 'GET', url: `/api/v1/rows/${personId}/record` })).statusCode).toBe(200)
   })
+
+  it('refunds the daily quota when the submission is rejected and stays on that table', async () => {
+    harness = await createHarness()
+    await createUser(harness.db, harness.env, harness.organizationId, {
+      username: 'ada',
+      email: 'ada@example.com',
+      password,
+      role: 'admin',
+    })
+    const admin = await new ApiSession(harness.app).prepare()
+    expect((await login(admin, 'ada', password)).statusCode).toBe(200)
+    const project = await admin.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: { name: 'Pipeline', template: 'crm' },
+    })
+    const projectId = project.json().project.id as string
+    const tables = await admin.inject({ method: 'GET', url: `/api/v1/projects/${projectId}/tables` })
+    const listed = tables.json().tables as { id: string; name: string }[]
+    const peopleId = listed.find((table) => table.name === 'People')?.id ?? ''
+    const tasksId = listed.find((table) => table.name === 'Tasks')?.id ?? ''
+    const people = await admin.inject({ method: 'GET', url: `/api/v1/tables/${peopleId}` })
+    const tasks = await admin.inject({ method: 'GET', url: `/api/v1/tables/${tasksId}` })
+    const emailId = (people.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Email')?.id ?? ''
+    const taskNameId = (tasks.json().table.columns as { id: string; name: string }[]).find((column) => column.name === 'Name')?.id ?? ''
+    const saved = await admin.inject({
+      method: 'PUT',
+      url: `/api/v1/projects/${projectId}/automations`,
+      payload: {
+        rules: [],
+        flows: [
+          {
+            id: '66666666-6666-4666-8666-666666666666',
+            name: 'Copy',
+            enabled: true,
+            nodes: [
+              { id: 'start', type: 'trigger', tableId: peopleId, event: 'row_created', columnId: null, position: { x: 0, y: 0 } },
+              {
+                id: 'make',
+                type: 'action',
+                action: 'create',
+                tableId: tasksId,
+                linkColumnId: null,
+                fields: [{ columnId: taskNameId, value: { kind: 'literal', value: 'From form' } }],
+                position: { x: 80, y: 80 },
+              },
+            ],
+            edges: [{ id: 'wire', source: 'start', target: 'make', when: null }],
+          },
+        ],
+      },
+    })
+    expect(saved.statusCode).toBe(200)
+    const form = await admin.inject({
+      method: 'PUT',
+      url: `/api/v1/tables/${peopleId}/form`,
+      payload: { columnIds: [emailId], dailyLimit: 1 },
+    })
+    const token = form.json().form.token as string
+    const rejected = await harness.app.inject({
+      method: 'POST',
+      url: `/api/v1/public/forms/${token}`,
+      payload: { cells: { [emailId]: 'not-an-email' } },
+    })
+    expect(rejected.statusCode).toBe(400)
+    const accepted = await harness.app.inject({
+      method: 'POST',
+      url: `/api/v1/public/forms/${token}`,
+      payload: { cells: { [emailId]: 'ada@example.com' } },
+    })
+    expect(accepted.statusCode).toBe(200)
+    const taskRows = await admin.inject({ method: 'GET', url: `/api/v1/tables/${tasksId}/rows` })
+    const titles = (taskRows.json().rows as { title?: string; cells: Record<string, unknown> }[]).map(
+      (row) => row.cells[taskNameId],
+    )
+    expect(titles).not.toContain('From form')
+    const direct = await admin.inject({
+      method: 'POST',
+      url: `/api/v1/tables/${peopleId}/rows`,
+      payload: { cells: { [emailId]: 'bea@example.com' } },
+    })
+    expect(direct.statusCode).toBe(200)
+    const after = await admin.inject({ method: 'GET', url: `/api/v1/tables/${tasksId}/rows` })
+    const afterTitles = (after.json().rows as { cells: Record<string, unknown> }[]).map((row) => row.cells[taskNameId])
+    expect(afterTitles).toContain('From form')
+  })
 })
 
 async function renameColumns(session: ApiSession, tableId: string) {

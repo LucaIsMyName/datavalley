@@ -19,42 +19,38 @@ if (!redisUrl) {
   process.exit(1)
 }
 
+const databaseModule = '../../api/src/database/client.ts'
+const envModule = '../../api/src/config/env.ts'
+const jobsModule = '../../api/src/jobs/process.ts'
+const schedulerModule = './scheduler.ts'
+const { createDatabase } = await import(databaseModule)
+const { loadEnv } = await import(envModule)
+const { dispatchBackgroundJob } = await import(jobsModule)
+const { startConnectorScheduler } = await import(schedulerModule)
+
+const env = loadEnv()
+// Migrate once when the process starts. Opening a pool per job would migrate on every sync.
+const database = await createDatabase(env)
+let stopScheduler: (() => Promise<void>) | undefined
+
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null })
 const worker = new Worker(
   'datavalley',
   async (job) => {
-    const databaseModule = '../../api/src/database/client.ts'
-    const envModule = '../../api/src/config/env.ts'
-    const jobsModule = '../../api/src/jobs/process.ts'
-    const { createDatabase } = await import(databaseModule)
-    const { loadEnv } = await import(envModule)
-    const { dispatchBackgroundJob } = await import(jobsModule)
-    const env = loadEnv()
-    const database = await createDatabase(env)
-    try {
-      await dispatchBackgroundJob(database.db, env, String(job.data.jobId))
-    } finally {
-      await database.close()
-    }
+    await dispatchBackgroundJob(database.db, env, String(job.data.jobId))
   },
   { connection },
 )
 
-worker.on('ready', async () => {
+worker.on('ready', () => {
   console.log('worker ready')
-  const envModule = '../../api/src/config/env.ts'
-  const databaseModule = '../../api/src/database/client.ts'
-  const schedulerModule = './scheduler.ts'
-  const { loadEnv } = await import(envModule)
-  const { createDatabase } = await import(databaseModule)
-  const { startConnectorScheduler } = await import(schedulerModule)
-  const env = loadEnv()
-  const database = await createDatabase(env)
-  startConnectorScheduler(env, database.db)
+  stopScheduler = startConnectorScheduler(env, database.db)
 })
 
 const shutdown = async () => {
   await worker.close()
+  if (stopScheduler) await stopScheduler()
+  await database.close()
   await connection.quit()
   process.exit(0)
 }

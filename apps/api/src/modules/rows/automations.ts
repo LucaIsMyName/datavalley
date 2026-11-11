@@ -22,11 +22,13 @@ export type AutomationEvent = 'row_created' | 'column_changed' | 'row_deleted'
 type Hooks = {
   create: (tableId: string, cells: Record<string, unknown>) => Promise<unknown>
   update: (tableId: string, rowId: string, cells: Record<string, unknown>) => Promise<unknown>
+  onFailure?: (rowId: string, columnId: string | null, message: string) => Promise<void>
 }
 
 type Walk = {
   tableId: string
   rowId: string
+  sourceColumnId: string | null
   current: Record<string, unknown>
   before: Record<string, unknown>
   createdRowId: string | null
@@ -41,6 +43,7 @@ export async function runProjectAutomations(
   changes: StageChange[],
   hooks: Hooks,
   event: AutomationEvent = 'column_changed',
+  localOnly = false,
 ) {
   const moved = changes.filter((change) => JSON.stringify(change.before ?? null) !== JSON.stringify(change.after ?? null))
   const relevant = event === 'column_changed' ? moved : changes
@@ -50,7 +53,9 @@ export async function runProjectAutomations(
     .from(projects)
     .where(eq(projects.id, table.projectId))
     .limit(1)
-  const flows = effectiveFlows(project?.settings).filter((flow) => flow.enabled)
+  const flows = effectiveFlows(project?.settings)
+    .filter((flow) => flow.enabled)
+    .filter((flow) => !localOnly || flowStaysOnTable(flow, table.id))
   if (flows.length === 0) return
   const labels = await nameLabels(db, table.id)
   const today = new Date().toISOString().slice(0, 10)
@@ -68,6 +73,7 @@ export async function runProjectAutomations(
       await walkFlow(db, columns, flow, hooks, {
         tableId: table.id,
         rowId,
+        sourceColumnId: trigger.columnId,
         current,
         before,
         createdRowId: null,
@@ -160,9 +166,22 @@ async function runAction(db: AppDatabase, node: FlowActionNode, hooks: Hooks, ct
     }
     return createdId(await hooks.create(targetId, cells))
   } catch (error) {
-    if (error instanceof AppError && error.status < 500) return null
+    if (error instanceof AppError && error.status < 500) {
+      await hooks.onFailure?.(ctx.rowId, ctx.sourceColumnId, error.message)
+      return null
+    }
     throw error
   }
+}
+
+/** A public submission may update its own table. It must not write another table. */
+function flowStaysOnTable(flow: AutomationFlow, tableId: string) {
+  return flow.nodes.every((node) => {
+    if (node.type !== 'action') return true
+    if (node.action === 'update_linked') return false
+    if (node.action === 'update_source') return true
+    return node.tableId === tableId
+  })
 }
 
 function resolveField(column: LoadedColumn, field: FlowField, ctx: Walk) {

@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
-import { LoadingBlock } from '../../components/states'
+import { ErrorState, LoadingBlock } from '../../components/states'
 import { api } from '../../lib/api'
 
 type MailTemplate = { id: string; name: string; subject: string; body: string }
@@ -40,6 +40,7 @@ export function RecordMail({ rowId, readOnly }: { rowId: string; readOnly: boole
   return (
     <section className="flex flex-col gap-2">
       {mail.isLoading && !mail.data ? <LoadingBlock variant="rows" /> : null}
+      {mail.isError ? <ErrorState message={(mail.error as Error).message} onRetry={() => void mail.refetch()} /> : null}
       {mail.data && mail.data.messages.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('mailLogEmpty')}</p>
       ) : null}

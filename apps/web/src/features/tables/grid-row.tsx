@@ -14,6 +14,7 @@ import { presentFormatRow } from './format-values'
 import { columnHasFormatRules } from './grid-edit'
 import { rowTint } from './grid-ux'
 import { beforeDropEdge } from './drop-place'
+import { GUTTER_WIDTH } from './table-columns'
 import { TableCellInput } from './table-cell-input'
 import type { PresencePerson } from '@datavalley/shared'
 import { PresenceChip, remoteRing } from '../realtime/presence-chip'
@@ -71,6 +72,7 @@ type GridBodyRowProps = {
   row: RowRecord
   rowIndex: number
   columns: Column[]
+  pinnedColumnId: string | null
   visible: Column[]
   rules: FormatRule[]
   tags: CatalogItem[]
@@ -101,6 +103,7 @@ function GridBodyRowView({
   row,
   rowIndex,
   columns,
+  pinnedColumnId,
   visible,
   rules,
   tags,
@@ -273,10 +276,13 @@ function GridBodyRowView({
         const remotes = cellPeers(peers, tableId, row.id, column.id)
         const remoteDraft = !active ? remotes.find((person) => person.editing && person.draft != null)?.draft : undefined
         const presenceRing = remoteRing(remotes, picked || lit)
+        const pinned = column.id === pinnedColumnId
+        const pinnedBackground = spotlightRow && !spotlightColumnId ? 'bg-accent' : aiRow ? 'bg-accent' : 'bg-card'
         return (
           <td
             key={column.id}
-            className={`relative isolate ${dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0`}
+            className={`relative isolate ${dateEditing ? 'overflow-visible' : 'overflow-hidden'} ${TABLE_GRID_DIVIDER} p-0 ${pinned ? `sticky z-[9] ${pinnedBackground}` : ''}`}
+            style={pinned ? { left: GUTTER_WIDTH } : undefined}
           >
             {dropColumnId === column.id ? (
               <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary" />
@@ -354,6 +360,7 @@ function sameRow(prev: GridBodyRowProps, next: GridBodyRowProps) {
     prev.row === next.row &&
     prev.rowIndex === next.rowIndex &&
     prev.columns === next.columns &&
+    prev.pinnedColumnId === next.pinnedColumnId &&
     prev.visible === next.visible &&
     prev.rules === next.rules &&
     prev.tags === next.tags &&

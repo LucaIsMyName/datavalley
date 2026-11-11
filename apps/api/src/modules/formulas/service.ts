@@ -9,6 +9,7 @@ import {
   ownRowFormula,
   parseFormula,
   resolveBrackets,
+  isFormulaError,
   matchesCriterion,
   runFormula,
   wholeColumnInMath,
@@ -232,6 +233,12 @@ function sameValue(left: FormulaValue, right: FormulaValue) {
   return matchesCriterion(left, right)
 }
 
+type FormulaBudget = { steps: number; depth: number }
+
+function freshBudget(): FormulaBudget {
+  return { steps: 0, depth: 0 }
+}
+
 class ValueMap {
   private columns = new Map<string, LoadedColumn | null>()
   private tagNames = new Map<string, Map<string, string>>()
@@ -240,11 +247,14 @@ class ValueMap {
   private titles = new Map<string, string | null>()
   private series = new Map<string, FormulaValue[]>()
   private denied?: Set<string>
+  private chainDepths = new Map<string, number>()
+  private chainVisiting = new Set<string>()
 
   constructor(
     private db: AppDatabase,
     private subject: Subject,
     private stack: Set<string>,
+    readonly budget: FormulaBudget = freshBudget(),
   ) {}
 
   /** Rows hidden from this subject by a row-level view deny; formulas must not read them. */
@@ -351,6 +361,50 @@ class ValueMap {
     return null
   }
 
+  /**
+   * How many formula columns this cell reads, including itself only when it
+   * reads another formula. A cached child still counts, so the limit does not
+   * depend on which formula is calculated first.
+   */
+  async chainDepth(columnId: string, rowId: string): Promise<number> {
+    const key = `${columnId}:${rowId}`
+    const known = this.chainDepths.get(key)
+    if (known != null) return known
+    if (this.chainVisiting.has(key)) return 0
+    this.chainVisiting.add(key)
+    try {
+      const column = await this.column(columnId)
+      if (!column || column.type !== 'formula') {
+        this.chainDepths.set(key, 0)
+        return 0
+      }
+      const [formula] = await this.db
+        .select()
+        .from(formulas)
+        .where(and(eq(formulas.columnId, columnId), eq(formulas.rowId, rowId)))
+        .limit(1)
+      if (!formula) {
+        this.chainDepths.set(key, 0)
+        return 0
+      }
+      let deepest = 0
+      let readsFormula = false
+      for (const ref of collectRefs(formula.ast as AstNode)) {
+        if (ref.tableId && !ref.rowId) continue
+        const child = await this.column(ref.columnId)
+        if (!child || child.type !== 'formula') continue
+        readsFormula = true
+        const childDepth = await this.chainDepth(ref.columnId, ref.rowId ?? rowId)
+        if (childDepth > deepest) deepest = childDepth
+      }
+      const depth = readsFormula ? deepest + 1 : 0
+      this.chainDepths.set(key, depth)
+      return depth
+    } finally {
+      this.chainVisiting.delete(key)
+    }
+  }
+
   async cell(column: LoadedColumn, rowId: string): Promise<FormulaValue> {
     if (!(await canReadColumn(this.db, this.subject, column.id))) return { error: '#REF' }
     if ((await this.deniedRows()).has(rowId)) return { error: '#REF' }
@@ -360,13 +414,19 @@ class ValueMap {
       return column.config.style === 'uuid' ? row.id : String(row.rowNumber ?? '')
     }
     if (column.type === 'formula') {
+      if (this.budget.depth >= LIMITS.maxDependencyDepth) return { error: '#LIM' }
       const [formula] = await this.db
         .select()
         .from(formulas)
         .where(and(eq(formulas.columnId, column.id), eq(formulas.rowId, rowId)))
         .limit(1)
       if (!formula) return null
-      return evaluateStored(this.db, this.subject, formula.id, rowId, this.stack)
+      this.budget.depth += 1
+      try {
+        return await evaluateStored(this.db, this.subject, formula.id, rowId, this.stack, this.budget)
+      } finally {
+        this.budget.depth -= 1
+      }
     }
     const [cell] = await this.db
       .select()
@@ -392,9 +452,21 @@ class ValueMap {
     if (column.type === 'row_id') {
       values = rows.map((row) => (column.config.style === 'uuid' ? row.id : String(row.rowNumber ?? '')))
     } else if (column.type === 'formula') {
-      const stored = await this.db.select().from(formulas).where(eq(formulas.columnId, column.id))
-      const results = await evaluateFormulasForRows(this.db, this.subject, stored, { stack: this.stack })
-      values = rows.map((row) => results.get(formulaCellKey(row.id, column.id)) ?? null)
+      if (this.budget.depth >= LIMITS.maxDependencyDepth) {
+        values = rows.map(() => ({ error: '#LIM' as const }))
+      } else {
+        this.budget.depth += 1
+        try {
+          const stored = await this.db.select().from(formulas).where(eq(formulas.columnId, column.id))
+          const results = await evaluateFormulasForRows(this.db, this.subject, stored, {
+            stack: this.stack,
+            budget: this.budget,
+          })
+          values = rows.map((row) => results.get(formulaCellKey(row.id, column.id)) ?? null)
+        } finally {
+          this.budget.depth -= 1
+        }
+      }
     } else if (column.type === 'number' || column.type === 'currency') {
       const cells = await this.db
         .select({ rowId: tableCells.rowId, valueNumber: tableCells.valueNumber })
@@ -618,8 +690,7 @@ function refKey(ref: RefNode, rowId: string) {
   return `${ref.tableId ?? ''}|${ref.columnId}|${ref.rowId ?? rowId}`
 }
 
-async function preload(map: ValueMap, ast: AstNode, rowId: string) {
-  const values = new Map<string, FormulaValue>()
+async function preload(map: ValueMap, ast: AstNode, rowId: string, values: Map<string, FormulaValue>) {
   for (const ref of collectRefs(ast)) {
     const key = refKey(ref, rowId)
     if (values.has(key)) continue
@@ -634,7 +705,6 @@ async function preload(map: ValueMap, ast: AstNode, rowId: string) {
     }
     values.set(key, await map.cell(column, ref.rowId ?? rowId))
   }
-  return values
 }
 
 function callsNamed(node: AstNode, name: string, into: Extract<AstNode, { type: 'call' }>[] = []) {
@@ -683,51 +753,91 @@ async function foldSimpleAggregates(map: ValueMap, node: AstNode): Promise<AstNo
   return node
 }
 
-export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack = new Set<string>(), map?: ValueMap) {
-  if ((ast as { cycle?: boolean }).cycle) return { error: '#CYCLE' as const }
-  const shared = map ?? new ValueMap(db, subject, stack)
-  const folded = await foldSimpleAggregates(shared, ast)
-  const values = await preload(shared, folded, rowId)
-  const series = new Map<string, FormulaValue[]>()
-  for (const call of callsNamed(folded, 'LOOKUP')) {
+type EvalBag = {
+  values: Map<string, FormulaValue>
+  series: Map<string, FormulaValue[]>
+  criteria: Map<string, FormulaValue[]>
+  columnTables: Map<string, string>
+  related: Map<string, FormulaValue>
+}
+
+type Narrowed = { ast: AstNode } | { value: FormulaValue }
+
+function emptyBag(): EvalBag {
+  return {
+    values: new Map(),
+    series: new Map(),
+    criteria: new Map(),
+    columnTables: new Map(),
+    related: new Map(),
+  }
+}
+
+function formulaContext(map: ValueMap, rowId: string, bag: EvalBag) {
+  return {
+    budget: map.budget,
+    clock: () => new Date(),
+    range: () => [{ error: '#REF' as const }],
+    lookup: (_tableId: string, matchColumnId: string, needle: FormulaValue, resultColumnId: string) => {
+      const criteria = bag.series.get(matchColumnId)
+      const amounts = bag.series.get(resultColumnId)
+      if (!criteria || !amounts || criteria.some(isRefError)) return { error: '#REF' as const }
+      const index = criteria.findIndex((item) => sameValue(item, needle))
+      if (index < 0) return { error: '#N/A' as const }
+      return amounts[index] ?? null
+    },
+    relation: (fromColumnId: string, toColumnId: string) => bag.related.get(`${fromColumnId}:${toColumnId}`) ?? { error: '#N/A' as const },
+    column: (ref: RefNode) => bag.criteria.get(ref.columnId) ?? { error: '#REF' as const },
+    sumifTablesDiffer: (criteriaRef: RefNode, numbersRef: RefNode) => {
+      const left = bag.columnTables.get(criteriaRef.columnId)
+      const right = bag.columnTables.get(numbersRef.columnId)
+      return Boolean(left && right && left !== right)
+    },
+    get: (ref: RefNode) => {
+      const key = refKey(ref, rowId)
+      if (!bag.values.has(key)) return { error: '#REF' as const }
+      return bag.values.get(key) ?? null
+    },
+  }
+}
+
+async function loadCallResources(db: AppDatabase, map: ValueMap, node: AstNode, rowId: string, bag: EvalBag) {
+  for (const call of callsNamed(node, 'LOOKUP')) {
     for (const arg of [call.args[0], call.args[2]]) {
       if (!arg || arg.type !== 'ref' || !arg.ref.tableId) continue
-      const column = await shared.column(arg.ref.columnId)
+      const column = await map.column(arg.ref.columnId)
       if (!column) continue
-      series.set(arg.ref.columnId, await shared.columnSeries(column))
+      bag.series.set(arg.ref.columnId, await map.columnSeries(column))
     }
   }
-  const criteria = new Map<string, FormulaValue[]>()
-  const columnTables = new Map<string, string>()
-  for (const call of [...callsNamed(folded, 'COUNTIF'), ...callsNamed(folded, 'SUMIF')]) {
+  for (const call of [...callsNamed(node, 'COUNTIF'), ...callsNamed(node, 'SUMIF')]) {
     const indexes = call.name === 'SUMIF' ? [0, 2] : [0]
     for (const index of indexes) {
       const arg = call.args[index]
-      if (!arg || arg.type !== 'ref' || criteria.has(arg.ref.columnId)) continue
-      const column = await shared.column(arg.ref.columnId)
+      if (!arg || arg.type !== 'ref' || bag.criteria.has(arg.ref.columnId)) continue
+      const column = await map.column(arg.ref.columnId)
       if (!column) continue
-      columnTables.set(column.id, column.tableId)
-      criteria.set(arg.ref.columnId, await shared.columnSeries(column))
+      bag.columnTables.set(column.id, column.tableId)
+      bag.criteria.set(arg.ref.columnId, await map.columnSeries(column))
     }
   }
-  const related = new Map<string, FormulaValue>()
-  for (const call of callsNamed(folded, 'RELATION')) {
+  for (const call of callsNamed(node, 'RELATION')) {
     const fromArg = call.args[0]
     const toArg = call.args[1]
     if (!fromArg || fromArg.type !== 'ref' || !toArg || toArg.type !== 'ref') continue
-    const from = await shared.column(fromArg.ref.columnId)
-    const to = await shared.column(toArg.ref.columnId)
+    const from = await map.column(fromArg.ref.columnId)
+    const to = await map.column(toArg.ref.columnId)
     const key = `${fromArg.ref.columnId}:${toArg.ref.columnId}`
     if (!from || from.type !== 'relation' || !to) {
-      related.set(key, { error: '#VALUE' })
+      bag.related.set(key, { error: '#VALUE' })
       continue
     }
     const relationId = String(from.config.relationId ?? '')
     if (!relationId) {
-      related.set(key, null)
+      bag.related.set(key, null)
       continue
     }
-    const denied = await shared.deniedRows()
+    const denied = await map.deniedRows()
     const links = (
       await db
         .select()
@@ -735,37 +845,91 @@ export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNod
         .where(and(eq(relationRecords.relationId, relationId), eq(relationRecords.fromRowId, rowId)))
     ).filter((link) => !denied.has(link.toRowId))
     if (links.length === 0) {
-      related.set(key, null)
+      bag.related.set(key, null)
       continue
     }
     const linked: FormulaValue[] = []
-    for (const link of links) linked.push(await shared.cell(to, link.toRowId))
-    related.set(key, linked.some(isRefError) ? { error: '#REF' } : linked.length === 1 ? linked[0] : linked)
+    for (const link of links) linked.push(await map.cell(to, link.toRowId))
+    bag.related.set(key, linked.some(isRefError) ? { error: '#REF' } : linked.length === 1 ? linked[0] : linked)
   }
-  return runFormula(folded, {
-    clock: () => new Date(),
-    range: () => [{ error: '#REF' }],
-    lookup: (tableId, matchColumnId, needle, resultColumnId) => {
-      const criteria = series.get(matchColumnId)
-      const amounts = series.get(resultColumnId)
-      if (!criteria || !amounts || criteria.some(isRefError)) return { error: '#REF' }
-      const index = criteria.findIndex((item) => sameValue(item, needle))
-      if (index < 0) return { error: '#N/A' }
-      return amounts[index] ?? null
-    },
-    relation: (fromColumnId, toColumnId) => related.get(`${fromColumnId}:${toColumnId}`) ?? { error: '#N/A' },
-    column: (ref) => criteria.get(ref.columnId) ?? { error: '#REF' },
-    sumifTablesDiffer: (criteriaRef, numbersRef) => {
-      const left = columnTables.get(criteriaRef.columnId)
-      const right = columnTables.get(numbersRef.columnId)
-      return Boolean(left && right && left !== right)
-    },
-    get: (ref) => {
-      const key = refKey(ref, rowId)
-      if (!values.has(key)) return { error: '#REF' }
-      return values.get(key) ?? null
-    },
-  })
+}
+
+function conditionFlag(value: FormulaValue): boolean | FormulaValue {
+  if (isFormulaError(value) || Array.isArray(value)) return isFormulaError(value) ? value : { error: '#VALUE' }
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') return value.length > 0
+  return false
+}
+
+/** Loads and evaluates only the condition, so the branch that will not run is never read. */
+async function takenFlag(db: AppDatabase, map: ValueMap, node: AstNode, rowId: string, bag: EvalBag) {
+  const folded = await foldSimpleAggregates(map, node)
+  await preload(map, folded, rowId, bag.values)
+  await loadCallResources(db, map, folded, rowId, bag)
+  return conditionFlag(runFormula(folded, formulaContext(map, rowId, bag)))
+}
+
+async function narrowAst(db: AppDatabase, map: ValueMap, node: AstNode, rowId: string, bag: EvalBag): Promise<Narrowed> {
+  if (node.type === 'unary') {
+    const expr = await narrowAst(db, map, node.expr, rowId, bag)
+    if ('value' in expr) return expr
+    return { ast: { ...node, expr: expr.ast } }
+  }
+  if (node.type === 'binary') {
+    const left = await narrowAst(db, map, node.left, rowId, bag)
+    if ('value' in left) return left
+    const right = await narrowAst(db, map, node.right, rowId, bag)
+    if ('value' in right) return right
+    return { ast: { ...node, left: left.ast, right: right.ast } }
+  }
+  if (node.type !== 'call') return { ast: node }
+  if (node.name === 'IF' || node.name === 'IFNOT') {
+    const conditionNode = node.args[0]
+    const thenNode = node.args[1]
+    if (!conditionNode || !thenNode || node.args.length > 3) return { ast: node }
+    const condition = await narrowAst(db, map, conditionNode, rowId, bag)
+    if ('value' in condition) return condition
+    const flag = await takenFlag(db, map, condition.ast, rowId, bag)
+    if (typeof flag !== 'boolean') return { value: flag }
+    const takeThen = node.name === 'IF' ? flag : !flag
+    const branch = takeThen ? thenNode : node.args[2]
+    if (!branch) return { ast: { type: 'bool', value: false } }
+    return narrowAst(db, map, branch, rowId, bag)
+  }
+  if (node.name === 'IFS') {
+    if (node.args.length < 2 || node.args.length % 2 !== 0) return { ast: node }
+    for (let index = 0; index < node.args.length; index += 2) {
+      const conditionNode = node.args[index]
+      const resultNode = node.args[index + 1]
+      if (!conditionNode || !resultNode) return { value: { error: '#N/A' } }
+      const condition = await narrowAst(db, map, conditionNode, rowId, bag)
+      if ('value' in condition) return condition
+      const flag = await takenFlag(db, map, condition.ast, rowId, bag)
+      if (typeof flag !== 'boolean') return { value: flag }
+      if (flag) return narrowAst(db, map, resultNode, rowId, bag)
+    }
+    return { value: { error: '#N/A' } }
+  }
+  const args: AstNode[] = []
+  for (const arg of node.args) {
+    const narrowed = await narrowAst(db, map, arg, rowId, bag)
+    if ('value' in narrowed) return narrowed
+    args.push(narrowed.ast)
+  }
+  return { ast: { ...node, args } }
+}
+
+export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack = new Set<string>(), map?: ValueMap) {
+  if ((ast as { cycle?: boolean }).cycle) return { error: '#CYCLE' as const }
+  const shared = map ?? new ValueMap(db, subject, stack)
+  const bag = emptyBag()
+  const narrowed = await narrowAst(db, shared, ast, rowId, bag)
+  if ('value' in narrowed) return narrowed.value
+  const folded = await foldSimpleAggregates(shared, narrowed.ast)
+  await preload(shared, folded, rowId, bag.values)
+  await loadCallResources(db, shared, folded, rowId, bag)
+  return runFormula(folded, formulaContext(shared, rowId, bag))
 }
 
 async function tableDependencyStamp(db: AppDatabase, tableId: string) {
@@ -862,6 +1026,7 @@ async function expandStampDependencies(db: AppDatabase, roots: { ast: AstNode; r
       cellTargets.push({ columnId: ref.columnId, rowId: targetRowId })
     }
 
+    // Evaluation uses this same depth, so a formula past it is not read and its inputs stay out of the stamp.
     if (current.depth >= LIMITS.maxDependencyDepth) continue
 
     const columnIds = [...new Set([...cellTargets.map((target) => target.columnId), ...wholeColumnIds])]
@@ -1086,7 +1251,7 @@ export async function evaluateFormulasForRows(
   db: AppDatabase,
   subject: Subject,
   entries: (typeof formulas.$inferSelect)[],
-  options: { stack?: Set<string> } = {},
+  options: { stack?: Set<string>; budget?: FormulaBudget } = {},
 ): Promise<Map<string, FormulaValue>> {
   const values = new Map<string, FormulaValue>()
   if (entries.length === 0) return values
@@ -1113,7 +1278,8 @@ export async function evaluateFormulasForRows(
     entries,
   )
   const stack = options.stack ?? new Set<string>()
-  const sharedMap = new ValueMap(db, subject, stack)
+  const nested = options.budget != null
+  const sharedMap = new ValueMap(db, subject, stack, options.budget ?? freshBudget())
   const misses: {
     entry: (typeof formulas.$inferSelect)
     versionHash: string
@@ -1154,8 +1320,16 @@ export async function evaluateFormulasForRows(
       continue
     }
     stack.add(entry.id)
+    if (!nested) {
+      sharedMap.budget.steps = 0
+      sharedMap.budget.depth = 0
+    }
     try {
-      const resolved = await evaluateAst(db, subject, entry.ast as AstNode, entry.rowId, stack, sharedMap)
+      const chain = await sharedMap.chainDepth(entry.columnId, entry.rowId)
+      const resolved =
+        sharedMap.budget.depth + chain > LIMITS.maxDependencyDepth
+          ? { error: '#LIM' as const }
+          : await evaluateAst(db, subject, entry.ast as AstNode, entry.rowId, stack, sharedMap)
       await db
         .insert(formulaCache)
         .values({
@@ -1185,11 +1359,18 @@ function stampTime(value: Date | string | null | undefined) {
   return date.toISOString()
 }
 
-export async function evaluateStored(db: AppDatabase, subject: Subject, formulaId: string, rowId: string, stack = new Set<string>()) {
+export async function evaluateStored(
+  db: AppDatabase,
+  subject: Subject,
+  formulaId: string,
+  rowId: string,
+  stack = new Set<string>(),
+  budget = freshBudget(),
+) {
   if (stack.has(formulaId)) return { error: '#CYCLE' as const }
   const [formula] = await db.select().from(formulas).where(eq(formulas.id, formulaId)).limit(1)
   if (!formula) throw badRequest('Unknown formula')
-  const results = await evaluateFormulasForRows(db, subject, [formula], { stack })
+  const results = await evaluateFormulasForRows(db, subject, [formula], { stack, budget })
   if (!formula.columnId) return { error: '#N/A' as const }
   return results.get(formulaCellKey(formula.rowId, formula.columnId)) ?? { error: '#N/A' as const }
 }

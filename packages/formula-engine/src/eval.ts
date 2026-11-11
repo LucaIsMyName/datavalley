@@ -28,6 +28,8 @@ export type EvalContext = {
   blankItem?: boolean
   /** When set, comparisons follow conditional-formatting rules. Normal formulas leave this unset. */
   condition?: boolean
+  /** Shared by nested formulas so a chain cannot start a fresh step limit. */
+  budget?: { steps: number }
 }
 
 function err(code: FormulaErrorValue['error']): FormulaErrorValue {
@@ -124,6 +126,11 @@ function startOf(ctx: EvalContext): number {
 }
 
 function steps(ctx: EvalContext) {
+  if (ctx.budget) {
+    ctx.budget.steps += 1
+    if (ctx.budget.steps > LIMITS.maxSteps) throw Object.assign(new Error('step limit'), { code: '#LIM' })
+    return
+  }
   const next = (counted.get(ctx) ?? 0) + 1
   counted.set(ctx, next)
   if (next > LIMITS.maxSteps) throw Object.assign(new Error('step limit'), { code: '#LIM' })

@@ -52,7 +52,7 @@ import {
 import { importDuplicateWarnings } from './duplicates.js'
 import { previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
-import { announceAssignments, readPreviousUserIds, recordTitle, titleFromInput } from './notices.js'
+import { announceAssignments, readPreviousUserIds, recordAutomationFailure, recordTitle, titleFromInput } from './notices.js'
 import { runProjectAutomations } from './automations.js'
 import { rowDeleteRestriction } from './delete-guard.js'
 import { footerColumns, groupSummary, queryRows, type SortSpec } from './query.js'
@@ -828,6 +828,7 @@ export async function createRow(
   notify = true,
   env?: Env,
   runAutomations = true,
+  automationScope: 'all' | 'local' = 'all',
 ) {
   const table = await requireEditableTable(db, subject, tableId, 'edit')
   const dataTableId = table.mirrorOfTableId ?? table.id
@@ -898,6 +899,7 @@ export async function createRow(
       initial,
       env,
       'row_created',
+      automationScope,
     )
   }
   const [freshVersion] = await db
@@ -1277,6 +1279,7 @@ async function followStageChanges(
   changes: { rowId: string; columnId: string; before: unknown; after: unknown }[],
   env?: Env,
   event: 'row_created' | 'column_changed' | 'row_deleted' = 'column_changed',
+  automationScope: 'all' | 'local' = 'all',
 ) {
   try {
     await runProjectAutomations(
@@ -1288,8 +1291,10 @@ async function followStageChanges(
       {
         create: (tableId, cells) => createRow(db, subject, tableId, cells, {}, true, env, false),
         update: (tableId, rowId, cells) => writeAutomationCells(db, subject, tableId, rowId, cells),
+        onFailure: (rowId, columnId, message) => recordAutomationFailure(db, subject, table, rowId, columnId, message),
       },
       event,
+      automationScope === 'local',
     )
   } catch (error) {
     if (error instanceof AppError && error.status < 500) return

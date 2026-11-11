@@ -84,6 +84,12 @@ describe('formula engine', () => {
     expect(run(`${'('.repeat(20)}1${')'.repeat(20)} + 1`)).toBe(2)
   })
 
+  it('keeps one step budget across nested formula calls', () => {
+    const budget = { steps: LIMITS.maxSteps }
+    expect(run('1', {}, { budget })).toEqual({ error: '#LIM' })
+    expect(budget.steps).toBe(LIMITS.maxSteps + 1)
+  })
+
   it('returns spreadsheet errors for bad math, missing refs, and cycles', () => {
     expect(run('1/0')).toEqual({ error: '#DIV/0' })
     expect(run('AVERAGE("a")')).toEqual({ error: '#DIV/0' })

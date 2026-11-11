@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { dataConnectors, tableCells, tableConnectorBindings, users } from '../../database/schema.js'
+import { dataConnectors, fieldHistory, tableCells, tableColumns, tableConnectorBindings, users } from '../../database/schema.js'
 import { sendMail } from '../../mail/smtp.js'
 import type { Subject } from '../../security/subject.js'
 import { notify } from '../platform/service.js'
@@ -52,6 +52,37 @@ export function titleFromInput(columns: { id: string; type: string; name: string
   if (!column) return ''
   const value = cells[column.id]
   return typeof value === 'string' ? value.trim() : ''
+}
+
+export async function recordAutomationFailure(
+  db: AppDatabase,
+  subject: Subject,
+  table: { id: string; name: string; projectId: string },
+  rowId: string,
+  columnId: string | null,
+  message: string,
+) {
+  const text = message.slice(0, 500)
+  if (columnId) {
+    const [column] = await db.select({ id: tableColumns.id }).from(tableColumns).where(eq(tableColumns.id, columnId)).limit(1)
+    if (column) {
+      await db.insert(fieldHistory).values({
+        tableId: table.id,
+        rowId,
+        columnId,
+        actorId: subject.kind === 'user' ? subject.id : null,
+        beforeText: '',
+        afterText: text,
+      })
+    }
+  }
+  if (subject.kind !== 'user') return
+  await notify(db, subject.id, {
+    type: 'automation.failed',
+    title: `Automation failed: ${table.name}`,
+    body: text,
+    metadata: { href: `/projects/${table.projectId}/tables/${table.id}/rows/${rowId}` },
+  })
 }
 
 export async function announceAssignments(

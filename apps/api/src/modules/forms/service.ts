@@ -93,6 +93,13 @@ async function claimSubmission(db: AppDatabase, formId: string) {
   return claimed.length > 0
 }
 
+async function releaseSubmission(db: AppDatabase, formId: string) {
+  await db
+    .update(publicForms)
+    .set({ windowCount: sql`GREATEST(${publicForms.windowCount} - 1, 0)` })
+    .where(eq(publicForms.id, formId))
+}
+
 export async function submitPublicForm(
   db: AppDatabase,
   token: string,
@@ -120,15 +127,24 @@ export async function submitPublicForm(
     id: form.tableId,
     parents: { project: form.projectId },
   })
-  const row = await createRow(
-    db,
-    { kind: 'user', id: owner.id, role: owner.role === 'admin' ? 'admin' : 'user', source: 'web', user: owner },
-    form.tableId,
-    input,
-    {},
-    true,
-  )
-  return { id: row.id }
+  const subject = {
+    kind: 'user' as const,
+    id: owner.id,
+    role: owner.role === 'admin' ? ('admin' as const) : ('user' as const),
+    source: 'web' as const,
+    user: owner,
+  }
+  try {
+    const row = await createRow(db, subject, form.tableId, input, {}, true, undefined, true, 'local')
+    return { id: row.id }
+  } catch (error) {
+    try {
+      await releaseSubmission(db, form.id)
+    } catch {
+      // The row was not created. Surface that failure even when the quota refund does not land.
+    }
+    throw error
+  }
 }
 
 async function loadForm(db: AppDatabase, token: string) {
