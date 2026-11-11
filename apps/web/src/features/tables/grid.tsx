@@ -92,6 +92,7 @@ import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import { historyFlags, redoTable, undoTable } from './history'
 import { activeFilter, filtersFrom, footerValue, moveIdBefore } from './grid-model'
 import { anchor, editingAfterRelease, invalidSignatureFor, showEditError } from './grid-edit'
+import { followKeyboardSelection } from './grid-follow'
 import { gridKeyCommand, isGridTypingTarget } from './grid-keyboard'
 import { useColumnCommands } from './use-column-commands'
 import { useRowCommands } from './use-row-commands'
@@ -575,6 +576,21 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const toggleRef = useRef<() => void>(() => {})
   const findRef = useRef<() => void>(() => {})
   const typeRef = useRef<(char: string) => void>(() => {})
+  const keyboardFollowRef = useRef<{
+    mode: string
+    hasNextPage: boolean
+    isFetchingNextPage: boolean
+    fetchNextPage: () => Promise<unknown>
+    scrollToIndex: (index: number) => void
+    scrollColumn: (columnIndex: number) => void
+  }>({
+    mode: 'grid',
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: () => Promise.resolve(),
+    scrollToIndex: () => undefined,
+    scrollColumn: () => undefined,
+  })
   undoRef.current = undo
   boundsRef.current = { rows: rows.length, columns: visible.length }
   selectedRef.current = selected
@@ -636,13 +652,33 @@ export function TableScreen({ tableId }: { tableId: string }) {
       else if (command === 'toggle') toggleRef.current()
       else if (command === 'find') findRef.current()
       else if (typeof command === 'object' && command.type === 'type') typeRef.current(command.key)
-      else if (typeof command === 'object' && command.type === 'move')
-        setSelected((current) =>
-          moveSelection(current, command.key, {
+      else if (typeof command === 'object' && command.type === 'move') {
+        const follow = keyboardFollowRef.current
+        const outcome: ReturnType<typeof followKeyboardSelection>[] = []
+        setSelected((current) => {
+          const bounds = {
             rows: Math.max(boundsRef.current.rows, 1),
             columns: Math.max(boundsRef.current.columns, 1),
-          }),
-        )
+          }
+          if (follow.mode !== 'grid') return moveSelection(current, command.key, bounds)
+          const decision = followKeyboardSelection({
+            key: command.key,
+            current,
+            bounds,
+            hasNextPage: follow.hasNextPage,
+            isFetchingNextPage: follow.isFetchingNextPage,
+          })
+          outcome.push(decision)
+          selectedRef.current = decision.next
+          return decision.next
+        })
+        const moved = outcome.at(-1)
+        if (moved) {
+          follow.scrollToIndex(moved.scrollRow)
+          follow.scrollColumn(moved.next.column)
+          if (moved.fetchNext) void follow.fetchNextPage()
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1237,6 +1273,19 @@ export function TableScreen({ tableId }: { tableId: string }) {
     estimateSize: () => 36,
     overscan: 8,
   })
+  keyboardFollowRef.current = {
+    mode: display.mode,
+    hasNextPage: Boolean(rowsQuery.hasNextPage),
+    isFetchingNextPage: rowsQuery.isFetchingNextPage,
+    fetchNextPage: () => rowsQuery.fetchNextPage(),
+    scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: 'auto' }),
+    scrollColumn: (columnIndex) => {
+      const column = visibleRef.current[columnIndex]
+      if (!column || !parentRef.current) return
+      const header = parentRef.current.querySelector(`[data-column-id="${CSS.escape(column.id)}"]`)
+      if (header instanceof HTMLElement) header.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    },
+  }
   useEffect(() => {
     if (!columnParam && !rowParam) return
     const key = `${tableId}|${columnParam}|${rowParam}`

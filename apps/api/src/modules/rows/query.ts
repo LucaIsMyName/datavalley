@@ -65,7 +65,7 @@ function bindSort(column: ColumnShape, value: string): SQL {
 
 function compileCondition(condition: FilterCondition, columns: Map<string, ColumnShape>): SQL | null {
   const column = columns.get(condition.columnId)
-  if (!column) return null
+  if (!column) throw badRequest('Unknown filter column')
   if (!operatorsFor(column.type).includes(condition.op)) return null
   const id = column.id
   if (condition.op === 'empty') {

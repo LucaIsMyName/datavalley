@@ -16,6 +16,40 @@ function isoWeek(now: Date) {
   return { year: day.getUTCFullYear(), week: Math.ceil(((day.getTime() - yearStart) / 86_400_000 + 1) / 7) }
 }
 
+export function scheduleClaimKey(connectorId: string, bucket: string) {
+  return `datavalley:connector-schedule:${connectorId}:${bucket}`
+}
+
+export type ScheduleClaimActions = {
+  claim: (key: string) => Promise<boolean>
+  release: (key: string) => Promise<void>
+  insertSync: (connectorId: string) => Promise<{ id: string }>
+  enqueue: (syncJobId: string, connectorId: string) => Promise<void>
+}
+
+/** Claim the bucket, then record and enqueue the sync. A failure after the claim releases it. */
+export async function enqueueScheduledConnector(
+  connector: { id: string; schedule: unknown },
+  actions: ScheduleClaimActions,
+  now = new Date(),
+) {
+  const schedule = connector.schedule as { preset?: string }
+  const preset = schedule.preset ?? 'manual'
+  if (preset === 'manual') return
+  const bucket = presetBucket(preset, now)
+  if (!bucket) return
+  const key = scheduleClaimKey(connector.id, bucket)
+  const claimed = await actions.claim(key)
+  if (!claimed) return
+  try {
+    const syncJob = await actions.insertSync(connector.id)
+    await actions.enqueue(syncJob.id, connector.id)
+  } catch (error) {
+    await actions.release(key)
+    throw error
+  }
+}
+
 /** The period a scheduled sync belongs to. One sync runs per connector and bucket. */
 export function presetBucket(preset: string, now = new Date()) {
   const y = now.getUTCFullYear()
@@ -39,24 +73,30 @@ export function startConnectorScheduler(env: Env, db: AppDatabase) {
   const tick = async () => {
     const connectors = await listScheduledConnectors(db)
     for (const connector of connectors) {
-      const schedule = connector.schedule as { preset?: string }
-      const preset = schedule.preset ?? 'manual'
-      if (preset === 'manual') continue
-      const bucket = presetBucket(preset)
-      if (!bucket) continue
-      // Claimed in Redis, not memory, so a restarted or second worker does not run the same bucket again.
-      const claimed = await connection.set(`datavalley:connector-schedule:${connector.id}:${bucket}`, '1', 'EX', CLAIM_TTL_SECONDS, 'NX')
-      if (claimed !== 'OK') continue
-      const [syncJob] = await db
-        .insert(connectorSyncJobs)
-        .values({ connectorId: connector.id, status: 'running' })
-        .returning()
-      const job = await createJob(db, 'connector.sync', {
-        type: 'connector.sync',
-        connectorId: connector.id,
-        syncJobId: syncJob.id,
+      await enqueueScheduledConnector(connector, {
+        // Claimed in Redis, not memory, so a restarted or second worker does not run the same bucket again.
+        claim: async (key) =>
+          (await connection.set(key, '1', 'EX', CLAIM_TTL_SECONDS, 'NX')) === 'OK',
+        release: async (key) => {
+          await connection.del(key)
+        },
+        insertSync: async (connectorId) => {
+          const [syncJob] = await db
+            .insert(connectorSyncJobs)
+            .values({ connectorId, status: 'running' })
+            .returning()
+          if (!syncJob) throw new Error('Could not record the connector sync')
+          return { id: syncJob.id }
+        },
+        enqueue: async (syncJobId, connectorId) => {
+          const job = await createJob(db, 'connector.sync', {
+            type: 'connector.sync',
+            connectorId,
+            syncJobId,
+          })
+          await queue.add('run', { jobId: job.id }, { removeOnComplete: 100, removeOnFail: 200 })
+        },
       })
-      await queue.add('run', { jobId: job.id }, { removeOnComplete: 100, removeOnFail: 200 })
     }
   }
   const run = () =>

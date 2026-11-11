@@ -20,6 +20,7 @@ import { Label } from '../../components/ui/label'
 import { SelectField } from '../../components/ui/select'
 import { api } from '../../lib/api'
 import { AutomationCanvas, type CanvasSelection } from './automation-canvas'
+import { paletteStepPosition } from './automation-palette'
 import { AutomationInspector } from './automation-inspector'
 import { FlowProblemList } from './flow-problems'
 
@@ -142,6 +143,7 @@ export function AutomationsPage() {
                   key={step.kind}
                   type="button"
                   draggable
+                  onClick={() => addStep(step.kind, paletteStepPosition(flow?.nodes ?? []))}
                   onDragStart={(event) => {
                     event.dataTransfer.setData('application/datavalley-flow', step.kind)
                     event.dataTransfer.effectAllowed = 'move'

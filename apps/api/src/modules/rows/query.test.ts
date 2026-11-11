@@ -140,10 +140,23 @@ describe('row query', () => {
       },
     })
     expect(mixed.rows).toHaveLength(1)
-    const unknown = await queryRows(db, {
-      ...base,
-      filter: { op: 'eq', columnId: '00000000-0000-4000-8000-000000000099', value: 'Name 0' },
-    })
-    expect(unknown.rows).toHaveLength(3)
+    await expect(
+      queryRows(db, {
+        ...base,
+        filter: { op: 'eq', columnId: '00000000-0000-4000-8000-000000000099', value: 'Name 0' },
+      }),
+    ).rejects.toMatchObject({ status: 400, message: 'Unknown filter column' })
+    await expect(
+      queryRows(db, {
+        ...base,
+        filter: {
+          op: 'and',
+          conditions: [
+            { op: 'eq', columnId: '00000000-0000-4000-8000-000000000099', value: 'Name 0' },
+            { op: 'eq', columnId: textId, value: 'Name 1' },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ status: 400, message: 'Unknown filter column' })
   })
 })

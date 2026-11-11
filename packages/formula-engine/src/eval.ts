@@ -434,7 +434,7 @@ function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number
         return numbers.reduce((sum, value) => sum + value, 0) / numbers.length
       }
       if (numbers.length === 0) return 0
-      return name === 'MIN' ? Math.min(...numbers) : Math.max(...numbers)
+      return extremeNumber(numbers, name === 'MIN' ? 'min' : 'max')
     }
     if (error) return error
     if (name === 'ROUND' || name === 'ABS') {
@@ -468,6 +468,15 @@ function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number
     if (error && typeof error === 'object' && 'code' in error && error.code === '#LIM') return err('#LIM')
     throw error
   }
+}
+
+function extremeNumber(numbers: number[], mode: 'min' | 'max') {
+  let best = numbers[0]
+  for (let index = 1; index < numbers.length; index += 1) {
+    const value = numbers[index]
+    if (mode === 'min' ? value < best : value > best) best = value
+  }
+  return best
 }
 
 export function runFormula(node: AstNode, ctx: Omit<EvalContext, 'now'> & { now?: () => number }): FormulaValue {

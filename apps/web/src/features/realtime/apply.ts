@@ -12,7 +12,20 @@ import {
 } from './editing.js'
 
 const ROWS_INVALIDATE_MS = 200
+// The matching rows.changed follows the echo immediately. A later automation echo must not suppress the next delete or import.
+const OWN_PATCH_ARM_MS = 1000
 const rowsInvalidateTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const rowsInvalidateIncludesRows = new Map<string, boolean>()
+const ownPatchArms = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** Clears debounce and patch-arm timers. Tests use this so one case cannot suppress the next. */
+export function resetRealtimeApplyForTests() {
+  for (const timer of rowsInvalidateTimers.values()) clearTimeout(timer)
+  for (const timer of ownPatchArms.values()) clearTimeout(timer)
+  rowsInvalidateTimers.clear()
+  rowsInvalidateIncludesRows.clear()
+  ownPatchArms.clear()
+}
 
 function sameCell(left: unknown, right: unknown) {
   if (Object.is(left, right)) return true
@@ -20,19 +33,41 @@ function sameCell(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function scheduleRowsInvalidation(queryClient: QueryClient, tableId: string) {
+function scheduleRowsInvalidation(queryClient: QueryClient, tableId: string, includeRows = true) {
   const existing = rowsInvalidateTimers.get(tableId)
   if (existing) clearTimeout(existing)
+  const refreshRows = (rowsInvalidateIncludesRows.get(tableId) ?? false) || includeRows
+  rowsInvalidateIncludesRows.set(tableId, refreshRows)
   rowsInvalidateTimers.set(
     tableId,
     setTimeout(() => {
       rowsInvalidateTimers.delete(tableId)
+      rowsInvalidateIncludesRows.delete(tableId)
       void queryClient.invalidateQueries({ queryKey: ['table', tableId] })
-      void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
+      if (refreshRows) void queryClient.invalidateQueries({ queryKey: ['rows', tableId] })
       void invalidateFooter(queryClient, tableId)
       void invalidateOtherRowQueries(queryClient, tableId)
     }, ROWS_INVALIDATE_MS),
   )
+}
+
+function armOwnPatch(tableId: string) {
+  const existing = ownPatchArms.get(tableId)
+  if (existing) clearTimeout(existing)
+  ownPatchArms.set(
+    tableId,
+    setTimeout(() => {
+      ownPatchArms.delete(tableId)
+    }, OWN_PATCH_ARM_MS),
+  )
+}
+
+function takeOwnPatch(tableId: string) {
+  const existing = ownPatchArms.get(tableId)
+  if (!existing) return false
+  clearTimeout(existing)
+  ownPatchArms.delete(tableId)
+  return true
 }
 
 export function applyRemoteRow(queryClient: QueryClient, tableId: string, row: RealtimeRow) {
@@ -40,6 +75,8 @@ export function applyRemoteRow(queryClient: QueryClient, tableId: string, row: R
   mapCachedRows(queryClient, tableId, (item) => {
     if (item.id !== row.id) return item
     found = true
+    // A slow echo must not paint over a row the client has already moved past.
+    if (row.version < item.version) return item
     const cells = { ...item.cells }
     let held = false
     for (const [columnId, value] of Object.entries(row.cells)) {
@@ -87,7 +124,7 @@ export function applyStashedNotes(queryClient: QueryClient, tableId: string, row
 }
 
 export function applyRealtimeEvent(queryClient: QueryClient, event: RealtimeEvent, userId: string) {
-  if (event.actorId === userId && (event.type === 'row.updated' || event.type === 'project.updated')) return
+  if (event.actorId === userId && event.type === 'project.updated') return
   if (event.type === 'project.updated') {
     queryClient.setQueryData<{ project: Project }>(['project', event.project.id], (current) => {
       if (!current) return current
@@ -111,7 +148,12 @@ export function applyRealtimeEvent(queryClient: QueryClient, event: RealtimeEven
     return
   }
   if (event.type === 'row.updated') {
-    applyRemoteRow(queryClient, event.tableId, event.row)
+    const found = applyRemoteRow(queryClient, event.tableId, event.row)
+    if (event.actorId === userId && found) armOwnPatch(event.tableId)
+    return
+  }
+  if (event.type === 'rows.changed' && event.actorId === userId && takeOwnPatch(event.tableId)) {
+    scheduleRowsInvalidation(queryClient, event.tableId, false)
     return
   }
   if (event.type === 'rows.changed' || event.type === 'columns.changed') {

@@ -126,7 +126,11 @@ export function SideNav({
   )
 }
 
-function NotificationsBell({
+export function unreadNotificationCount(items: { readAt: string | null }[]) {
+  return items.reduce((count, item) => count + (item.readAt == null ? 1 : 0), 0)
+}
+
+export function NotificationsBell({
   open,
   onOpen,
   items,
@@ -142,6 +146,7 @@ function NotificationsBell({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const root = useRef<HTMLDivElement>(null)
+  const unread = unreadNotificationCount(items)
   useEffect(() => {
     if (!open) return
     const onPointer = (event: PointerEvent) => {
@@ -162,11 +167,17 @@ function NotificationsBell({
     <div ref={root} className="relative shrink-0">
       <Button
         variant="ghost"
-        aria-label={t('notifications')}
+        className="relative"
+        aria-label={unread > 0 ? t('notificationsUnread', { count: unread }) : t('notifications')}
         aria-expanded={open}
         onClick={() => onOpen(!open)}
       >
         <Bell className="size-4" />
+        {unread > 0 ? (
+          <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground">
+            {unread}
+          </span>
+        ) : null}
       </Button>
       {open ? (
         <div className="absolute right-0 z-20 mt-2 w-[min(18rem,calc(100vw-2rem))] border border-border bg-card p-2 shadow-sm">
