@@ -54,25 +54,33 @@ export function historyLabel(
   return ''
 }
 
-/** Names for status, tag, and user ids stored in one row's cells. */
+/**
+ * Names for status, tag, and user ids.
+ * Pass `tableId` when a status or tag from another table must stay unlabeled. History does this
+ * so a previous value is not named from a catalog the row does not belong to.
+ */
 export async function displayLabels(
   db: AppDatabase,
   columns: { id: string; type: string }[],
-  values: Record<string, unknown>,
+  values: Record<string, unknown> | Record<string, unknown>[],
+  scope?: { tableId: string },
 ) {
   const labels = new Map<string, string>()
   const userIds = new Set<string>()
   const statusIds = new Set<string>()
   const tagIds = new Set<string>()
-  for (const column of columns) {
-    if (column.type !== 'user' && column.type !== 'status' && column.type !== 'tags') continue
-    const value = values[column.id]
-    const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
-    for (const id of ids) {
-      if (typeof id !== 'string' || !id) continue
-      if (column.type === 'user') userIds.add(id)
-      if (column.type === 'status') statusIds.add(id)
-      if (column.type === 'tags') tagIds.add(id)
+  const records = Array.isArray(values) ? values : [values]
+  for (const record of records) {
+    for (const column of columns) {
+      if (column.type !== 'user' && column.type !== 'status' && column.type !== 'tags') continue
+      const value = record[column.id]
+      const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+      for (const id of ids) {
+        if (typeof id !== 'string' || !id) continue
+        if (column.type === 'user') userIds.add(id)
+        if (column.type === 'status') statusIds.add(id)
+        if (column.type === 'tags') tagIds.add(id)
+      }
     }
   }
   if (userIds.size > 0) {
@@ -83,17 +91,27 @@ export async function displayLabels(
     for (const person of people) labels.set(person.id, person.username)
   }
   if (statusIds.size > 0) {
+    const statusList = [...statusIds]
     const statuses = await db
       .select({ id: tableStatuses.id, name: tableStatuses.name })
       .from(tableStatuses)
-      .where(inArray(tableStatuses.id, [...statusIds]))
+      .where(
+        scope?.tableId
+          ? and(eq(tableStatuses.tableId, scope.tableId), inArray(tableStatuses.id, statusList))
+          : inArray(tableStatuses.id, statusList),
+      )
     for (const status of statuses) labels.set(status.id, status.name)
   }
   if (tagIds.size > 0) {
+    const tagList = [...tagIds]
     const tags = await db
       .select({ id: tableTags.id, name: tableTags.name })
       .from(tableTags)
-      .where(inArray(tableTags.id, [...tagIds]))
+      .where(
+        scope?.tableId
+          ? and(eq(tableTags.tableId, scope.tableId), inArray(tableTags.id, tagList))
+          : inArray(tableTags.id, tagList),
+      )
     for (const tag of tags) labels.set(tag.id, tag.name)
   }
   return labels
@@ -246,41 +264,12 @@ async function historyLabels(
   columns: HistoryColumn[],
   changes: FieldChange[],
 ) {
-  const labels = new Map<string, string>()
-  const ids = new Set<string>()
-  const types = new Set<string>()
+  const records: Record<string, unknown>[] = []
   for (const change of changes) {
     const column = columns.find((item) => item.id === change.columnId)
     if (!column || (column.type !== 'status' && column.type !== 'tags' && column.type !== 'user'))
       continue
-    types.add(column.type)
-    for (const value of [change.before, change.after]) {
-      const list = Array.isArray(value) ? value : value ? [value] : []
-      for (const id of list) if (typeof id === 'string') ids.add(id)
-    }
+    records.push({ [change.columnId]: change.before }, { [change.columnId]: change.after })
   }
-  if (ids.size === 0) return labels
-  const idList = [...ids]
-  if (types.has('user')) {
-    const people = await db
-      .select({ id: users.id, username: users.username })
-      .from(users)
-      .where(inArray(users.id, idList))
-    for (const person of people) labels.set(person.id, person.username)
-  }
-  if (types.has('status')) {
-    const statuses = await db
-      .select({ id: tableStatuses.id, name: tableStatuses.name })
-      .from(tableStatuses)
-      .where(and(eq(tableStatuses.tableId, tableId), inArray(tableStatuses.id, idList)))
-    for (const status of statuses) labels.set(status.id, status.name)
-  }
-  if (types.has('tags')) {
-    const tags = await db
-      .select({ id: tableTags.id, name: tableTags.name })
-      .from(tableTags)
-      .where(and(eq(tableTags.tableId, tableId), inArray(tableTags.id, idList)))
-    for (const tag of tags) labels.set(tag.id, tag.name)
-  }
-  return labels
+  return displayLabels(db, columns, records, { tableId })
 }

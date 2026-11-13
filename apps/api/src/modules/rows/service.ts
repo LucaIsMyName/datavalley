@@ -51,7 +51,7 @@ import {
 } from '../tables/service.js'
 import { persistCell } from './cells.js'
 import { importDuplicateWarnings } from './duplicates.js'
-import { previousCellValues, recordCellHistory } from './history.js'
+import { displayLabels, previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
 import { announceAssignments, readPreviousUserIds, recordAutomationFailure, recordTitle, titleFromInput } from './notices.js'
 import { runProjectAutomations } from './automations.js'
@@ -182,44 +182,14 @@ async function catalogLabels(
   columns: ColumnShape[],
   cells: (typeof tableCells.$inferSelect)[],
 ) {
-  const labels = new Map<string, string>()
-  const userIds = new Set<string>()
-  const statusIds = new Set<string>()
-  const tagIds = new Set<string>()
   const byId = new Map(columns.map((column) => [column.id, column]))
+  const records: Record<string, unknown>[] = []
   for (const cell of cells) {
     const column = byId.get(cell.columnId)
     if (!column || (column.type !== 'user' && column.type !== 'status' && column.type !== 'tags')) continue
-    const value = readCell(column, cell)
-    const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
-    for (const id of ids) {
-      if (column.type === 'user') userIds.add(id)
-      if (column.type === 'status') statusIds.add(id)
-      if (column.type === 'tags') tagIds.add(id)
-    }
+    records.push({ [column.id]: readCell(column, cell) })
   }
-  if (userIds.size > 0) {
-    const people = await db
-      .select({ id: users.id, username: users.username })
-      .from(users)
-      .where(inArray(users.id, [...userIds]))
-    for (const person of people) labels.set(person.id, person.username)
-  }
-  if (statusIds.size > 0) {
-    const statuses = await db
-      .select({ id: tableStatuses.id, name: tableStatuses.name })
-      .from(tableStatuses)
-      .where(inArray(tableStatuses.id, [...statusIds]))
-    for (const status of statuses) labels.set(status.id, status.name)
-  }
-  if (tagIds.size > 0) {
-    const tags = await db
-      .select({ id: tableTags.id, name: tableTags.name })
-      .from(tableTags)
-      .where(inArray(tableTags.id, [...tagIds]))
-    for (const tag of tags) labels.set(tag.id, tag.name)
-  }
-  return labels
+  return displayLabels(db, columns, records)
 }
 
 async function attachRelationLabels<T extends { cells: Record<string, unknown> }>(
