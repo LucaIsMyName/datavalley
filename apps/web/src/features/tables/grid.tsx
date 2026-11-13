@@ -20,25 +20,11 @@ import {
   type TableDisplayState,
 } from '@datavalley/shared'
 import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Eye,
-  Filter,
-  GripVertical,
-  Plus,
-  Redo2,
-  Star,
-  Undo2,
-  X,
-} from 'lucide-react'
-import {
   useEffect,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent,
-  type DragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
@@ -46,8 +32,6 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { aiColumnKey, useAiHighlight } from '../ai/highlight-store'
 import { useContextMenu } from '../../components/context-menu'
-import { QuietInput } from '../../components/quiet-input'
-import { ResourceIcon } from '../../components/resource-icon'
 import { Badge } from '../../components/ui/badge'
 import { ConfirmDialog, PromptDialog } from '../../components/confirm-dialog'
 import { toast } from 'sonner'
@@ -68,14 +52,13 @@ import {
 import { ConditionalDialog } from './conditional-dialog'
 import { CsvImportDialog } from './csv-import-dialog'
 import { cellWritable as isColumnWritable, copyCellText } from './cell-display'
-import { ColumnTitle } from './column-title'
 import { activateTableCell } from './activate-table-cell'
 import { useRowCellEdit } from './use-row-cell-edit'
-import { beforeDropEdge } from './drop-place'
 import { editFailureMessage } from './edit-error'
-import { emptyGridKind, selectionKind } from './grid-ux'
+import { emptyGridKind } from './grid-ux'
 import { useFormulaWindow } from '../../stores/formula-window'
-import { ColumnIcon, defaultIcon } from './icons'
+import { GridHeader } from './grid-header'
+import { GridStatusBar } from './grid-status-bar'
 import { MediaLibraryDialog } from '../media/media-library-dialog'
 import { MediaPreviewDrawer } from '../media/media-preview-drawer'
 import { mergeMediaIntoCell } from './media-cell'
@@ -90,7 +73,7 @@ import { KanbanView } from './kanban-view'
 import { TimelineView } from './timeline-view'
 import { useRegisterTableToolbar, viewportAnchorFrom } from './table-toolbar'
 import { historyFlags, redoTable, undoTable } from './history'
-import { activeFilter, filtersFrom, footerValue, moveIdBefore } from './grid-model'
+import { activeFilter, filtersFrom, footerValue } from './grid-model'
 import { anchor, editingAfterRelease, invalidSignatureFor, showEditError } from './grid-edit'
 import { followKeyboardSelection } from './grid-follow'
 import { gridKeyCommand, isGridTypingTarget } from './grid-keyboard'
@@ -104,12 +87,10 @@ import { EMPTY_ROWS, GridBodyRow } from './grid-row'
 import { useGridInfiniteScroll, useGridViewportWidth } from './use-grid-infinite-scroll'
 import { applyStashedCell } from '../realtime/apply'
 import { clearCellEditing, setCellEditing, splitCellKey } from '../realtime/editing'
-import { PresenceChip } from '../realtime/presence-chip'
 import { rowRemoteKey } from '../realtime/presence'
 import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { GridPopovers } from './grid-popovers'
 
-const TABLE_HEADER_CELL = 'bg-card'
 const ADD_COLUMN_WIDTH = 40
 const EMPTY_COLUMNS: Column[] = []
 const EMPTY_RULES: FormatRule[] = []
@@ -1376,6 +1357,38 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const columnsWidth = columns.reduce((sum, column) => sum + (widths[column.id] ?? column.width), 0)
   const filler = Math.max(ADD_COLUMN_WIDTH, viewportWidth - GUTTER_WIDTH - columnsWidth)
 
+  function resizeColumn(event: ReactPointerEvent<HTMLDivElement>, column: Column) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    const startX = event.clientX
+    const start = widths[column.id] ?? column.width
+    let frame = 0
+    const move = (ev: PointerEvent) => {
+      const next = Math.max(80, Math.round(start + ev.clientX - startX))
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        setWidths((current) => ({ ...current, [column.id]: next }))
+      })
+    }
+    const up = (ev: PointerEvent) => {
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId)
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      cancelAnimationFrame(frame)
+      const next = Math.max(80, Math.round(start + ev.clientX - startX))
+      setWidths((current) => {
+        const saved = { ...current, [column.id]: next }
+        localStorage.setItem(widthKey, JSON.stringify(saved))
+        return saved
+      })
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+
   return (
     <section
       className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-0 pt-0 md:px-6"
@@ -1544,356 +1557,47 @@ export function TableScreen({ tableId }: { tableId: string }) {
               className="table-grid table-fixed border-collapse text-sm"
               style={{ width: GUTTER_WIDTH + columnsWidth + filler }}
             >
-              <thead className="sticky top-0 z-20">
-                <tr aria-rowindex={1}>
-                  <th
-                    className={`sticky left-0 z-30 h-10 p-0 text-left ${TABLE_HEADER_CELL}`}
-                    style={{ width: GUTTER_WIDTH }}
-                  >
-                    {flexRender(
-                      grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header,
-                      grid.getHeaderGroups()[0]?.headers[0]?.getContext(),
-                    )}
-                  </th>
-                  {gridColumns.map((column) => {
-                    if (column.hidden) {
-                      return (
-                        <th
-                          key={column.id}
-                          data-column-id={column.id}
-                          className={`h-10 p-0 ${TABLE_HEADER_CELL}`}
-                          style={{ width: widths[column.id] ?? column.width }}
-                        >
-                          <button
-                            type="button"
-                            aria-label={t('showColumn')}
-                            className="inline-flex h-10 w-full items-center justify-center text-muted-foreground hover:text-foreground"
-                            onClick={() => void hideColumn(column, false)}
-                          >
-                            <Eye className="size-3.5" />
-                          </button>
-                        </th>
-                      )
-                    }
-                    const activeSort = sort?.columnId === column.id
-                    const filtered = Boolean(
-                      filterInput[column.id] &&
-                      (filterInput[column.id].op === 'empty' ||
-                        filterInput[column.id].op === 'not_empty' ||
-                        filterInput[column.id].value),
-                    )
-                    return (
-                      <th
-                        key={column.id}
-                        data-column-id={column.id}
-                        className={`group relative h-10 overflow-visible px-2 text-left font-medium ${column.id === pinnedColumnId ? 'sticky z-20' : ''} ${selectedColumns.includes(column.id) ? 'bg-accent' : TABLE_HEADER_CELL} ${spotlight?.columnId === column.id && !spotlight.rowId ? 'ring-2 ring-inset ring-primary' : ''} ${aiMarks.tableId === tableId && aiMarks.columnIds.includes(column.id) && !(spotlight?.columnId === column.id && !spotlight.rowId) ? 'ring-2 ring-inset ring-primary' : ''}`}
-                        style={{ width: widths[column.id] ?? column.width, left: column.id === pinnedColumnId ? GUTTER_WIDTH : undefined }}
-                        onDragOver={(event: DragEvent) => {
-                          const from = dragItem.current
-                          if (!from || from.kind !== 'column') return
-                          event.preventDefault()
-                          const next = beforeDropEdge(
-                            gridColumns.map((item) => item.id),
-                            from.id,
-                            column.id,
-                          )
-                            ? column.id
-                            : null
-                          setDropTarget((current) => {
-                            if (next === null) return current?.kind === 'column' ? null : current
-                            if (current?.kind === 'column' && current.id === next) return current
-                            return { kind: 'column', id: next }
-                          })
-                        }}
-                        onDrop={(event: DragEvent) => {
-                          event.preventDefault()
-                          const payload = event.dataTransfer.getData('text/plain')
-                          dragItem.current = null
-                          setDropTarget(null)
-                          if (!payload.startsWith('column:')) return
-                          void reorderColumns(
-                            moveIdBefore(
-                              gridColumns.map((item) => item.id),
-                              payload.slice(7),
-                              column.id,
-                            ),
-                          )
-                        }}
-                        onClick={(event) => chooseColumns(event, column.id)}
-                        onContextMenu={(event) => openColumnMenu(event, column)}
-                        onPointerDown={(event) => {
-                          if (event.pointerType === 'mouse') return
-                          const point = { x: event.clientX, y: event.clientY }
-                          pressOrigin.current = point
-                          window.clearTimeout(pressTimer.current)
-                          pressTimer.current = window.setTimeout(() => {
-                            openColumnMenu(
-                              {
-                                preventDefault() {},
-                                clientX: point.x,
-                                clientY: point.y,
-                              } as ReactMouseEvent,
-                              column,
-                            )
-                          }, 500)
-                        }}
-                        onPointerMove={(event) => {
-                          if (
-                            Math.hypot(
-                              event.clientX - pressOrigin.current.x,
-                              event.clientY - pressOrigin.current.y,
-                            ) > 10
-                          ) {
-                            window.clearTimeout(pressTimer.current)
-                          }
-                        }}
-                        onPointerUp={() => window.clearTimeout(pressTimer.current)}
-                        onPointerCancel={() => window.clearTimeout(pressTimer.current)}
-                      >
-                        {dropTarget?.kind === 'column' && dropTarget.id === column.id ? (
-                          <span
-                            aria-hidden
-                            className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-primary"
-                          />
-                        ) : null}
-                        <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                          <span
-                            role="button"
-                            tabIndex={-1}
-                            draggable
-                            aria-label={t('reorder')}
-                            className="inline-flex shrink-0 cursor-grab text-muted-foreground"
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={(event) => event.stopPropagation()}
-                            onDragStart={(event) => {
-                              event.stopPropagation()
-                              dragItem.current = { kind: 'column', id: column.id }
-                              event.dataTransfer.setData('text/plain', `column:${column.id}`)
-                              event.dataTransfer.effectAllowed = 'move'
-                            }}
-                            onDragEnd={() => {
-                              dragItem.current = null
-                              setDropTarget(null)
-                            }}
-                          >
-                            <GripVertical className="size-3.5" />
-                          </span>
-                          <button
-                            type="button"
-                            aria-label={t('icon')}
-                            className="text-muted-foreground"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setPopover({ kind: 'icon', columnId: column.id, ...anchor(event) })
-                            }}
-                          >
-                            <ColumnIcon
-                              name={String(
-                                column.config.icon ?? defaultIcon(column.type, column.config),
-                              )}
-                            />
-                          </button>
-                          <PresenceChip
-                            people={people.filter(
-                              (person) =>
-                                person.focus?.kind === 'columnName' &&
-                                person.focus.tableId === tableId &&
-                                person.focus.columnId === column.id,
-                            )}
-                            className="absolute -top-2 left-8 z-20"
-                          />
-                          {renamingColumn === column.id ? (
-                            <QuietInput
-                              autoFocus
-                              label={t('rename')}
-                              className="h-9 min-w-0 flex-1 bg-transparent leading-9 outline-none"
-                              value={column.name}
-                              onFocus={() =>
-                                reportPresence({
-                                  tableId,
-                                  tableName: table?.name ?? null,
-                                  focus: { kind: 'columnName', tableId, columnId: column.id },
-                                  editing: true,
-                                })
-                              }
-                              onDraft={(next) => {
-                                scheduleColumnName(column, next)
-                                reportPresence({
-                                  tableId,
-                                  tableName: table?.name ?? null,
-                                  focus: { kind: 'columnName', tableId, columnId: column.id },
-                                  editing: true,
-                                  draft: next,
-                                })
-                              }}
-                              onFlush={() => {
-                                void sync
-                                  .flush(`column:${column.id}:name`)
-                                  .catch(() => showEditError(t('error')))
-                                  .finally(() => {
-                                    setRenamingColumn(null)
-                                    reportPresence({ focus: null, editing: false, draft: null })
-                                  })
-                              }}
-                              onCancel={() => {
-                                sync.cancel(`column:${column.id}:name`)
-                                setRenamingColumn(null)
-                                reportPresence({ focus: null, editing: false, draft: null })
-                              }}
-                            />
-                          ) : (
-                            <ColumnTitle
-                              name={
-                                people.find(
-                                  (person) =>
-                                    person.focus?.kind === 'columnName' &&
-                                    person.focus.tableId === tableId &&
-                                    person.focus.columnId === column.id &&
-                                    person.draft != null,
-                                )?.draft ?? column.name
-                              }
-                              type={column.type}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                if (event.shiftKey || event.metaKey || event.ctrlKey) {
-                                  chooseColumns(event, column.id)
-                                  return
-                                }
-                                setRenamingColumn(column.id)
-                              }}
-                            />
-                          )}
-                          {table?.headerConfig?.['mainColumnId'] === column.id ? (
-                            <Star aria-label={t('mainColumn')} className="size-3.5 shrink-0 fill-current" />
-                          ) : null}
-                          {column.type === 'relation' ? (
-                            <button
-                              type="button"
-                              aria-label={t('targetTable')}
-                              className="inline-flex min-w-0 max-w-[40%] shrink items-center gap-1 text-xs text-muted-foreground"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setRelationTarget(String(column.config.toTableId ?? ''))
-                                setRelationCardinality(String(column.config.cardinality ?? 'many_to_one'))
-                                setPopover({ kind: 'relation', columnId: column.id, ...anchor(event) })
-                              }}
-                            >
-                              <ResourceIcon
-                                name={
-                                  (projectTables.data?.tables ?? []).find(
-                                    (item) => item.id === column.config.toTableId,
-                                  )?.icon ?? 'Table'
-                                }
-                                className="size-3.5 shrink-0"
-                              />
-                              <span className="truncate">
-                                {(projectTables.data?.tables ?? []).find((item) => item.id === column.config.toTableId)
-                                  ?.name ?? t('targetTable')}
-                              </span>
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            data-header-control
-                            aria-label={t('sort')}
-                            className={` p-0.5 ${activeSort ? 'text-foreground' : 'text-muted-foreground'}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              cycleSort(column.id)
-                            }}
-                          >
-                            {activeSort && sort?.direction === 'desc' ? (
-                              <ArrowDown className="size-3.5" />
-                            ) : activeSort ? (
-                              <ArrowUp className="size-3.5" />
-                            ) : (
-                              <ArrowUpDown className="size-3.5" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            data-header-control
-                            aria-label={t('filter')}
-                            className={` p-0.5 ${filtered ? 'text-foreground' : 'text-muted-foreground'}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setPopover({ kind: 'filter', columnId: column.id, ...anchor(event) })
-                            }}
-                          >
-                            <Filter className="size-3.5" />
-                          </button>
-                        </div>
-                        <div
-                          role="separator"
-                          aria-label={t('resize')}
-                          className="absolute -right-1 top-0 z-10 h-[calc(100%-1.25rem)] w-2 cursor-col-resize"
-                          onPointerDown={(event) => {
-                            if (event.button !== 0) return
-                            event.preventDefault()
-                            event.stopPropagation()
-                            const handle = event.currentTarget
-                            handle.setPointerCapture(event.pointerId)
-                            const startX = event.clientX
-                            const start = widths[column.id] ?? column.width
-                            let frame = 0
-                            const move = (ev: PointerEvent) => {
-                              const next = Math.max(80, Math.round(start + ev.clientX - startX))
-                              cancelAnimationFrame(frame)
-                              frame = requestAnimationFrame(() => {
-                                setWidths((current) => ({ ...current, [column.id]: next }))
-                              })
-                            }
-                            const up = (ev: PointerEvent) => {
-                              if (handle.hasPointerCapture(ev.pointerId))
-                                handle.releasePointerCapture(ev.pointerId)
-                              handle.removeEventListener('pointermove', move)
-                              handle.removeEventListener('pointerup', up)
-                              cancelAnimationFrame(frame)
-                              const next = Math.max(80, Math.round(start + ev.clientX - startX))
-                              setWidths((current) => {
-                                const saved = { ...current, [column.id]: next }
-                                localStorage.setItem(widthKey, JSON.stringify(saved))
-                                return saved
-                              })
-                            }
-                            handle.addEventListener('pointermove', move)
-                            handle.addEventListener('pointerup', up)
-                          }}
-                        />
-                        {!dataReadOnly ? (
-                          <button
-                            type="button"
-                            data-header-control
-                            aria-label={t('insertColumn')}
-                            className="absolute -right-2 bottom-0 z-10 flex size-4 items-center justify-center border border-border bg-card"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              openNewColumn(
-                                columns[columns.findIndex((item) => item.id === column.id) + 1]?.id,
-                                anchor(event),
-                              )
-                            }}
-                          >
-                            <Plus className="size-3" />
-                          </button>
-                        ) : null}
-                      </th>
-                    )
-                  })}
-                  <th className={`p-0 align-start ${TABLE_HEADER_CELL}`} style={{ width: filler }}>
-                    {!dataReadOnly ? (
-                      <button
-                        type="button"
-                        aria-label={t('insertColumn')}
-                        className="inline-flex h-7 w-7 items-center justify-center hover:bg-accent"
-                        onClick={(event) => openNewColumn(undefined, anchor(event))}
-                      >
-                        <Plus className="size-3" />
-                      </button>
-                    ) : null}
-                  </th>
-                </tr>
-              </thead>
+              <GridHeader
+                gutter={flexRender(
+                  grid.getHeaderGroups()[0]?.headers[0]?.column.columnDef.header,
+                  grid.getHeaderGroups()[0]?.headers[0]?.getContext(),
+                )}
+                columns={columns}
+                gridColumns={gridColumns}
+                widths={widths}
+                filler={filler}
+                pinnedColumnId={pinnedColumnId}
+                selectedColumns={selectedColumns}
+                sort={sort}
+                filterInput={filterInput}
+                spotlight={spotlight}
+                aiTableId={aiMarks.tableId}
+                aiColumnIds={aiMarks.columnIds}
+                tableId={tableId}
+                tableName={table.name}
+                mainColumnId={mainColumnId}
+                people={people}
+                renamingColumn={renamingColumn}
+                dataReadOnly={dataReadOnly}
+                projectTables={projectTables.data?.tables ?? []}
+                dragItem={dragItem}
+                dropTarget={dropTarget}
+                pressOrigin={pressOrigin}
+                pressTimer={pressTimer}
+                setDropTarget={setDropTarget}
+                onResizePointerDown={resizeColumn}
+                hideColumn={hideColumn}
+                reorderColumns={reorderColumns}
+                chooseColumns={chooseColumns}
+                openColumnMenu={openColumnMenu}
+                scheduleColumnName={scheduleColumnName}
+                setRenamingColumn={setRenamingColumn}
+                setPopover={setPopover}
+                setRelationTarget={setRelationTarget}
+                setRelationCardinality={setRelationCardinality}
+                cycleSort={cycleSort}
+                openNewColumn={openNewColumn}
+              />
               <tbody>
                 {emptyGridKind(rows.length, Boolean(filter || search)) === 'empty' ? (
                   <tr>
@@ -2036,135 +1740,45 @@ export function TableScreen({ tableId }: { tableId: string }) {
           </div>
         )}
         {display.mode === 'chart' || display.mode === 'timeline' ? null : (
-          <div className="flex h-12 shrink-0 justify-start items-center gap-2 overflow-x-auto border-t border-border bg-card px-2">
-            {!dataReadOnly ? (
-              <button
-                type="button"
-                className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground"
-                onClick={() => void insertRow()}
-              >
-                <Plus className="size-3.5" />
-                {t('insertRow')}
-              </button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              className="shrink-0"
-              disabled={!flags.canUndo}
-              aria-label={t('undo')}
-              title={t('undo')}
-              onClick={() => void undo('undo')}
-            >
-              <Undo2 className="size-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="shrink-0"
-              disabled={!flags.canRedo}
-              aria-label={t('redo')}
-              title={t('redo')}
-              onClick={() => void undo('redo')}
-            >
-              <Redo2 className="size-3.5" />
-            </Button>
-            {checked.length > 0 || selectedColumns.length > 0 ? (
-              <div className="border-l border-border pl-4 mr-auto flex shrink-0 items-center gap-2">
-                <span className="whitespace-nowrap text-sm">
-                  {selectionKind(checked.length, selectedColumns.length) === 'both'
-                    ? t('selectedRowsAndColumns', {
-                        rows: checked.length,
-                        columns: selectedColumns.length,
-                      })
-                    : selectionKind(checked.length, selectedColumns.length) === 'columns'
-                      ? t('selectedColumns', { count: selectedColumns.length })
-                      : t('selectedRows', { count: checked.length })}
-                </span>
-                {checked.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0 whitespace-nowrap"
-                    onClick={() => void duplicateSelectedRows(checked)}
-                  >
-                    {t('duplicateRows')}
-                  </Button>
-                ) : null}
-                {selectedColumns.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0 whitespace-nowrap"
-                    onClick={() => void duplicateSelectedColumns(selectedColumns)}
-                  >
-                    {t('duplicateColumns')}
-                  </Button>
-                ) : null}
-                {checked.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="shrink-0 whitespace-nowrap"
-                    onClick={(event) =>
-                      setPopover({
-                        kind: 'row-color',
-                        rowId: rows.find((row) => checked.includes(row.id))?.id,
-                        ...anchor(event),
-                      })
-                    }
-                  >
-                    {t('rowColor')}
-                  </Button>
-                ) : null}
-                {checked.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="danger"
-                    className="shrink-0 whitespace-nowrap"
-                    onClick={() =>
-                      setConfirm({
-                        title: t('deleteRows'),
-                        body: t('deleteRowsWarning', { count: checked.length }),
-                        confirmLabel: t('delete'),
-                        run: () => deleteRows(checked),
-                      })
-                    }
-                  >
-                    {t('deleteRows')}
-                  </Button>
-                ) : null}
-                {selectedColumns.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="danger"
-                    className="shrink-0 whitespace-nowrap"
-                    onClick={() =>
-                      setConfirm({
-                        title: t('deleteColumns'),
-                        body: t('deleteColumnsWarning', { count: selectedColumns.length }),
-                        confirmLabel: t('delete'),
-                        run: () => deleteColumns(selectedColumns),
-                      })
-                    }
-                  >
-                    {t('deleteColumns')}
-                  </Button>
-                ) : null}
-                <button
-                  type="button"
-                  aria-label={t('close')}
-                  className="text-muted-foreground"
-                  onClick={() => {
-                    setChecked([])
-                    setSelectedColumns([])
-                  }}
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <GridStatusBar
+            dataReadOnly={dataReadOnly}
+            canUndo={flags.canUndo}
+            canRedo={flags.canRedo}
+            checkedCount={checked.length}
+            selectedColumnCount={selectedColumns.length}
+            onInsertRow={() => void insertRow()}
+            onUndo={() => void undo('undo')}
+            onRedo={() => void undo('redo')}
+            onDuplicateRows={() => void duplicateSelectedRows(checked)}
+            onDuplicateColumns={() => void duplicateSelectedColumns(selectedColumns)}
+            onRowColor={(event) =>
+              setPopover({
+                kind: 'row-color',
+                rowId: rows.find((row) => checked.includes(row.id))?.id,
+                ...anchor(event),
+              })
+            }
+            onDeleteRows={() =>
+              setConfirm({
+                title: t('deleteRows'),
+                body: t('deleteRowsWarning', { count: checked.length }),
+                confirmLabel: t('delete'),
+                run: () => deleteRows(checked),
+              })
+            }
+            onDeleteColumns={() =>
+              setConfirm({
+                title: t('deleteColumns'),
+                body: t('deleteColumnsWarning', { count: selectedColumns.length }),
+                confirmLabel: t('delete'),
+                run: () => deleteColumns(selectedColumns),
+              })
+            }
+            onClearSelection={() => {
+              setChecked([])
+              setSelectedColumns([])
+            }}
+          />
         )}
       </div>
       <GridPopovers
