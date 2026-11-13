@@ -24,9 +24,7 @@ import {
   formulaCache,
   formulaDependencies,
   formulas,
-  projects,
   relationRecords,
-  relations,
   tableCells,
   tableColumns,
   tableRows,
@@ -41,9 +39,12 @@ import { badRequest } from '../../errors.js'
 import { allows, resolveGrants } from '../../security/access.js'
 import { sha256 } from '../../security/crypto.js'
 import type { Subject } from '../../security/subject.js'
-import { loadColumns, requireTable, resolveTableContext, type LoadedColumn } from '../tables/service.js'
+import { loadColumns, requireTable, type LoadedColumn } from '../tables/service.js'
 import { publishTableSignal } from '../realtime/publish.js'
 import { rowViewDenied } from '../rows/query.js'
+import { bracketCatalog, loadProjectCatalogColumns } from './catalog.js'
+
+export { formulaCatalog } from './catalog.js'
 
 const textTypes = new Set(['text', 'long_text', 'mail', 'url', 'date', 'datetime'])
 
@@ -62,65 +63,19 @@ async function namesFor(db: AppDatabase, subject: Subject, tableId: string, expr
   const grants = await resolveGrants(db, subject)
   const names: Record<string, RefNode> = {}
   const elsewhere = new Map<string, { ref: RefNode; count: number }>()
-  const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
-  for (const item of projectTables) {
-    if (!allows(subject, grants, 'view', { type: 'table', id: item.id, parents: { project: item.projectId } })) continue
-    const dataTableId = item.mirrorOfTableId ?? item.id
-    const columns = await loadColumns(db, dataTableId)
-    for (const column of columns) {
-      if (item.id === tableId) names[column.name] = { columnId: column.id }
-      else {
-        const seen = elsewhere.get(column.name)
-        if (seen) seen.count += 1
-        else elsewhere.set(column.name, { ref: { tableId: item.id, columnId: column.id }, count: 1 })
-      }
-      names[`${item.name}.${column.name}`] = { tableId: item.id, columnId: column.id }
+  for (const column of await loadProjectCatalogColumns(db, subject, table.projectId, grants)) {
+    if (column.tableId === tableId) names[column.columnName] = { columnId: column.columnId }
+    else {
+      const seen = elsewhere.get(column.columnName)
+      if (seen) seen.count += 1
+      else elsewhere.set(column.columnName, { ref: { tableId: column.tableId, columnId: column.columnId }, count: 1 })
     }
+    names[`${column.tableName}.${column.columnName}`] = { tableId: column.tableId, columnId: column.columnId }
   }
   for (const [name, seen] of elsewhere) {
     if (seen.count === 1 && !names[name]) names[name] = seen.ref
   }
   return { table, names: bindCellNames(expression, names), grants }
-}
-
-async function catalogFor(db: AppDatabase, subject: Subject, tableId: string): Promise<BracketCatalog> {
-  const table = await requireTable(db, subject, tableId, 'view')
-  const grants = await resolveGrants(db, subject)
-  const columns: BracketCatalog['columns'] = []
-  const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
-  for (const item of projectTables) {
-    if (!allows(subject, grants, 'view', { type: 'table', id: item.id, parents: { project: item.projectId } })) continue
-    const dataTableId = item.mirrorOfTableId ?? item.id
-    for (const column of await loadColumns(db, dataTableId)) {
-      columns.push({ name: column.name, columnId: column.id, tableId: item.id, tableName: item.name })
-    }
-  }
-  const links: BracketCatalog['relations'] = []
-  const { shell, physical } = await resolveTableContext(db, subject, tableId, 'view')
-  for (const column of await loadColumns(db, physical.id)) {
-    if (column.type !== 'relation') continue
-    const relationId = String(column.config.relationId ?? '')
-    const [relation] = relationId ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1) : []
-    if (!relation) continue
-    const [target] = await db.select().from(tables).where(eq(tables.id, relation.toTableId)).limit(1)
-    if (!target) continue
-    if (!allows(subject, grants, 'view', { type: 'table', id: target.id, parents: { project: target.projectId } })) continue
-    const targetDataId = target.mirrorOfTableId ?? target.id
-    const fields = await loadColumns(db, targetDataId)
-    for (const field of fields) {
-      if (!columns.some((item) => item.columnId === field.id)) {
-        columns.push({ name: field.name, columnId: field.id, tableId: target.id, tableName: target.name })
-      }
-    }
-    links.push({
-      name: column.name,
-      columnId: column.id,
-      toTableId: target.id,
-      toTableName: target.name,
-      fields: fields.map((field) => ({ name: field.name, columnId: field.id })),
-    })
-  }
-  return { tableId: shell.id, columns, relations: links, rows: [] }
 }
 
 async function rowsForBrackets(db: AppDatabase, asks: { tableName: string; rowNumber: number }[], catalog: BracketCatalog) {
@@ -148,7 +103,7 @@ function everyRowMessage(ref: RefNode, catalog: BracketCatalog) {
 
 async function compileFormula(db: AppDatabase, subject: Subject, tableId: string, expression: string) {
   const { names } = await namesFor(db, subject, tableId, expression)
-  const catalog = await catalogFor(db, subject, tableId)
+  const catalog = await bracketCatalog(db, subject, tableId)
   let asks: { tableName: string; rowNumber: number }[]
   try {
     asks = bracketRowAsks(expression)
@@ -609,7 +564,7 @@ export async function readCellFormula(db: AppDatabase, subject: Subject, rowId: 
     .limit(1)
   if (!formula?.canonical) return { source: formula?.source ?? '' }
   try {
-    const catalog = await catalogFor(db, subject, column.tableId)
+    const catalog = await bracketCatalog(db, subject, column.tableId)
     const ast = parseFormula(formula.canonical)
     const rowIds = [...new Set(collectRefs(ast).flatMap((ref) => (ref.rowId ? [ref.rowId] : [])))]
     if (rowIds.length) {
@@ -1387,46 +1342,6 @@ export async function formulaDependenciesFor(db: AppDatabase, subject: Subject, 
   await requireTable(db, subject, formula.tableId, 'view')
   const deps = await db.select().from(formulaDependencies).where(eq(formulaDependencies.formulaId, formulaId))
   return deps.map((dep) => ({ tableId: dep.tableId, columnId: dep.columnId, rowId: dep.rowId }))
-}
-
-export async function formulaCatalog(db: AppDatabase, subject: Subject, tableId: string) {
-  const table = await requireTable(db, subject, tableId, 'view')
-  const grants = await resolveGrants(db, subject)
-  const [project] = await db.select().from(projects).where(eq(projects.id, table.projectId)).limit(1)
-  const columns: { tableId: string; tableName: string; columnId: string; columnName: string; projectName: string }[] = []
-  const projectTables = await db.select().from(tables).where(eq(tables.projectId, table.projectId))
-  for (const item of projectTables) {
-    if (!allows(subject, grants, 'view', { type: 'table', id: item.id, parents: { project: item.projectId } })) continue
-    for (const column of await loadColumns(db, item.id)) {
-      columns.push({
-        tableId: item.id,
-        tableName: item.name,
-        columnId: column.id,
-        columnName: column.name,
-        projectName: project?.name ?? '',
-      })
-    }
-  }
-  const relationColumns = (await loadColumns(db, table.id)).filter((column) => column.type === 'relation')
-  const links = []
-  for (const column of relationColumns) {
-    const relationId = String(column.config.relationId ?? '')
-    const [relation] = relationId ? await db.select().from(relations).where(eq(relations.id, relationId)).limit(1) : []
-    if (!relation) continue
-    const [target] = await db.select().from(tables).where(eq(tables.id, relation.toTableId)).limit(1)
-    if (!target) continue
-    if (!allows(subject, grants, 'view', { type: 'table', id: target.id, parents: { project: target.projectId } })) continue
-    const [targetProject] = await db.select().from(projects).where(eq(projects.id, target.projectId)).limit(1)
-    links.push({
-      columnId: column.id,
-      name: column.name,
-      toTableId: target.id,
-      toTableName: target.name,
-      toProjectName: targetProject?.name ?? '',
-      columns: (await loadColumns(db, target.id)).map((item) => ({ id: item.id, name: item.name })),
-    })
-  }
-  return { columns, relations: links }
 }
 
 export async function valueForHiddenRef(db: AppDatabase, subject: Subject, ref: RefNode, rowId: string): Promise<FormulaValue> {
