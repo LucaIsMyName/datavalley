@@ -1,16 +1,7 @@
 import type { CatalogItem, Column, RowRecord } from '@datavalley/api-client'
-import { formatCell } from './cells'
-import { formatSelectCellSummary } from './select-options-utils'
-import { formatFormulaValue } from './formula-help'
+import { displayCellValue } from './cell-display'
 
 export type NoteFieldLine = { name: string; value: string }
-
-function catalogNames(ids: unknown, catalog: { id: string; name: string }[]): string {
-  const list = Array.isArray(ids) ? ids.map(String) : typeof ids === 'string' && ids ? [ids] : []
-  if (list.length === 0) return ''
-  const byId = new Map(catalog.map((item) => [item.id, item.name]))
-  return list.map((id) => byId.get(id) ?? id).join(', ')
-}
 
 export function formatNoteCellValue(
   column: Column,
@@ -23,58 +14,16 @@ export function formatNoteCellValue(
   },
   labels: { yes: string; no: string; mediaCount: (count: number) => string },
 ): string {
-  if (value == null || value === '') return ''
-
-  if (column.type === 'checkbox') {
-    const on = value === true || value === 'true' || value === '1' || value === 'yes'
-    return on ? labels.yes : labels.no
-  }
-
-  if (column.type === 'tags') {
-    return catalogNames(value, catalogs.tags.map((t) => ({ id: t.id, name: t.name })))
-  }
-
-  if (column.type === 'status') {
-    return catalogNames(value, catalogs.statuses.map((s) => ({ id: s.id, name: s.name })))
-  }
-
-  if (column.type === 'user') {
-    return catalogNames(
-      value,
-      catalogs.members.map((m) => ({ id: m.userId, name: m.username })),
-    )
-  }
-
-  if (column.type === 'select' || column.type === 'radio' || column.type === 'multi_select') {
-    const multiple = column.type === 'multi_select'
-    return formatSelectCellSummary(column.options, value as string | string[], multiple)
-  }
-
-  if (column.type === 'media') {
-    const ids = Array.isArray(value)
-      ? value
-      : typeof value === 'object' && value && 'fileIds' in value
-        ? (value as { fileIds: string[] }).fileIds
-        : []
-    return ids.length > 0 ? labels.mediaCount(ids.length) : ''
-  }
-
   if (column.type === 'row_id') {
-    return column.config.style === 'uuid' ? '' : String(value ?? '')
+    if (value == null || value === '') return ''
+    return column.config.style === 'uuid' ? '' : String(value)
   }
-
-  if (
-    column.type === 'number' ||
-    column.type === 'currency' ||
-    column.type === 'date' ||
-    column.type === 'datetime' ||
-    column.type === 'formula' ||
-    column.type === 'lookup'
-  ) {
-    return formatCell(column, value, language)
-  }
-
-  return formatFormulaValue(value)
+  return displayCellValue(column, value, language, {
+    tags: catalogs.tags,
+    statuses: catalogs.statuses,
+    members: catalogs.members.map((member) => ({ id: member.userId, name: member.username })),
+    labels,
+  })
 }
 
 export function buildNoteFieldLines(

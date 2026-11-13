@@ -29,7 +29,7 @@ import { type MouseEvent as ReactMouseEvent } from 'react'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { buildColumnHeaderMenu } from './column-menu'
-import { displayCellValue } from './cell-display'
+import { copyCellText } from './cell-display'
 import { deleteTableInProject } from './table-delete'
 import { displayFromSavedView, savedViewDefinition } from './view-definition'
 
@@ -417,7 +417,7 @@ export function useTableMenus(scope: Scope) {
         icon: Copy,
         onSelect: () =>
           void navigator.clipboard.writeText(
-            displayCellValue(column, row.cells[column.id], i18n.language),
+            copyCellText(column, row.cells[column.id], i18n.language),
           ),
       },
       {

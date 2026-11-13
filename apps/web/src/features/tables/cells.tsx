@@ -1,8 +1,8 @@
 import {
-  formatDateCellValue,
   isDateColumnType,
   isSelectFamilyType,
   selectColumnMultiple,
+  SWATCH_NAMES,
   type DateRangeValue,
   paintSwatch,
 } from '@datavalley/shared'
@@ -17,32 +17,17 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { cellSelectTriggerClassName, SelectField } from '../../components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
 import { createColumnOption, SelectCellOptionsPanel } from './select-cell-options-panel'
+import { displayCellValue } from './cell-display'
 import { formatSelectCellSummary, sortOptionsByPosition } from './select-options-utils'
 import { api } from '../../lib/api'
 import type { ViewportAnchor } from '../../lib/place-in-viewport'
 import { beginRename, colorLabelKey, finishRename } from './grid-ux'
 import { MediaEditor } from './media-cell'
 
-const money: Record<string, string> = { USD: 'USD', EUR: 'EUR', GBP: 'GBP', CHF: 'CHF', JPY: 'JPY' }
-const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
+const swatches: readonly string[] = SWATCH_NAMES
 
 export function formatCell(column: Column, value: unknown, language = 'en') {
-  if (value == null || value === '') return ''
-  if (isDateColumnType(column.type)) {
-    return formatDateCellValue(value, column, language)
-  }
-  if (column.type === 'number' || column.type === 'currency') {
-    const numeric = Number(value)
-    if (!Number.isFinite(numeric)) return String(value)
-    const variant = column.type === 'currency' ? 'money' : String(column.config.variant ?? 'float')
-    if (variant === 'integer') return String(Math.trunc(numeric))
-    if (variant === 'money') {
-      const currency = money[String(column.config.currency ?? 'USD')] ?? 'USD'
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(numeric)
-    }
-    return String(numeric)
-  }
-  return String(value)
+  return displayCellValue(column, value, language)
 }
 
 function names(ids: unknown, catalog: CatalogItem[]) {
@@ -237,6 +222,16 @@ export function CellEditor({
   }
   if (isDateColumnType(column.type)) return <DateEditor column={column} value={row.cells[column.id]} onEdit={onEdit} onFlush={onFlush} onDateMode={onDateMode} />
   if (column.type === 'user') return <UserEditor column={column} row={row} members={members} onEdit={onEdit} onFlush={onFlush} />
+  if (column.type === 'number' || column.type === 'currency') {
+    const raw = row.cells[column.id]
+    const editable = hint ? text : raw == null || raw === '' ? '' : String(raw)
+    return (
+      <div className="flex h-full min-w-0 flex-1 items-center gap-1">
+        <TextEditor label={editLabel} value={editable} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
+        {hint ? <FormatHint message={hint} /> : null}
+      </div>
+    )
+  }
   return (
     <div className="flex h-full min-w-0 flex-1 items-center gap-1">
       <TextEditor label={editLabel} value={text} multiline={column.type === 'long_text'} onEdit={(value) => onEdit(value)} onFlush={onFlush} onCancel={onCancel} />
@@ -624,11 +619,11 @@ function TagEditor({ tableId, column, row, tags, active, onEdit, onFlush, onOpen
 
 function TagColorMenu({ tag, anchor, onColor, onRemove, onRename }: { tag: CatalogItem; anchor: ViewportAnchor; onColor: (color: string) => void; onRemove: () => void; onRename: () => void }) {
   const { t } = useTranslation()
-  const current = palette.includes(tag.color) ? tag.color : 'slate'
+  const current = swatches.includes(tag.color) ? tag.color : 'slate'
   return (
     <AnchoredLayer anchor={anchor} prefer="below" align="start" tagMenu zIndex={100} className="w-40 border border-border bg-card p-2 shadow-md">
       <div className="flex flex-wrap gap-1">
-        {palette.map((color) => (
+        {swatches.map((color) => (
           <button
             key={color}
             type="button"
@@ -720,7 +715,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
       finishRename(pending)
     }
   }
-  const currentColor = current && palette.includes(current.color) ? current.color : 'slate'
+  const currentColor = current && swatches.includes(current.color) ? current.color : 'slate'
   return (
     <div
       ref={rootRef}
@@ -825,7 +820,7 @@ function StatusEditor({ tableId, column, row, statuses, active, onEdit, onFlush,
             }}
           />
           <div className="mt-2 flex flex-wrap gap-1">
-            {palette.map((color) => (
+            {swatches.map((color) => (
               <button
                 key={color}
                 type="button"

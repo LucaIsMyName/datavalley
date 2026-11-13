@@ -5,6 +5,7 @@ import {
   dateColumnIncludesTime,
   dateColumnKind,
   selectColumnMultiple,
+  SWATCH_NAMES,
   validateDateRangePayload,
 } from '@datavalley/shared'
 import { badRequest } from '../errors.js'
@@ -100,10 +101,10 @@ export function isWritable(type: string) {
   return type !== 'formula' && type !== 'lookup' && type !== 'row_id'
 }
 
-export const tagColors = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
+export const tagColors = SWATCH_NAMES
 
 export function nextTagColor(used: number) {
-  return tagColors[used % tagColors.length]
+  return tagColors[used % tagColors.length] ?? SWATCH_NAMES[0]
 }
 
 function one(partial: Partial<CellWrite>): CellWrite {

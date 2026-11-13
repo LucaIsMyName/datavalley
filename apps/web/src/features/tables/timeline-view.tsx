@@ -1,7 +1,6 @@
 import type { Column, RowRecord } from '@datavalley/api-client'
 import {
   dateColumnKind,
-  formatDateCellValue,
   isDateColumnType,
   isDateRangeValue,
   formatTimelineBound,
@@ -31,9 +30,8 @@ import { Checkbox } from '../../components/ui/checkbox'
 import { Label } from '../../components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../../components/ui/select'
-import { formatCell } from './cells'
-import { presentFormatValue, type FormatLabels } from './format-values'
-import { formatFormulaValue } from './formula-help'
+import { displayCellValue } from './cell-display'
+import { type FormatLabels } from './format-values'
 
 const DAY = 86_400_000
 const LANE = 40
@@ -613,16 +611,11 @@ function itemTitle(row: RowRecord, columns: Column[], language: string, labels: 
 }
 
 function titlePart(column: Column, value: unknown, language: string, labels: FormatLabels) {
-  if (value == null || value === '') return ''
-  if (isDateColumnType(column.type)) return formatDateCellValue(value, column, language)
-  if (column.type === 'formula') return formatFormulaValue(value)
-  if (column.type === 'number' || column.type === 'currency') return formatCell(column, value, language)
-  const presented = presentFormatValue(column, value, labels)
-  if (presented == null) return ''
-  if (Array.isArray(presented)) return presented.map((item) => formatFormulaValue(item)).filter((item) => item.length > 0).join(', ')
-  if (typeof presented === 'boolean') return presented ? 'TRUE' : 'FALSE'
-  if (typeof presented === 'object') return formatFormulaValue(presented)
-  return String(presented)
+  return displayCellValue(column, value, language, {
+    tags: labels.tags,
+    statuses: labels.statuses,
+    members: labels.members,
+  })
 }
 
 function ColumnMultiSelect({

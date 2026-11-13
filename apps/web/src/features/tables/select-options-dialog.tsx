@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Column } from '@datavalley/api-client'
 import { ApiClientError } from '@datavalley/api-client'
-import { paintSwatch } from '@datavalley/shared'
+import { paintSwatch, SWATCH_NAMES } from '@datavalley/shared'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { colorLabelKey } from './grid-ux'
@@ -12,7 +12,7 @@ import { deleteColumnOptionApi, patchColumnOption, postColumnOption } from './se
 import { SelectOptionDeleteButton } from './select-option-delete-button'
 import { mergeColumnOption, sortOptionsByPosition } from './select-options-utils'
 
-const palette = ['amber', 'green', 'blue', 'red', 'violet', 'orange', 'pink', 'teal', 'slate', 'yellow']
+const swatches: readonly string[] = SWATCH_NAMES
 
 export function SelectOptionsDialog({
   column,
@@ -110,7 +110,7 @@ export function SelectOptionsDialog({
               }}
             />
             <div className="flex shrink-0 flex-wrap gap-0.5">
-              {palette.map((color) => (
+              {swatches.map((color) => (
                 <button
                   key={color}
                   type="button"

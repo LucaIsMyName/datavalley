@@ -18,25 +18,13 @@ function fieldText(
   value: unknown,
   language: string,
   members: { userId: string; username: string }[],
+  statuses: CatalogItem[],
 ) {
-  if (value == null || value === '') return ''
-  if (column.type === 'user' && Array.isArray(value)) {
-    return value
-      .map((id) => members.find((member) => member.userId === String(id))?.username ?? '')
-      .filter(Boolean)
-      .join(', ')
-  }
-  if (column.type === 'select' || column.type === 'status') {
-    const id = String(value)
-    const option =
-      column.type === 'status'
-        ? undefined
-        : column.options.find((item) => item.id === id)
-    return option?.label ?? id
-  }
-  if (column.type === 'relation' || column.type === 'media') return ''
-  const text = displayCellValue(column, value, language)
-  return text == null ? '' : String(text)
+  if (column.type === 'relation') return ''
+  return displayCellValue(column, value, language, {
+    members: members.map((member) => ({ id: member.userId, name: member.username })),
+    statuses: statuses.map((status) => ({ id: status.id, name: status.name })),
+  })
 }
 
 export function KanbanView({
@@ -154,7 +142,7 @@ export function KanbanView({
                   const row = rows.find((item) => item.id === rowId)
                   if (!row) return null
                   const title = titleColumn
-                    ? fieldText(titleColumn, row.cells[titleColumn.id], i18n.language, members)
+                    ? fieldText(titleColumn, row.cells[titleColumn.id], i18n.language, members, statuses)
                     : ''
                   return (
                     <article
@@ -171,7 +159,7 @@ export function KanbanView({
                         {title || `#${row.rowNumber}`}
                       </Link>
                       {detailColumns.slice(0, 3).map((column) => {
-                        const text = fieldText(column, row.cells[column.id], i18n.language, members)
+                        const text = fieldText(column, row.cells[column.id], i18n.language, members, statuses)
                         if (!text) return null
                         return (
                           <p key={column.id} className="truncate text-muted-foreground">

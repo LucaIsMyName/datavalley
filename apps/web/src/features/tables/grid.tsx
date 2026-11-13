@@ -67,7 +67,7 @@ import {
 } from './cache'
 import { ConditionalDialog } from './conditional-dialog'
 import { CsvImportDialog } from './csv-import-dialog'
-import { cellWritable as isColumnWritable, displayCellValue } from './cell-display'
+import { cellWritable as isColumnWritable, copyCellText } from './cell-display'
 import { ColumnTitle } from './column-title'
 import { activateTableCell } from './activate-table-cell'
 import { useRowCellEdit } from './use-row-cell-edit'
@@ -966,7 +966,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     const row = rows[selected.row]
     if (!column || !row) return
     void navigator.clipboard.writeText(
-      displayCellValue(column, row.cells[column.id], i18n.language),
+      copyCellText(column, row.cells[column.id], i18n.language),
     )
   }
   clearCellRef.current = () => {
