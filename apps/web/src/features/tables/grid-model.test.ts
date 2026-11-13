@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { filterOperatorsFor } from '@datavalley/shared'
 import {
   activeFilter,
   filtersFrom,
@@ -63,6 +64,10 @@ describe('grid model', () => {
     expect(operatorsFor('checkbox')).toEqual(['eq', 'empty', 'not_empty'])
     expect(operatorsFor('select')).toEqual(['eq', 'neq', 'empty', 'not_empty'])
     expect(operatorsFor('text')).toEqual(['eq', 'contains', 'starts_with', 'empty', 'not_empty'])
+    expect(operatorsFor('formula')).toEqual(operatorsFor('text'))
+    for (const type of ['number', 'checkbox', 'select', 'text']) {
+      for (const op of operatorsFor(type)) expect(filterOperatorsFor(type)).toContain(op)
+    }
   })
 
   it('names copies and moves an id before another', () => {

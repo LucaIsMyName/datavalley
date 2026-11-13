@@ -14,6 +14,36 @@ export const filterOperators = [
 
 export type FilterOperator = (typeof filterOperators)[number]
 
+const textFilterOperators = [
+  'eq',
+  'neq',
+  'contains',
+  'not_contains',
+  'starts_with',
+  'ends_with',
+  'empty',
+  'not_empty',
+  'gt',
+  'lt',
+  'between',
+] as const satisfies readonly FilterOperator[]
+
+const numberFilterOperators = ['eq', 'neq', 'gt', 'lt', 'between', 'empty', 'not_empty'] as const satisfies readonly FilterOperator[]
+
+/** Operators the row filter accepts for a column type. Automation conditions use a different vocabulary. */
+export function filterOperatorsFor(type: string): FilterOperator[] {
+  if (type === 'number' || type === 'currency' || type === 'date' || type === 'datetime') {
+    return [...numberFilterOperators]
+  }
+  if (type === 'checkbox') return ['eq', 'empty', 'not_empty']
+  if (type === 'select' || type === 'radio' || type === 'multi_select' || type === 'relation') {
+    return ['eq', 'neq', 'empty', 'not_empty']
+  }
+  if (type === 'formula' || type === 'lookup' || type === 'media' || type === 'row_id') return ['empty', 'not_empty']
+  if (type === 'tags' || type === 'user' || type === 'status') return ['eq', 'neq', 'empty', 'not_empty']
+  return [...textFilterOperators]
+}
+
 export type FilterCondition = {
   op: FilterOperator
   columnId: string

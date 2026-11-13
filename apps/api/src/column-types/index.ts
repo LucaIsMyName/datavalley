@@ -4,6 +4,7 @@ import {
   parseMediaCellInput,
   dateColumnIncludesTime,
   dateColumnKind,
+  filterOperatorsFor,
   selectColumnMultiple,
   SWATCH_NAMES,
   validateDateRangePayload,
@@ -80,21 +81,8 @@ const empty: CellWrite = {
   valueJsonb: null,
 }
 
-function textOperators() {
-  return ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with', 'empty', 'not_empty', 'gt', 'lt', 'between']
-}
-
 export function operatorsFor(type: string): string[] {
-  if (type === 'number' || type === 'currency' || type === 'date' || type === 'datetime') {
-    return ['eq', 'neq', 'gt', 'lt', 'between', 'empty', 'not_empty']
-  }
-  if (type === 'checkbox') return ['eq', 'empty', 'not_empty']
-  if (type === 'select' || type === 'radio' || type === 'multi_select' || type === 'relation') {
-    return ['eq', 'neq', 'empty', 'not_empty']
-  }
-  if (type === 'formula' || type === 'lookup' || type === 'media' || type === 'row_id') return ['empty', 'not_empty']
-  if (type === 'tags' || type === 'user' || type === 'status') return ['eq', 'neq', 'empty', 'not_empty']
-  return textOperators()
+  return filterOperatorsFor(type)
 }
 
 export function isWritable(type: string) {

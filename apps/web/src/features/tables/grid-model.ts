@@ -1,12 +1,25 @@
-import type { FilterNode, FilterOperator } from '@datavalley/shared'
+import { filterOperatorsFor, type FilterNode, type FilterOperator } from '@datavalley/shared'
+
+const gridNumberOperators = ['eq', 'gt', 'lt', 'empty', 'not_empty'] as const satisfies readonly FilterOperator[]
+const gridCheckboxOperators = ['eq', 'empty', 'not_empty'] as const satisfies readonly FilterOperator[]
+const gridChoiceOperators = ['eq', 'neq', 'empty', 'not_empty'] as const satisfies readonly FilterOperator[]
+const gridTextOperators = ['eq', 'contains', 'starts_with', 'empty', 'not_empty'] as const satisfies readonly FilterOperator[]
+
+function shownOperators(available: readonly FilterOperator[], wanted: readonly FilterOperator[]) {
+  const allowed = new Set(available)
+  return wanted.filter((op) => allowed.has(op))
+}
 
 export function operatorsFor(type: string) {
-  if (['number', 'currency', 'date'].includes(type) || type === 'datetime')
-    return ['eq', 'gt', 'lt', 'empty', 'not_empty']
-  if (type === 'checkbox') return ['eq', 'empty', 'not_empty']
-  if (['select', 'radio', 'multi_select', 'relation'].includes(type))
-    return ['eq', 'neq', 'empty', 'not_empty']
-  return ['eq', 'contains', 'starts_with', 'empty', 'not_empty']
+  if (type === 'number' || type === 'currency' || type === 'date' || type === 'datetime') {
+    return shownOperators(filterOperatorsFor(type), gridNumberOperators)
+  }
+  if (type === 'checkbox') return shownOperators(filterOperatorsFor(type), gridCheckboxOperators)
+  if (type === 'select' || type === 'radio' || type === 'multi_select' || type === 'relation') {
+    return shownOperators(filterOperatorsFor(type), gridChoiceOperators)
+  }
+  // Column types without their own grid menu keep the text menu, still drawn from the shared text operators.
+  return shownOperators(filterOperatorsFor('text'), gridTextOperators)
 }
 
 export function nextLabel(names: string[], base: string) {
