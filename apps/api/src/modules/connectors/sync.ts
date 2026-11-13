@@ -27,6 +27,7 @@ import { publishTableSignal } from '../realtime/publish.js'
 import { assertTableDataEditable } from '../tables/resolve.js'
 import { notifySyncFailure } from '../rows/notices.js'
 import { rowDeleteRestriction } from '../rows/delete-guard.js'
+import { persistCell } from '../rows/cells.js'
 import { advanceRowVersion } from '../rows/versions.js'
 import { fetchConnectorPayload, type ConnectorAuthConfig } from './fetch.js'
 import { connectorApiKey } from './service.js'
@@ -273,28 +274,22 @@ async function writeMappedCells(
     const column = columns.find((item) => item.id === columnId)
     if (!column || column.type === 'formula' || column.type === 'row_id') continue
     const raw = mapped[fieldKey] ?? ''
-    if (raw === '') {
+    const parsed = parseCell(column, raw)
+    if (!parsed) {
       await db
         .delete(tableCells)
         .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
       touched.push(columnId)
       continue
     }
-    const parsed = parseCell(column, raw)
-    await db
-      .delete(tableCells)
-      .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, columnId)))
-    if (!parsed) continue
-    await db.insert(tableCells).values({
+    await persistCell(db, {
       tableId,
       rowId,
       columnId,
-      valueText: parsed.valueText ?? null,
-      valueNumber: parsed.valueNumber ?? null,
-      valueBool: parsed.valueBool ?? null,
-      valueTimestamptz: parsed.valueTimestamptz ?? null,
-      valueJsonb: (parsed.valueJsonb ?? null) as never,
+      parsed,
+      background: null,
       formatRules: [],
+      mode: 'replace',
     })
     touched.push(columnId)
   }

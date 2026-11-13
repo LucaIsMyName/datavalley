@@ -48,6 +48,7 @@ import { assertTableDataEditable, loadMirrorSourceMeta, validateMirrorSource } f
 import { documentConfigForSave } from './document.js'
 import { seedDemoTable } from './template.js'
 import { publishRealtime, publishTableSignal } from '../realtime/publish.js'
+import { persistCell } from '../rows/cells.js'
 import { visibleColumns } from '../rows/visible-columns.js'
 
 function relationConfig(
@@ -1360,21 +1361,20 @@ async function rewriteSelectCell(
   const parsed = parseCell(column, value)
   const kept = existing?.background ?? null
   const rules = existing?.formatRules ?? []
-  await db
-    .delete(tableCells)
-    .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
-  if (!parsed && !kept && !(Array.isArray(rules) && rules.length > 0)) return
-  await db.insert(tableCells).values({
+  if (!parsed && !kept && !(Array.isArray(rules) && rules.length > 0)) {
+    await db
+      .delete(tableCells)
+      .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
+    return
+  }
+  await persistCell(db, {
     tableId,
     rowId,
     columnId: column.id,
-    valueText: parsed?.valueText ?? null,
-    valueNumber: parsed?.valueNumber ?? null,
-    valueBool: parsed?.valueBool ?? null,
-    valueTimestamptz: parsed?.valueTimestamptz ?? null,
-    valueJsonb: (parsed?.valueJsonb ?? null) as never,
+    parsed,
     background: kept,
-    formatRules: rules as never,
+    formatRules: rules,
+    mode: 'replace',
   })
 }
 

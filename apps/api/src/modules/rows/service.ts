@@ -49,6 +49,7 @@ import {
   resolveTableContext,
   type LoadedColumn,
 } from '../tables/service.js'
+import { persistCell } from './cells.js'
 import { importDuplicateWarnings } from './duplicates.js'
 import { previousCellValues, recordCellHistory } from './history.js'
 import { rowDisplayTitle } from './titles.js'
@@ -631,35 +632,15 @@ async function writeCell(
         .where(and(eq(tableCells.rowId, rowId), eq(tableCells.columnId, column.id)))
     return
   }
-  const record = {
+  await persistCell(db, {
     tableId,
     rowId,
     columnId: column.id,
-    valueText: parsed?.valueText ?? null,
-    valueNumber: parsed?.valueNumber ?? null,
-    valueBool: parsed?.valueBool ?? null,
-    valueTimestamptz: parsed?.valueTimestamptz ?? null,
-    valueJsonb: (parsed?.valueJsonb ?? null) as never,
+    parsed,
     background: kept,
-    formatRules: rules as never,
-    updatedAt: new Date(),
-  }
-  await db
-    .insert(tableCells)
-    .values(record)
-    .onConflictDoUpdate({
-      target: [tableCells.rowId, tableCells.columnId],
-      set: {
-        valueText: record.valueText,
-        valueNumber: record.valueNumber,
-        valueBool: record.valueBool,
-        valueTimestamptz: record.valueTimestamptz,
-        valueJsonb: record.valueJsonb,
-        background: record.background,
-        formatRules: record.formatRules,
-        updatedAt: record.updatedAt,
-      },
-    })
+    formatRules: rules,
+    mode: 'upsert',
+  })
   if (parsed && column.type === 'relation') await syncRelation(db, column, rowId, parsed)
 }
 
