@@ -2,6 +2,7 @@ export const formulaGuide = `Formula language:
 There is no = prefix. A result is a number, text, a boolean, a list, or an error (#CYCLE, #REF, #VALUE, #DIV/0, #LIM, #N/A).
 Write references in brackets, never as {uuid}. [Price] is this column on this row. [Orders -> Price] on an Orders formula is also this row. SUM([Orders -> Price]) is every row of that column. [People -> Amount] is every row when People is another table. [People -> Name -> #15] is one cell. [Customer -> Price] reads Price on the linked row. LOOKUP([People -> Mail], [Email], [People -> Name]) finds the People row whose Mail equals this row's Email and returns Name.
 Numbers use + - * / %. Text uses &. Comparisons are = <> > < >= <=. Functions: SUM, AVERAGE, MIN, MAX, COUNT, COUNTA, ROUND, ABS, IF, IFNOT, IFS, FOR, AND, OR, NOT, ISBLANK, CONTAINS, COUNTIF, SUMIF, YEAR, MONTH, DAY, CONCAT, LEFT, RIGHT, LEN, LOWER, UPPER, TODAY, NOW, LOOKUP, RELATION.
+VAR name = expression stores a value for this cell. Read it as $name. FUNCTION NAME(param = 1) = { RETURN param } defines an uppercase function in this cell. NAME() uses the fallback. NAME(_, 2) keeps the first fallback and sets the second argument. _ is the whole argument. These definitions can use the same bracket references as the rest of the formula.
 A reference the user cannot view is #REF. Do not invent column names.`
 
 export function chatSystemPrompt(context: string) {

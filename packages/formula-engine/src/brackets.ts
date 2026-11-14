@@ -1,4 +1,4 @@
-import type { AstNode, RefNode } from './ast.js'
+import type { AstNode, FormulaDeclaration, RefNode } from './ast.js'
 import { FormulaSyntaxError, parseFormula } from './parse.js'
 
 export type BracketColumn = {
@@ -159,12 +159,84 @@ function currentRowRef(ref: RefNode, tableId: string, keepColumn: boolean, mark:
   return { columnId: ref.columnId }
 }
 
+function mapProgram(node: Extract<AstNode, { type: 'program' }>, visit: (child: AstNode) => AstNode): AstNode {
+  const declarations: FormulaDeclaration[] = node.declarations.map((declaration) => {
+    if (declaration.kind === 'var') {
+      const expr = visit(declaration.binding.expr)
+      return expr === declaration.binding.expr ? declaration : { kind: 'var', binding: { ...declaration.binding, expr } }
+    }
+    const params = declaration.fn.params.map((param) => {
+      if (!param.fallback) return param
+      const fallback = visit(param.fallback)
+      return fallback === param.fallback ? param : { ...param, fallback }
+    })
+    const locals = declaration.fn.locals.map((local) => {
+      const expr = visit(local.expr)
+      return expr === local.expr ? local : { ...local, expr }
+    })
+    const body = visit(declaration.fn.body)
+    const sameParams = params.every((param, index) => param === declaration.fn.params[index])
+    const sameLocals = locals.every((local, index) => local === declaration.fn.locals[index])
+    if (sameParams && sameLocals && body === declaration.fn.body) return declaration
+    return { kind: 'function', fn: { ...declaration.fn, params, locals, body } }
+  })
+  const body = visit(node.body)
+  const same = body === node.body && declarations.every((item, index) => item === node.declarations[index])
+  return same ? node : { type: 'program', declarations, body }
+}
+
+function printProgram(node: Extract<AstNode, { type: 'program' }>, print: (child: AstNode) => string) {
+  const lines = node.declarations.map((declaration) => {
+    if (declaration.kind === 'var') return `VAR ${declaration.binding.name} = ${print(declaration.binding.expr)}`
+    const params = declaration.fn.params
+      .map((param) => (param.fallback ? `${param.name} = ${print(param.fallback)}` : param.name))
+      .join(', ')
+    const locals = declaration.fn.locals.map((local) => `VAR ${local.name} = ${print(local.expr)}`)
+    return `FUNCTION ${declaration.fn.name}(${params}) = {\n${[...locals, `RETURN ${print(declaration.fn.body)}`].join('\n')}\n}`
+  })
+  return [...lines, print(node.body)].join('\n')
+}
+
+function firstRef(node: Extract<AstNode, { type: 'program' }>, visit: (child: AstNode) => RefNode | null) {
+  for (const declaration of node.declarations) {
+    if (declaration.kind === 'var') {
+      const found = visit(declaration.binding.expr)
+      if (found) return found
+      continue
+    }
+    for (const param of declaration.fn.params) {
+      if (!param.fallback) continue
+      const found = visit(param.fallback)
+      if (found) return found
+    }
+    for (const local of declaration.fn.locals) {
+      const found = visit(local.expr)
+      if (found) return found
+    }
+    const found = visit(declaration.fn.body)
+    if (found) return found
+  }
+  return visit(node.body)
+}
+
 function currentRowNode(node: AstNode, tableId: string, keepColumn: boolean, mark: () => void): AstNode {
   if (node.type === 'ref') {
     const ref = currentRowRef(node.ref, tableId, keepColumn, mark)
     return ref === node.ref ? node : { type: 'ref', ref }
   }
-  if (node.type === 'range' || node.type === 'number' || node.type === 'string' || node.type === 'bool' || node.type === 'it') return node
+  if (
+    node.type === 'range' ||
+    node.type === 'number' ||
+    node.type === 'string' ||
+    node.type === 'bool' ||
+    node.type === 'it' ||
+    node.type === 'var' ||
+    node.type === 'param' ||
+    node.type === 'omit'
+  ) {
+    return node
+  }
+  if (node.type === 'program') return mapProgram(node, (child) => currentRowNode(child, tableId, keepColumn, mark))
   if (node.type === 'unary') {
     const expr = currentRowNode(node.expr, tableId, keepColumn, mark)
     return expr === node.expr ? node : { ...node, expr }
@@ -174,6 +246,7 @@ function currentRowNode(node: AstNode, tableId: string, keepColumn: boolean, mar
     const right = currentRowNode(node.right, tableId, keepColumn, mark)
     return left === node.left && right === node.right ? node : { ...node, left, right }
   }
+  if (node.type !== 'call') return node
   if (node.name === 'RELATION') return node
   const args = node.args.map((arg, index) => {
     if (node.name === 'LOOKUP') return currentRowNode(arg, tableId, index === 0 || index === 2, mark)
@@ -204,6 +277,11 @@ function printCanonical(node: AstNode, parent = 0): string {
     const text = `${printCanonical(node.left, level)} ${node.op} ${printCanonical(node.right, level + 1)}`
     return parent > level ? `(${text})` : text
   }
+  if (node.type === 'var') return `$${node.name}`
+  if (node.type === 'param') return node.name
+  if (node.type === 'omit') return '_'
+  if (node.type === 'program') return printProgram(node, printCanonical)
+  if (node.type !== 'call') return ''
   return `${node.name}(${node.args.map((arg) => printCanonical(arg)).join(', ')})`
 }
 
@@ -230,6 +308,7 @@ function bareColumn(node: AstNode): RefNode | null {
       if (found) return found
     }
   }
+  if (node.type === 'program') return firstRef(node, bareColumn)
   return null
 }
 
@@ -246,6 +325,7 @@ function walkMath(node: AstNode): RefNode | null {
       if (found) return found
     }
   }
+  if (node.type === 'program') return firstRef(node, walkMath)
   return null
 }
 
@@ -312,6 +392,11 @@ function printNode(node: AstNode, parent: number, catalog: BracketCatalog): stri
     const text = `${printNode(node.left, level, catalog)} ${node.op} ${printNode(node.right, level + 1, catalog)}`
     return parent > level ? `(${text})` : text
   }
+  if (node.type === 'var') return `$${node.name}`
+  if (node.type === 'param') return node.name
+  if (node.type === 'omit') return '_'
+  if (node.type === 'program') return printProgram(node, (child) => printNode(child, 0, catalog))
+  if (node.type !== 'call') return ''
   const relation = printRelation(node, catalog)
   if (relation) return relation
   return `${node.name}(${node.args.map((arg) => printNode(arg, 0, catalog)).join(', ')})`

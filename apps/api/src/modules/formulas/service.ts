@@ -670,6 +670,18 @@ function callsNamed(node: AstNode, name: string, into: Extract<AstNode, { type: 
   else if (node.type === 'binary') {
     callsNamed(node.left, name, into)
     callsNamed(node.right, name, into)
+  } else if (node.type === 'program') {
+    for (const declaration of node.declarations) {
+      if (declaration.kind === 'var') callsNamed(declaration.binding.expr, name, into)
+      else {
+        for (const param of declaration.fn.params) {
+          if (param.fallback) callsNamed(param.fallback, name, into)
+        }
+        for (const local of declaration.fn.locals) callsNamed(local.expr, name, into)
+        callsNamed(declaration.fn.body, name, into)
+      }
+    }
+    callsNamed(node.body, name, into)
   }
   return into
 }
@@ -704,6 +716,40 @@ async function foldSimpleAggregates(map: ValueMap, node: AstNode): Promise<AstNo
       left: await foldSimpleAggregates(map, node.left),
       right: await foldSimpleAggregates(map, node.right),
     }
+  }
+  if (node.type === 'program') {
+    const declarations = []
+    for (const declaration of node.declarations) {
+      if (declaration.kind === 'var') {
+        declarations.push({
+          kind: 'var' as const,
+          binding: { ...declaration.binding, expr: await foldSimpleAggregates(map, declaration.binding.expr) },
+        })
+        continue
+      }
+      const params = []
+      for (const param of declaration.fn.params) {
+        params.push(
+          param.fallback
+            ? { ...param, fallback: await foldSimpleAggregates(map, param.fallback) }
+            : param,
+        )
+      }
+      const locals = []
+      for (const local of declaration.fn.locals) {
+        locals.push({ ...local, expr: await foldSimpleAggregates(map, local.expr) })
+      }
+      declarations.push({
+        kind: 'function' as const,
+        fn: {
+          ...declaration.fn,
+          params,
+          locals,
+          body: await foldSimpleAggregates(map, declaration.fn.body),
+        },
+      })
+    }
+    return { ...node, declarations, body: await foldSimpleAggregates(map, node.body) }
   }
   return node
 }
@@ -825,32 +871,98 @@ async function takenFlag(db: AppDatabase, map: ValueMap, node: AstNode, rowId: s
   return conditionFlag(runFormula(folded, formulaContext(map, rowId, bag)))
 }
 
-async function narrowAst(db: AppDatabase, map: ValueMap, node: AstNode, rowId: string, bag: EvalBag): Promise<Narrowed> {
+function needsFormulaScope(node: AstNode, fns: ReadonlySet<string>): boolean {
+  if (node.type === 'var' || node.type === 'param' || node.type === 'omit' || node.type === 'program') return true
+  if (node.type === 'unary') return needsFormulaScope(node.expr, fns)
+  if (node.type === 'binary') return needsFormulaScope(node.left, fns) || needsFormulaScope(node.right, fns)
+  if (node.type === 'call') return fns.has(node.name) || node.args.some((arg) => needsFormulaScope(arg, fns))
+  return false
+}
+
+function literalNode(value: FormulaValue): AstNode | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return { type: 'number', value }
+  if (typeof value === 'string') return { type: 'string', value }
+  if (typeof value === 'boolean') return { type: 'bool', value }
+  return null
+}
+
+async function narrowAst(
+  db: AppDatabase,
+  map: ValueMap,
+  node: AstNode,
+  rowId: string,
+  bag: EvalBag,
+  fns: ReadonlySet<string> = new Set(),
+): Promise<Narrowed> {
+  if (node.type === 'program') {
+    const names = new Set(fns)
+    for (const declaration of node.declarations) {
+      if (declaration.kind === 'function') names.add(declaration.fn.name)
+    }
+    const declarations = []
+    for (const declaration of node.declarations) {
+      if (declaration.kind === 'var') {
+        declarations.push({
+          kind: 'var' as const,
+          binding: { ...declaration.binding, expr: await narrowPiece(db, map, declaration.binding.expr, rowId, bag, names) },
+        })
+        continue
+      }
+      const params = []
+      for (const param of declaration.fn.params) {
+        params.push(
+          param.fallback
+            ? { ...param, fallback: await narrowPiece(db, map, param.fallback, rowId, bag, names) }
+            : param,
+        )
+      }
+      const locals = []
+      for (const local of declaration.fn.locals) {
+        locals.push({ ...local, expr: await narrowPiece(db, map, local.expr, rowId, bag, names) })
+      }
+      declarations.push({
+        kind: 'function' as const,
+        fn: {
+          ...declaration.fn,
+          params,
+          locals,
+          body: await narrowPiece(db, map, declaration.fn.body, rowId, bag, names),
+        },
+      })
+    }
+    return { ast: { ...node, declarations, body: await narrowPiece(db, map, node.body, rowId, bag, names) } }
+  }
   if (node.type === 'unary') {
-    const expr = await narrowAst(db, map, node.expr, rowId, bag)
+    const expr = await narrowAst(db, map, node.expr, rowId, bag, fns)
     if ('value' in expr) return expr
     return { ast: { ...node, expr: expr.ast } }
   }
   if (node.type === 'binary') {
-    const left = await narrowAst(db, map, node.left, rowId, bag)
+    const left = await narrowAst(db, map, node.left, rowId, bag, fns)
     if ('value' in left) return left
-    const right = await narrowAst(db, map, node.right, rowId, bag)
+    const right = await narrowAst(db, map, node.right, rowId, bag, fns)
     if ('value' in right) return right
     return { ast: { ...node, left: left.ast, right: right.ast } }
   }
   if (node.type !== 'call') return { ast: node }
+  if ((node.name === 'IF' || node.name === 'IFNOT') && node.args[0] && needsFormulaScope(node.args[0], fns)) {
+    return { ast: { ...node, args: await Promise.all(node.args.map((arg) => narrowPiece(db, map, arg, rowId, bag, fns))) } }
+  }
+  if (node.name === 'IFS' && node.args.some((arg, index) => index % 2 === 0 && needsFormulaScope(arg, fns))) {
+    return { ast: { ...node, args: await Promise.all(node.args.map((arg) => narrowPiece(db, map, arg, rowId, bag, fns))) } }
+  }
   if (node.name === 'IF' || node.name === 'IFNOT') {
     const conditionNode = node.args[0]
     const thenNode = node.args[1]
     if (!conditionNode || !thenNode || node.args.length > 3) return { ast: node }
-    const condition = await narrowAst(db, map, conditionNode, rowId, bag)
+    const condition = await narrowAst(db, map, conditionNode, rowId, bag, fns)
     if ('value' in condition) return condition
     const flag = await takenFlag(db, map, condition.ast, rowId, bag)
     if (typeof flag !== 'boolean') return { value: flag }
     const takeThen = node.name === 'IF' ? flag : !flag
     const branch = takeThen ? thenNode : node.args[2]
     if (!branch) return { ast: { type: 'bool', value: false } }
-    return narrowAst(db, map, branch, rowId, bag)
+    return narrowAst(db, map, branch, rowId, bag, fns)
   }
   if (node.name === 'IFS') {
     if (node.args.length < 2 || node.args.length % 2 !== 0) return { ast: node }
@@ -858,21 +970,34 @@ async function narrowAst(db: AppDatabase, map: ValueMap, node: AstNode, rowId: s
       const conditionNode = node.args[index]
       const resultNode = node.args[index + 1]
       if (!conditionNode || !resultNode) return { value: { error: '#N/A' } }
-      const condition = await narrowAst(db, map, conditionNode, rowId, bag)
+      const condition = await narrowAst(db, map, conditionNode, rowId, bag, fns)
       if ('value' in condition) return condition
       const flag = await takenFlag(db, map, condition.ast, rowId, bag)
       if (typeof flag !== 'boolean') return { value: flag }
-      if (flag) return narrowAst(db, map, resultNode, rowId, bag)
+      if (flag) return narrowAst(db, map, resultNode, rowId, bag, fns)
     }
     return { value: { error: '#N/A' } }
   }
   const args: AstNode[] = []
   for (const arg of node.args) {
-    const narrowed = await narrowAst(db, map, arg, rowId, bag)
+    const narrowed = await narrowAst(db, map, arg, rowId, bag, fns)
     if ('value' in narrowed) return narrowed
     args.push(narrowed.ast)
   }
   return { ast: { ...node, args } }
+}
+
+async function narrowPiece(
+  db: AppDatabase,
+  map: ValueMap,
+  node: AstNode,
+  rowId: string,
+  bag: EvalBag,
+  fns: ReadonlySet<string>,
+): Promise<AstNode> {
+  const narrowed = await narrowAst(db, map, node, rowId, bag, fns)
+  if (!('value' in narrowed) || isFormulaError(narrowed.value)) return 'value' in narrowed ? node : narrowed.ast
+  return literalNode(narrowed.value) ?? node
 }
 
 export async function evaluateAst(db: AppDatabase, subject: Subject, ast: AstNode, rowId: string, stack = new Set<string>(), map?: ValueMap) {
@@ -924,6 +1049,20 @@ function astHasCall(node: AstNode, match: (name: string) => boolean): boolean {
       return astHasCall(node.expr, match)
     case 'binary':
       return astHasCall(node.left, match) || astHasCall(node.right, match)
+    case 'program':
+      for (const declaration of node.declarations) {
+        if (declaration.kind === 'var' && astHasCall(declaration.binding.expr, match)) return true
+        if (declaration.kind === 'function') {
+          for (const param of declaration.fn.params) {
+            if (param.fallback && astHasCall(param.fallback, match)) return true
+          }
+          for (const local of declaration.fn.locals) {
+            if (astHasCall(local.expr, match)) return true
+          }
+          if (astHasCall(declaration.fn.body, match)) return true
+        }
+      }
+      return astHasCall(node.body, match)
     default:
       return false
   }

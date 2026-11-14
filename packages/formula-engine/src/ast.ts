@@ -20,6 +20,62 @@ export type RefNode = {
   tableId?: string
 }
 
+export const BUILTIN_FUNCTIONS = new Set([
+  'SUM',
+  'AVERAGE',
+  'MIN',
+  'MAX',
+  'COUNT',
+  'COUNTA',
+  'ROUND',
+  'ABS',
+  'IF',
+  'IFNOT',
+  'IFS',
+  'FOR',
+  'AND',
+  'OR',
+  'NOT',
+  'ISBLANK',
+  'CONTAINS',
+  'COUNTIF',
+  'SUMIF',
+  'YEAR',
+  'MONTH',
+  'DAY',
+  'CONCAT',
+  'LEFT',
+  'RIGHT',
+  'LEN',
+  'LOWER',
+  'UPPER',
+  'TODAY',
+  'NOW',
+  'LOOKUP',
+  'RELATION',
+])
+
+export type FormulaParam = {
+  name: string
+  fallback?: AstNode
+}
+
+export type FormulaBinding = {
+  name: string
+  expr: AstNode
+}
+
+export type FormulaFunction = {
+  name: string
+  params: FormulaParam[]
+  locals: FormulaBinding[]
+  body: AstNode
+}
+
+export type FormulaDeclaration =
+  | { kind: 'var'; binding: FormulaBinding }
+  | { kind: 'function'; fn: FormulaFunction }
+
 export type AstNode =
   | { type: 'number'; value: number }
   | { type: 'string'; value: string }
@@ -30,49 +86,52 @@ export type AstNode =
   | { type: 'ref'; ref: RefNode }
   | { type: 'range'; start: RefNode; end: RefNode }
   | { type: 'it' }
+  | { type: 'var'; name: string }
+  | { type: 'param'; name: string }
+  | { type: 'omit' }
+  | { type: 'program'; declarations: FormulaDeclaration[]; body: AstNode }
 
 export function isFormulaError(value: unknown): value is FormulaErrorValue {
   return typeof value === 'object' && value !== null && 'error' in value && !Array.isArray(value)
 }
 
-export function astDepth(node: AstNode): number {
+function nested(node: AstNode): AstNode[] {
   switch (node.type) {
-    case 'number':
-    case 'string':
-    case 'bool':
-    case 'ref':
-    case 'range':
-    case 'it':
-      return 1
     case 'unary':
-      return 1 + astDepth(node.expr)
+      return [node.expr]
     case 'binary':
-      return 1 + Math.max(astDepth(node.left), astDepth(node.right))
+      return [node.left, node.right]
     case 'call':
-      return 1 + node.args.reduce((max, arg) => Math.max(max, astDepth(arg)), 0)
+      return node.args
+    case 'program': {
+      const nodes: AstNode[] = []
+      for (const declaration of node.declarations) {
+        if (declaration.kind === 'var') nodes.push(declaration.binding.expr)
+        else {
+          for (const param of declaration.fn.params) {
+            if (param.fallback) nodes.push(param.fallback)
+          }
+          for (const local of declaration.fn.locals) nodes.push(local.expr)
+          nodes.push(declaration.fn.body)
+        }
+      }
+      nodes.push(node.body)
+      return nodes
+    }
+    default:
+      return []
   }
 }
 
+export function astDepth(node: AstNode): number {
+  const children = nested(node)
+  if (children.length === 0) return 1
+  return 1 + children.reduce((max, child) => Math.max(max, astDepth(child)), 0)
+}
+
 export function collectRefs(node: AstNode, into: RefNode[] = []): RefNode[] {
-  switch (node.type) {
-    case 'ref':
-      into.push(node.ref)
-      break
-    case 'range':
-      into.push(node.start, node.end)
-      break
-    case 'unary':
-      collectRefs(node.expr, into)
-      break
-    case 'binary':
-      collectRefs(node.left, into)
-      collectRefs(node.right, into)
-      break
-    case 'call':
-      node.args.forEach((arg) => collectRefs(arg, into))
-      break
-    default:
-      break
-  }
+  if (node.type === 'ref') into.push(node.ref)
+  if (node.type === 'range') into.push(node.start, node.end)
+  for (const child of nested(node)) collectRefs(child, into)
   return into
 }

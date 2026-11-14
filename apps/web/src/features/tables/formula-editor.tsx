@@ -17,6 +17,7 @@ import {
   bracketSpans,
   changeBreaksBracket,
   completionAt,
+  formulaMarks,
   functionAt,
   rowText,
   type BracketSpan,
@@ -66,6 +67,11 @@ const formulaLanguage = StreamLanguage.define<{ quote: boolean }>({
       return 'string'
     }
     if (stream.eatSpace()) return null
+    const mark = formulaMarks(stream.string).find((item) => item.from === stream.pos)
+    if (mark) {
+      while (stream.pos < mark.to && !stream.eol()) stream.next()
+      return mark.kind === 'variable' ? 'variableName' : 'keyword'
+    }
     if (stream.peek() === '"') {
       stream.next()
       state.quote = true
@@ -106,6 +112,7 @@ const formulaLanguage = StreamLanguage.define<{ quote: boolean }>({
     number: tags.number,
     operator: tags.operator,
     keyword: tags.keyword,
+    variableName: tags.variableName,
   },
 })
 
@@ -114,6 +121,7 @@ const formulaHighlight = syntaxHighlighting(HighlightStyle.define([
   { tag: tags.number, color: 'var(--danger)' },
   { tag: tags.operator, color: 'var(--muted-foreground)' },
   { tag: tags.keyword, color: 'var(--primary)', fontWeight: '600' },
+  { tag: tags.variableName, color: 'var(--swatch-teal-fg)' },
 ]))
 
 const formulaTheme = EditorView.theme({
@@ -203,16 +211,20 @@ function deleteBracket(key: 'Backspace' | 'Delete') {
   }
 }
 
-function functionHelpElement(name: string) {
+function functionHelpElement(name: string, signature?: string) {
   const item = FORMULA_HELP.find((entry) => entry.name === name)
   const root = document.createElement('div')
   root.className = 'cm-formula-help'
   const heading = document.createElement('strong')
   heading.textContent = name
+  const example = document.createElement('code')
+  example.textContent = signature ?? item?.example ?? ''
+  if (signature) {
+    root.append(heading, example)
+    return root
+  }
   const explanation = document.createElement('p')
   explanation.textContent = String(i18n.t(`functions.${name}`, { ns: 'docs', defaultValue: '' }))
-  const example = document.createElement('code')
-  example.textContent = item?.example ?? ''
   root.append(heading, explanation, example)
   return root
 }
@@ -386,7 +398,7 @@ export const FormulaEditor = forwardRef<FormulaEditorHandle, FormulaEditorProps>
           end: hit.to,
           above: true,
           create() {
-            return { dom: functionHelpElement(hit.name) }
+            return { dom: functionHelpElement(hit.name, 'signature' in hit ? hit.signature : undefined) }
           },
         }
       }),

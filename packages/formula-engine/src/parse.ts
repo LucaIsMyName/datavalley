@@ -1,16 +1,31 @@
-import { LIMITS, astDepth, type AstNode, type RefNode } from './ast.js'
+import {
+  BUILTIN_FUNCTIONS,
+  LIMITS,
+  astDepth,
+  type AstNode,
+  type FormulaBinding,
+  type FormulaDeclaration,
+  type FormulaFunction,
+  type FormulaParam,
+  type RefNode,
+} from './ast.js'
 
 type Token =
   | { type: 'number'; value: number }
   | { type: 'string'; value: string }
   | { type: 'ident'; value: string }
+  | { type: 'var'; name: string }
   | { type: 'ref'; ref: RefNode }
   | { type: 'op'; value: string }
   | { type: 'lparen' }
   | { type: 'rparen' }
+  | { type: 'lbrace' }
+  | { type: 'rbrace' }
   | { type: 'comma' }
   | { type: 'colon' }
   | { type: 'eof' }
+
+const RESERVED = new Set(['VAR', 'FUNCTION', 'RETURN', 'TRUE', 'FALSE', 'IT', 'AND', 'OR', 'NOT'])
 
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 
@@ -58,9 +73,25 @@ function tokenize(input: string): Token[] {
       i++
       continue
     }
+    if (char === '}') {
+      tokens.push({ type: 'rbrace' })
+      i++
+      continue
+    }
+    if (char === '$') {
+      const match = input.slice(i + 1).match(/^[A-Za-z_][A-Za-z0-9_]*/)
+      if (!match || match[0] === '_') throw new FormulaSyntaxError('Invalid variable')
+      tokens.push({ type: 'var', name: match[0] })
+      i += 1 + match[0].length
+      continue
+    }
     if (char === '{') {
       const match = input.slice(i).match(new RegExp(`^\\{(${UUID})\\}(?:\\.\\{(${UUID})\\})?(?:@\\{(${UUID})\\})?`))
-      if (!match) throw new FormulaSyntaxError('Invalid reference')
+      if (!match) {
+        tokens.push({ type: 'lbrace' })
+        i++
+        continue
+      }
       const tableOrColumn = match[1]
       const second = match[2]
       const rowId = match[3]
@@ -127,12 +158,22 @@ function tokenize(input: string): Token[] {
 
 class Parser {
   private index = 0
+  private vars: string[] = []
+  private localVars: string[] = []
+  private params: string[] = []
+  private functions: string[] = []
   constructor(private tokens: Token[]) {}
 
   parse(): AstNode {
-    const ast = this.parseOr()
+    const declarations: FormulaDeclaration[] = []
+    while (this.isIdent('VAR') || this.isIdent('FUNCTION')) {
+      if (this.isIdent('VAR')) declarations.push({ kind: 'var', binding: this.parseVar() })
+      else declarations.push({ kind: 'function', fn: this.parseFunction() })
+    }
+    const body = this.parseOr()
     this.expect('eof')
-    return ast
+    if (declarations.length === 0) return body
+    return { type: 'program', declarations, body }
   }
 
   private peek(): Token {
@@ -222,6 +263,94 @@ class Parser {
     return this.parsePrimary()
   }
 
+  private parseVar(): FormulaBinding {
+    this.eat()
+    const name = this.bindingName()
+    if (this.params.includes(name)) throw new FormulaSyntaxError(`Duplicate name ${name}`)
+    if (this.localVars.includes(name)) throw new FormulaSyntaxError(`Duplicate variable ${name}`)
+    this.expectOp('=')
+    const expr = this.parseOr()
+    this.vars.push(name)
+    this.localVars.push(name)
+    return { name, expr }
+  }
+
+  private parseFunction(): FormulaFunction {
+    this.eat()
+    const token = this.expectIdent()
+    if (!/^[A-Z][A-Z0-9_]*$/.test(token.value)) throw new FormulaSyntaxError('Function names are uppercase')
+    if (BUILTIN_FUNCTIONS.has(token.value) || RESERVED.has(token.value)) {
+      throw new FormulaSyntaxError(`Reserved name ${token.value}`)
+    }
+    if (this.functions.includes(token.value)) throw new FormulaSyntaxError(`Duplicate function ${token.value}`)
+    this.functions.push(token.value)
+    this.expect('lparen')
+    const params = this.parseParams()
+    this.expect('rparen')
+    this.expectOp('=')
+    this.expect('lbrace')
+    const savedVars = this.vars
+    const savedParams = this.params
+    const savedLocals = this.localVars
+    this.vars = [...savedVars]
+    this.localVars = []
+    this.params = params.map((param) => param.name)
+    const locals: FormulaBinding[] = []
+    while (this.isIdent('VAR')) locals.push(this.parseVar())
+    if (!this.isIdent('RETURN')) throw new FormulaSyntaxError('Expected RETURN')
+    this.eat()
+    const body = this.parseOr()
+    this.expect('rbrace')
+    this.vars = savedVars
+    this.params = savedParams
+    this.localVars = savedLocals
+    return { name: token.value, params, locals, body }
+  }
+
+  private parseParams(): FormulaParam[] {
+    const params: FormulaParam[] = []
+    if (this.peek().type === 'rparen') return params
+    params.push(this.parseParam(params))
+    while (this.peek().type === 'comma') {
+      this.eat()
+      params.push(this.parseParam(params))
+    }
+    return params
+  }
+
+  private parseParam(soFar: FormulaParam[]): FormulaParam {
+    const name = this.bindingName()
+    if (soFar.some((param) => param.name === name)) throw new FormulaSyntaxError(`Duplicate parameter ${name}`)
+    if (!this.isOp('=')) return { name }
+    this.eat()
+    return { name, fallback: this.parseOr() }
+  }
+
+  private bindingName(): string {
+    const token = this.expectIdent()
+    if (token.value === '_' || RESERVED.has(token.value.toUpperCase())) {
+      throw new FormulaSyntaxError(`Reserved name ${token.value}`)
+    }
+    return token.value
+  }
+
+  private expectIdent(): { type: 'ident'; value: string } {
+    const token = this.peek()
+    if (token.type !== 'ident') throw new FormulaSyntaxError('Expected name')
+    this.eat()
+    return token
+  }
+
+  private expectOp(value: string) {
+    if (!this.isOp(value)) throw new FormulaSyntaxError(`Expected ${value}`)
+    this.eat()
+  }
+
+  private isOp(value: string): boolean {
+    const token = this.peek()
+    return token.type === 'op' && token.value === value
+  }
+
   private parsePrimary(): AstNode {
     const token = this.peek()
     if (token.type === 'number') {
@@ -232,15 +361,29 @@ class Parser {
       this.eat()
       return { type: 'string', value: token.value }
     }
+    if (token.type === 'var') {
+      this.eat()
+      if (!this.vars.includes(token.name)) throw new FormulaSyntaxError(`Unknown variable ${token.name}`)
+      return { type: 'var', name: token.name }
+    }
     if (token.type === 'ident') {
       const name = token.value.toUpperCase()
-      if ((name === 'TRUE' || name === 'FALSE') && this.tokens[this.index + 1]?.type !== 'lparen') {
+      const call = this.tokens[this.index + 1]?.type === 'lparen'
+      if ((name === 'TRUE' || name === 'FALSE') && !call) {
         this.eat()
         return { type: 'bool', value: name === 'TRUE' }
       }
-      if (name === 'IT' && this.tokens[this.index + 1]?.type !== 'lparen') {
+      if (name === 'IT' && !call) {
         this.eat()
         return { type: 'it' }
+      }
+      if (token.value === '_' && !call) {
+        this.eat()
+        return { type: 'omit' }
+      }
+      if (!call && this.params.includes(token.value)) {
+        this.eat()
+        return { type: 'param', name: token.value }
       }
       this.eat()
       if (this.peek().type === 'lparen') {

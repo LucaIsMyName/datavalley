@@ -34,6 +34,27 @@ export function conditionBlock(node: AstNode): ConditionBlock | null {
       if (found) return found
     }
   }
+  if (node.type === 'program') {
+    for (const declaration of node.declarations) {
+      if (declaration.kind === 'var') {
+        const found = conditionBlock(declaration.binding.expr)
+        if (found) return found
+        continue
+      }
+      for (const param of declaration.fn.params) {
+        if (!param.fallback) continue
+        const found = conditionBlock(param.fallback)
+        if (found) return found
+      }
+      for (const local of declaration.fn.locals) {
+        const found = conditionBlock(local.expr)
+        if (found) return found
+      }
+      const found = conditionBlock(declaration.fn.body)
+      if (found) return found
+    }
+    return conditionBlock(node.body)
+  }
   return null
 }
 

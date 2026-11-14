@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyCompletion, bracketSpans, changeBreaksBracket, completionAt, deleteAdjacentBracket, functionAt, type FormulaCatalog } from './formula-tokens'
+import { applyCompletion, bracketSpans, changeBreaksBracket, completionAt, deleteAdjacentBracket, formulaMarks, functionAt, type FormulaCatalog } from './formula-tokens'
 
 const catalog: FormulaCatalog = {
   tableId: 'people',
@@ -106,5 +106,57 @@ describe('formula tokens', () => {
     const bracket = '1 + [Amount]'
     expect(functionAt(bracket, bracket.indexOf('Amount') + 1)).toBeNull()
     expect(functionAt('notafunction(1)', 3)).toBeNull()
+  })
+
+  it('offers a user function defined above the cursor and inserts the call', () => {
+    const source = 'FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN param1\n}\nMY'
+    const cursor = source.length
+    const decision = completionAt(source, cursor, catalog, false, 'formula')
+    expect(decision?.kind).toBe('functions')
+    if (decision?.kind !== 'functions') return
+    const item = decision.items.find((entry) => entry.label === 'MY_FUNCTION')
+    expect(item?.detail).toBe('MY_FUNCTION(param1 = 2, param2 = 1)')
+    const applied = applyCompletion(source, decision.from, cursor, item!)
+    expect(applied.value).toBe(`${source.slice(0, -2)}MY_FUNCTION()`)
+    expect(applied.value[applied.cursor]).toBe(')')
+    const all = completionAt(`${source.slice(0, -2)}`, source.length - 2, catalog, true, 'formula')
+    if (all?.kind !== 'functions') throw new Error('expected functions')
+    expect(all.items.some((entry) => entry.label === 'SUM')).toBe(true)
+    expect(all.items.some((entry) => entry.label === 'MY_FUNCTION')).toBe(true)
+  })
+
+  it('hides a user function defined below the cursor or inside a string', () => {
+    const below = 'MY\nFUNCTION MY_FUNCTION() = {\nRETURN 1\n}'
+    const early = completionAt(below, 2, catalog, false, 'formula')
+    expect(early?.kind === 'functions' && early.items.some((entry) => entry.label === 'MY_FUNCTION')).toBe(false)
+    const quoted = '"FUNCTION MY_FUNCTION()"\nMY'
+    const hidden = completionAt(quoted, quoted.length, catalog, false, 'formula')
+    expect(hidden?.kind === 'functions' && hidden.items.some((entry) => entry.label === 'MY_FUNCTION')).toBe(false)
+    const partial = 'FUNCTION MY'
+    expect(completionAt(partial, partial.length, catalog, false, 'formula')).toBeNull()
+  })
+
+  it('marks variables, parameters, and user function calls', () => {
+    const source = 'VAR label = "A"\nFUNCTION MY_FUNCTION(param1 = 2) = {\nVAR summed = param1\nRETURN $label\n}\nMY_FUNCTION()'
+    const marks = formulaMarks(source)
+    const mark = (text: string, kind: 'keyword' | 'variable' | 'function', occurrence = 0) => {
+      let from = -1
+      for (let index = 0; index <= occurrence; index += 1) from = source.indexOf(text, from + 1)
+      return { from, to: from + text.length, kind }
+    }
+    expect(marks).toEqual(expect.arrayContaining([
+      mark('VAR', 'keyword'),
+      mark('label', 'variable'),
+      mark('FUNCTION', 'keyword'),
+      mark('MY_FUNCTION', 'function'),
+      mark('param1', 'variable'),
+      mark('VAR', 'keyword', 1),
+      mark('summed', 'variable'),
+      mark('param1', 'variable', 1),
+      mark('RETURN', 'keyword'),
+      mark('$label', 'variable'),
+      mark('MY_FUNCTION', 'function', 1),
+    ]))
+    expect(functionAt(source, source.lastIndexOf('MY_FUNCTION') + 1)?.signature).toBe('MY_FUNCTION(param1 = 2)')
   })
 })

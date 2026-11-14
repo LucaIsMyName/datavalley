@@ -3,10 +3,16 @@ import {
   isFormulaError,
   type AstNode,
   type FormulaErrorValue,
+  type FormulaFunction,
   type FormulaScalar,
   type FormulaValue,
   type RefNode,
 } from './ast.js'
+
+export type FormulaScope = {
+  vars: Map<string, FormulaValue>
+  parent?: FormulaScope
+}
 
 export type EvalContext = {
   now: () => number
@@ -30,6 +36,10 @@ export type EvalContext = {
   condition?: boolean
   /** Shared by nested formulas so a chain cannot start a fresh step limit. */
   budget?: { steps: number }
+  scope?: FormulaScope
+  formulaScope?: FormulaScope
+  functions?: Map<string, FormulaFunction>
+  params?: Map<string, FormulaValue>
 }
 
 function err(code: FormulaErrorValue['error']): FormulaErrorValue {
@@ -110,6 +120,99 @@ export function evaluate(node: AstNode, ctx: EvalContext, depth = 0): FormulaVal
     case 'it':
       if (ctx.item == null) return ctx.blankItem ? null : err('#VALUE')
       return ctx.item
+    case 'var':
+      return lookupVar(ctx.scope, node.name)
+    case 'param': {
+      const value = ctx.params?.get(node.name)
+      return value === undefined ? err('#VALUE') : value
+    }
+    case 'omit':
+      return err('#VALUE')
+    case 'program':
+      return evalProgram(node, ctx, depth)
+  }
+}
+
+function lookupVar(scope: FormulaScope | undefined, name: string): FormulaValue {
+  let current = scope
+  while (current) {
+    if (current.vars.has(name)) return current.vars.get(name) ?? null
+    current = current.parent
+  }
+  return err('#VALUE')
+}
+
+function evalProgram(node: Extract<AstNode, { type: 'program' }>, ctx: EvalContext, depth: number): FormulaValue {
+  const savedScope = ctx.scope
+  const savedFormula = ctx.formulaScope
+  const savedFunctions = ctx.functions
+  const savedParams = ctx.params
+  const scope: FormulaScope = { vars: new Map() }
+  ctx.scope = scope
+  ctx.formulaScope = scope
+  ctx.functions = new Map(savedFunctions)
+  ctx.params = undefined
+  try {
+    for (const declaration of node.declarations) {
+      if (declaration.kind === 'var') {
+        const value = evaluate(declaration.binding.expr, ctx, depth + 1)
+        if (isFormulaError(value)) return value
+        scope.vars.set(declaration.binding.name, value)
+        continue
+      }
+      ctx.functions.set(declaration.fn.name, declaration.fn)
+    }
+    return evaluate(node.body, ctx, depth + 1)
+  } finally {
+    ctx.scope = savedScope
+    ctx.formulaScope = savedFormula
+    ctx.functions = savedFunctions
+    ctx.params = savedParams
+  }
+}
+
+function callUser(fn: FormulaFunction, args: AstNode[], ctx: EvalContext, depth: number): FormulaValue {
+  if (args.length > fn.params.length) return err('#VALUE')
+  const bound = new Map<string, FormulaValue>()
+  for (let index = 0; index < fn.params.length; index += 1) {
+    const param = fn.params[index]
+    if (!param) return err('#VALUE')
+    const arg = args[index]
+    let value: FormulaValue
+    if (arg && arg.type !== 'omit') value = evaluate(arg, ctx, depth)
+    else if (param.fallback) value = evalFallback(param.fallback, ctx, depth)
+    else return err('#VALUE')
+    if (isFormulaError(value)) return value
+    bound.set(param.name, value)
+  }
+  const savedScope = ctx.scope
+  const savedParams = ctx.params
+  const local: FormulaScope = { vars: new Map(), parent: ctx.formulaScope }
+  ctx.scope = local
+  ctx.params = bound
+  try {
+    for (const binding of fn.locals) {
+      const value = evaluate(binding.expr, ctx, depth)
+      if (isFormulaError(value)) return value
+      local.vars.set(binding.name, value)
+    }
+    return evaluate(fn.body, ctx, depth)
+  } finally {
+    ctx.scope = savedScope
+    ctx.params = savedParams
+  }
+}
+
+function evalFallback(node: AstNode, ctx: EvalContext, depth: number): FormulaValue {
+  const savedScope = ctx.scope
+  const savedParams = ctx.params
+  ctx.scope = ctx.formulaScope
+  ctx.params = undefined
+  try {
+    return evaluate(node, ctx, depth)
+  } finally {
+    ctx.scope = savedScope
+    ctx.params = savedParams
   }
 }
 
@@ -277,6 +380,8 @@ function columnValue(node: AstNode | undefined, ctx: EvalContext, depth: number)
 
 function evalCall(name: string, args: AstNode[], ctx: EvalContext, depth: number): FormulaValue {
   try {
+    const user = ctx.functions?.get(name)
+    if (user) return callUser(user, args, ctx, depth)
     if (name === 'IF') {
       if (args.length < 2 || args.length > 3) return err('#VALUE')
       const condition = evaluate(args[0], ctx, depth)

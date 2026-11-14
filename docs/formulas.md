@@ -59,6 +59,32 @@ A name that contains `]` or `->` is refused. A reference you cannot view is `#RE
 
 Conditional formatting uses looser rules (case-insensitive text, a label contained in a tag or multi-select list). Those rules do not apply in a normal formula.
 
+## Variables
+
+`VAR name = expression` at the top of a formula stores a value for that cell. Read it later as `$name`. The name is case-sensitive. A second `VAR` with the same name in the same block is rejected, and `$name` before its `VAR` is rejected. The expression is a normal formula, so it can read `[Price]`, `[People -> Name -> #15]`, or `[Customer -> Price]`.
+
+```text
+VAR label = [People -> Name]
+CONCAT($label, "!")
+```
+
+## Your own functions
+
+`FUNCTION NAME(...) = { ... }` also sits above the result. `NAME` is uppercase, like `SUM`, and it cannot reuse a built-in name. The block is zero or more `VAR` lines and one `RETURN`. Parameters are written without `$`. `$name` still means a variable. A function can use variables declared above it, and the same bracket references as any other formula.
+
+A parameter can have a fallback. A call may omit arguments from the right. `_` in an argument position uses that parameter's fallback, so a later argument can be set while an earlier one stays on its fallback. `_` has to be the whole argument. A missing fallback, an extra argument, or `_` passed to a built-in is `#VALUE`.
+
+```text
+VAR label = [People -> Name]
+FUNCTION MY_FUNCTION(param1 = 2, param2 = [Orders -> Qty]) = {
+VAR summed = SUM(param1, param2)
+RETURN $summed
+}
+CONCAT($label, MY_FUNCTION(10, _))
+```
+
+`MY_FUNCTION()` uses both fallbacks. `MY_FUNCTION(10)` sets `param1` and leaves `param2` on `[Orders -> Qty]`. `MY_FUNCTION(_, 10)` does the opposite. These functions belong to the cell that defines them.
+
 ## Functions
 
 Each entry says what the function returns, which values it accepts, and one example.
