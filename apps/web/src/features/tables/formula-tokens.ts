@@ -149,7 +149,7 @@ function collectFormula(source: string) {
           defined.push(name)
           const body = functionBody(source, header.end)
           if (body) {
-            markRegion(source, body.from, body.to, header.params.map((param) => param.name), defined, marks)
+            markRegion(source, body.from, body.to, defined, marks)
             index = body.end
             continue
           }
@@ -166,7 +166,7 @@ function collectFormula(source: string) {
   return { marks, functions }
 }
 
-function markRegion(source: string, from: number, to: number, params: string[], defined: string[], marks: FormulaMark[]) {
+function markRegion(source: string, from: number, to: number, defined: string[], marks: FormulaMark[]) {
   let index = from
   while (index < to) {
     index = skipTrivia(source, index)
@@ -196,7 +196,6 @@ function markRegion(source: string, from: number, to: number, params: string[], 
       continue
     }
     if (defined.includes(word.toUpperCase()) && source[after] === '(') marks.push({ from: index, to: index + word.length, kind: 'function' })
-    else if (params.includes(word) && source[after] !== '(') marks.push({ from: index, to: index + word.length, kind: 'variable' })
     index += word.length
   }
 }

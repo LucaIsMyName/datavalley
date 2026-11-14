@@ -61,23 +61,23 @@ Conditional formatting uses looser rules (case-insensitive text, a label contain
 
 ## Variables
 
-`VAR name = expression` at the top of a formula stores a value for that cell. Read it later as `$name`. The name is case-sensitive. A second `VAR` with the same name in the same block is rejected, and `$name` before its `VAR` is rejected. The expression is a normal formula, so it can read `[Price]`, `[People -> Name -> #15]`, or `[Customer -> Price]`.
+`VAR name = expression;` at the top of a formula stores a value for that cell. The semicolon is required, including on a `VAR` inside a function. Read it later as `$name`. The name is case-sensitive. A second `VAR` with the same name in the same block is rejected, and `$name` before its `VAR` is rejected. The expression is a normal formula, so it can read `[Price]`, `[People -> Name -> #15]`, or `[Customer -> Price]`.
 
 ```text
-VAR label = [People -> Name]
+VAR label = [People -> Name];
 CONCAT($label, "!")
 ```
 
 ## Your own functions
 
-`FUNCTION NAME(...) = { ... }` also sits above the result. `NAME` is uppercase, like `SUM`, and it cannot reuse a built-in name. The block is zero or more `VAR` lines and one `RETURN`. Parameters are written without `$`. `$name` still means a variable. A function can use variables declared above it, and the same bracket references as any other formula.
+`FUNCTION NAME(...) = { ... }` also sits above the result. `NAME` is uppercase, like `SUM`, and it cannot reuse a built-in name. The block is zero or more `VAR` lines and one `RETURN`. A parameter is declared as a bare name and read inside the function as `$param`, the same way a variable is read. A parameter hides an outer variable of the same name. A function can use variables declared above it, and the same bracket references as any other formula.
 
 A parameter can have a fallback. A call may omit arguments from the right. `_` in an argument position uses that parameter's fallback, so a later argument can be set while an earlier one stays on its fallback. `_` has to be the whole argument. A missing fallback, an extra argument, or `_` passed to a built-in is `#VALUE`.
 
 ```text
-VAR label = [People -> Name]
+VAR label = [People -> Name];
 FUNCTION MY_FUNCTION(param1 = 2, param2 = [Orders -> Qty]) = {
-VAR summed = SUM(param1, param2)
+VAR summed = SUM($param1, $param2);
 RETURN $summed
 }
 CONCAT($label, MY_FUNCTION(10, _))

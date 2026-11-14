@@ -109,7 +109,7 @@ describe('formula tokens', () => {
   })
 
   it('offers a user function defined above the cursor and inserts the call', () => {
-    const source = 'FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN param1\n}\nMY'
+    const source = 'FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN $param1\n}\nMY'
     const cursor = source.length
     const decision = completionAt(source, cursor, catalog, false, 'formula')
     expect(decision?.kind).toBe('functions')
@@ -137,7 +137,7 @@ describe('formula tokens', () => {
   })
 
   it('marks variables, parameters, and user function calls', () => {
-    const source = 'VAR label = "A"\nFUNCTION MY_FUNCTION(param1 = 2) = {\nVAR summed = param1\nRETURN $label\n}\nMY_FUNCTION()'
+    const source = 'VAR label = "A";\nFUNCTION MY_FUNCTION(param1 = 2) = {\nVAR summed = $param1;\nRETURN $label\n}\nMY_FUNCTION()'
     const marks = formulaMarks(source)
     const mark = (text: string, kind: 'keyword' | 'variable' | 'function', occurrence = 0) => {
       let from = -1
@@ -152,7 +152,7 @@ describe('formula tokens', () => {
       mark('param1', 'variable'),
       mark('VAR', 'keyword', 1),
       mark('summed', 'variable'),
-      mark('param1', 'variable', 1),
+      mark('$param1', 'variable'),
       mark('RETURN', 'keyword'),
       mark('$label', 'variable'),
       mark('MY_FUNCTION', 'function', 1),

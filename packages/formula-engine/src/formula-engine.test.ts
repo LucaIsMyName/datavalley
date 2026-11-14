@@ -262,47 +262,70 @@ describe('formula engine', () => {
   })
 
   it('binds variables and reads them with $', () => {
-    expect(run('VAR label = "A string"\n$label')).toBe('A string')
-    expect(run('VAR base = 2\nVAR doubled = $base * 3\n$doubled')).toBe(6)
-    expect(run('var label = "A string"\n$label')).toBe('A string')
-    expect(() => parseFormula('VAR label = 1\n$Label')).toThrow(/Unknown variable Label/)
-    expect(() => parseFormula('VAR label = 1\nVAR label = 2\n$label')).toThrow(/Duplicate variable label/)
+    expect(run('VAR label = "A string";\n$label')).toBe('A string')
+    expect(run('VAR base = 2;\nVAR doubled = $base * 3;\n$doubled')).toBe(6)
+    expect(run('var label = "A string";\n$label')).toBe('A string')
+    expect(() => parseFormula('VAR label = 1;\n$Label')).toThrow(/Unknown variable Label/)
+    expect(() => parseFormula('VAR label = 1;\nVAR label = 2;\n$label')).toThrow(/Duplicate variable label/)
+    expect(() => parseFormula('VAR label = 1\n$label')).toThrow(/Expected ;/)
     expect(() => parseFormula('$missing')).toThrow(/Unknown variable missing/)
-    expect(() => parseFormula('VAR _ = 1\n1')).toThrow(/Reserved name/)
+    expect(() => parseFormula('VAR _ = 1;\n1')).toThrow(/Reserved name/)
     expect(parseFormula('1 + 2').type).toBe('binary')
   })
 
   it('calls user functions with fallbacks and _', () => {
     const source = [
-      'VAR label = "A"',
+      'VAR label = "A";',
       'FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {',
-      'VAR summed = SUM(param1, param2)',
+      'VAR summed = SUM($param1, $param2);',
       'RETURN $summed & $label',
       '}',
       'MY_FUNCTION(10, _)',
     ].join('\n')
     expect(run(source)).toBe('11A')
-    expect(run('FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN SUM(param1, param2)\n}\nMY_FUNCTION()')).toBe(3)
-    expect(run('FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN SUM(param1, param2)\n}\nMY_FUNCTION(5)')).toBe(6)
-    expect(run('FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN SUM(param1, param2)\n}\nMY_FUNCTION(_, 10)')).toBe(12)
-    expect(run('FUNCTION F(a, b = 1) = {\nRETURN SUM(a, b)\n}\nF()')).toEqual({ error: '#VALUE' })
-    expect(run('FUNCTION F(a = 1) = {\nRETURN a\n}\nF(1, 2)')).toEqual({ error: '#VALUE' })
+    expect(run('FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN SUM($param1, $param2)\n}\nMY_FUNCTION()')).toBe(3)
+    expect(run('FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN SUM($param1, $param2)\n}\nMY_FUNCTION(5)')).toBe(6)
+    expect(run('FUNCTION MY_FUNCTION(param1 = 2, param2 = 1) = {\nRETURN SUM($param1, $param2)\n}\nMY_FUNCTION(_, 10)')).toBe(12)
+    expect(run('FUNCTION F(a, b = 1) = {\nRETURN SUM($a, $b)\n}\nF()')).toEqual({ error: '#VALUE' })
+    expect(run('FUNCTION F(a = 1) = {\nRETURN $a\n}\nF(1, 2)')).toEqual({ error: '#VALUE' })
+    expect(() => parseFormula('FUNCTION F(a = 1) = {\nRETURN a\n}\nF()')).toThrow(/Unknown identifier a/)
     expect(run('SUM(_)')).toEqual({ error: '#VALUE' })
-    expect(run('FUNCTION F(n = 1) = {\nRETURN IF(n < 1, 0, n + F(n - 1))\n}\nF(3)')).toBe(6)
-    expect(run('FUNCTION F(n = 1) = {\nRETURN IF(n < 1, 0, F(n - 1))\n}\nF(40)')).toEqual({ error: '#LIM' })
+    expect(run('FUNCTION F(n = 1) = {\nRETURN IF($n < 1, 0, $n + F($n - 1))\n}\nF(3)')).toBe(6)
+    expect(run('FUNCTION F(n = 1) = {\nRETURN IF($n < 1, 0, F($n - 1))\n}\nF(40)')).toEqual({ error: '#LIM' })
     expect(() => parseFormula('FUNCTION my_function() = {\nRETURN 1\n}\n1')).toThrow(/uppercase/)
     expect(() => parseFormula('FUNCTION SUM() = {\nRETURN 1\n}\n1')).toThrow(/Reserved name SUM/)
-    expect(() => parseFormula('FUNCTION F(a = 1, a = 2) = {\nRETURN a\n}\nF()')).toThrow(/Duplicate parameter a/)
-    expect(() => parseFormula('FUNCTION F(a = 1) = {\nVAR a = 2\nRETURN $a\n}\nF()')).toThrow(/Duplicate name a/)
+    expect(() => parseFormula('FUNCTION F(a = 1, a = 2) = {\nRETURN $a\n}\nF()')).toThrow(/Duplicate parameter a/)
+    expect(() => parseFormula('FUNCTION F(a = 1) = {\nVAR a = 2;\nRETURN $a\n}\nF()')).toThrow(/Duplicate name a/)
+    expect(() => parseFormula('FUNCTION F() = {\nVAR a = 1\nRETURN $a\n}\nF()')).toThrow(/Expected ;/)
+    expect(run('VAR p1 = 9;\nFUNCTION MYFUN(p1) = {\nRETURN $p1\n}\nMYFUN(2)')).toBe(2)
+  })
+
+  it('rounds a sum of a bracket column with a variable and a $ parameter', () => {
+    const catalog: BracketCatalog = {
+      tableId: table,
+      columns: [{ name: 'imagecount', columnId: column, tableId: table, tableName: 'photo galleries' }],
+      relations: [],
+      rows: [],
+    }
+    const source = [
+      'VAR myVar = 1234;',
+      'FUNCTION MYFUN(p1) = {',
+      'RETURN $p1 * $myVar',
+      '}',
+      'ROUND(SUM([photo galleries -> imagecount]) + $myVar / 3.14 + MYFUN(2))',
+    ].join('\n')
+    const resolved = resolveBrackets(source, catalog)
+    expect(resolved).toContain(`SUM({${table}}.{${column}})`)
+    expect(run(resolved, { [column]: 10 })).toBe(2871)
   })
 
   it('reads bracket references from variables, fallbacks, and function bodies', () => {
     const row = '44444444-4444-4444-8444-444444444444'
     const source = [
-      `VAR label = {${table}}.{${column}}`,
-      `VAR rate = {${table}}.{${other}}@{${row}}`,
+      `VAR label = {${table}}.{${column}};`,
+      `VAR rate = {${table}}.{${other}}@{${row}};`,
       `FUNCTION MY_FUNCTION(param1 = 2, param2 = {${table}}.{${other}}) = {`,
-      `VAR summed = SUM(param1, param2, {${table}}.{${column}})`,
+      `VAR summed = SUM($param1, $param2, {${table}}.{${column}});`,
       'RETURN $summed',
       '}',
       'CONCAT($label, MY_FUNCTION(10, _))',
@@ -316,12 +339,12 @@ describe('formula engine', () => {
     ])
     expect(run(source, { [column]: 'Ada', [other]: 4 })).toBe('Ada14')
     const names = { Price: { tableId: table, columnId: column }, price: { columnId: other } }
-    expect(canonicalize('VAR price = Price\n$price', names)).toBe(`VAR price = {${table}}.{${column}}\n$price`)
-    expect(canonicalize(`FUNCTION F(Price = 1) = {\nRETURN Price\n}\nF()`, names)).toBe(
-      'FUNCTION F(Price = 1) = {\nRETURN Price\n}\nF()',
+    expect(canonicalize('VAR price = Price;\n$price', names)).toBe(`VAR price = {${table}}.{${column}};\n$price`)
+    expect(canonicalize(`FUNCTION F(Price = 1) = {\nRETURN $Price\n}\nF()`, names)).toBe(
+      'FUNCTION F(Price = 1) = {\nRETURN $Price\n}\nF()',
     )
-    expect(canonicalize('FUNCTION F(x = Price) = {\nRETURN x\n}\nF()', names)).toBe(
-      `FUNCTION F(x = {${table}}.{${column}}) = {\nRETURN x\n}\nF()`,
+    expect(canonicalize('FUNCTION F(x = Price) = {\nRETURN $x\n}\nF()', names)).toBe(
+      `FUNCTION F(x = {${table}}.{${column}}) = {\nRETURN $x\n}\nF()`,
     )
     const printed = displayFormula(source, {
       tableId: table,
@@ -332,11 +355,12 @@ describe('formula engine', () => {
       relations: [],
       rows: [{ tableId: table, rowNumber: 15, rowId: row }],
     })
-    expect(printed).toContain('VAR label = [People -> Name]')
-    expect(printed).toContain('VAR rate = [People -> Rate -> #15]')
+    expect(printed).toContain('VAR label = [People -> Name];')
+    expect(printed).toContain('VAR rate = [People -> Rate -> #15];')
     expect(printed).toContain('param2 = [People -> Rate]')
+    expect(printed).toContain('SUM($param1, $param2, [People -> Name])')
     expect(ownRowFormula(source, table)).toContain('RETURN $summed')
-    expect(wholeColumnInMath(parseFormula(`VAR total = {${table}}.{${column}} + 1\n$total`))).toEqual({
+    expect(wholeColumnInMath(parseFormula(`VAR total = {${table}}.{${column}} + 1;\n$total`))).toEqual({
       tableId: table,
       columnId: column,
     })

@@ -23,6 +23,7 @@ type Token =
   | { type: 'rbrace' }
   | { type: 'comma' }
   | { type: 'colon' }
+  | { type: 'semi' }
   | { type: 'eof' }
 
 const RESERVED = new Set(['VAR', 'FUNCTION', 'RETURN', 'TRUE', 'FALSE', 'IT', 'AND', 'OR', 'NOT'])
@@ -70,6 +71,11 @@ function tokenize(input: string): Token[] {
     }
     if (char === ':') {
       tokens.push({ type: 'colon' })
+      i++
+      continue
+    }
+    if (char === ';') {
+      tokens.push({ type: 'semi' })
       i++
       continue
     }
@@ -270,6 +276,8 @@ class Parser {
     if (this.localVars.includes(name)) throw new FormulaSyntaxError(`Duplicate variable ${name}`)
     this.expectOp('=')
     const expr = this.parseOr()
+    if (this.peek().type !== 'semi') throw new FormulaSyntaxError('Expected ;')
+    this.eat()
     this.vars.push(name)
     this.localVars.push(name)
     return { name, expr }
@@ -363,6 +371,7 @@ class Parser {
     }
     if (token.type === 'var') {
       this.eat()
+      if (this.params.includes(token.name)) return { type: 'param', name: token.name }
       if (!this.vars.includes(token.name)) throw new FormulaSyntaxError(`Unknown variable ${token.name}`)
       return { type: 'var', name: token.name }
     }
@@ -380,10 +389,6 @@ class Parser {
       if (token.value === '_' && !call) {
         this.eat()
         return { type: 'omit' }
-      }
-      if (!call && this.params.includes(token.value)) {
-        this.eat()
-        return { type: 'param', name: token.value }
       }
       this.eat()
       if (this.peek().type === 'lparen') {

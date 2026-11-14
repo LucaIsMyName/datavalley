@@ -187,11 +187,11 @@ function mapProgram(node: Extract<AstNode, { type: 'program' }>, visit: (child: 
 
 function printProgram(node: Extract<AstNode, { type: 'program' }>, print: (child: AstNode) => string) {
   const lines = node.declarations.map((declaration) => {
-    if (declaration.kind === 'var') return `VAR ${declaration.binding.name} = ${print(declaration.binding.expr)}`
+    if (declaration.kind === 'var') return `VAR ${declaration.binding.name} = ${print(declaration.binding.expr)};`
     const params = declaration.fn.params
       .map((param) => (param.fallback ? `${param.name} = ${print(param.fallback)}` : param.name))
       .join(', ')
-    const locals = declaration.fn.locals.map((local) => `VAR ${local.name} = ${print(local.expr)}`)
+    const locals = declaration.fn.locals.map((local) => `VAR ${local.name} = ${print(local.expr)};`)
     return `FUNCTION ${declaration.fn.name}(${params}) = {\n${[...locals, `RETURN ${print(declaration.fn.body)}`].join('\n')}\n}`
   })
   return [...lines, print(node.body)].join('\n')
@@ -278,7 +278,7 @@ function printCanonical(node: AstNode, parent = 0): string {
     return parent > level ? `(${text})` : text
   }
   if (node.type === 'var') return `$${node.name}`
-  if (node.type === 'param') return node.name
+  if (node.type === 'param') return `$${node.name}`
   if (node.type === 'omit') return '_'
   if (node.type === 'program') return printProgram(node, printCanonical)
   if (node.type !== 'call') return ''
@@ -393,7 +393,7 @@ function printNode(node: AstNode, parent: number, catalog: BracketCatalog): stri
     return parent > level ? `(${text})` : text
   }
   if (node.type === 'var') return `$${node.name}`
-  if (node.type === 'param') return node.name
+  if (node.type === 'param') return `$${node.name}`
   if (node.type === 'omit') return '_'
   if (node.type === 'program') return printProgram(node, (child) => printNode(child, 0, catalog))
   if (node.type !== 'call') return ''
