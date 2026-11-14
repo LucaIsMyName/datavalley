@@ -74,6 +74,7 @@ For PostgreSQL options, SMTP, migrations, and worker setup, see [docs/local-setu
 ```bash
 npm run dev          # API + web (loads .env.development)
 npm test             # Vitest unit and integration tests
+npm run check:api-client  # Ensure web/client request paths exist in packages/contracts/openapi.json
 npm run test:e2e     # Playwright smoke tests
 npm run build        # Build all workspaces
 npm run migrate      # Apply SQL migrations

@@ -1,7 +1,6 @@
 import { filtersFrom } from './grid-model'
 import { anchor, showEditError } from './grid-edit'
 import { type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
-import { type FilterNode, type FormatRule } from '@datavalley/shared'
 import {
   Activity,
   ArrowDownToLine,
@@ -32,68 +31,17 @@ import { buildColumnHeaderMenu } from './column-menu'
 import { copyCellText } from './cell-display'
 import { deleteTableInProject } from './table-delete'
 import { displayFromSavedView, savedViewDefinition } from './view-definition'
+import type { SavedView } from './table-screen-types'
+import type { TableMenuScopeCore } from './table-command-scope'
+import type { useColumnCommands } from './use-column-commands'
+import type { useRowCommands } from './use-row-commands'
 
-type SavedView = {
-  id: string
-  name: string
-  definition: {
-    filter?: FilterNode | null
-    sort?: string | { columnId: string; direction?: string } | null
-    direction?: string
-    formatting?: FormatRule[]
-    display?: unknown
-  }
-}
+type ColumnCommands = ReturnType<typeof useColumnCommands>
+type RowCommands = ReturnType<typeof useRowCommands>
 
-type Scope = Record<string, any> & {
-  t: any
-  i18n: any
-  navigate: any
-  openMenu: any
-  replaceMenu: any
-  queryClient: any
-  setCsvImportOpen: any
-  sort: any
-  setSort: any
-  setFilterInput: any
-  setFilters: any
-  checked: any
-  setChecked: any
-  fill: any
-  setRenamingColumn: any
-  setPopover: any
-  setConfirm: any
-  setRelationTarget: any
-  setFormatTarget: any
-  viewName: any
-  setViewName: any
-  sharedView: any
-  display: any
-  setDisplay: any
-  setActiveViewId: any
-  setDrawerRowId: any
-  filter: any
-  table: any
-  dataReadOnly: any
-  cellWritable: any
-  setLockPending: any
-  columns: any
-  rules: any
-  projectId: any
-  rowsRef: any
-  scheduleCell: any
-  footerConfig: any
-  views: any
-  projectTables: any
-  flags: any
-  tableId: any
-  undo: any
-  activateCell: any
-  openNewColumn: any
-  cycleSort: any
-}
+export type TableMenuScope = TableMenuScopeCore & ColumnCommands & RowCommands & Record<string, unknown>
 
-export function useTableMenus(scope: Scope) {
+export function useTableMenus(scope: TableMenuScope) {
   const {
     t,
     i18n,
@@ -222,7 +170,7 @@ export function useTableMenus(scope: Scope) {
         return
       }
       if (id === 'right') {
-        openNewColumn(columns[columns.findIndex((item: any) => item.id === col.id) + 1]?.id, point)
+        openNewColumn(columns[columns.findIndex((item: Column) => item.id === col.id) + 1]?.id, point)
         return
       }
       if (id === 'duplicate') {
@@ -240,7 +188,7 @@ export function useTableMenus(scope: Scope) {
       if (id.startsWith('variant-')) {
         const variant = id.slice('variant-'.length)
         if (variant === 'money' && String(col.config.variant ?? 'float') !== 'money') {
-          void saveConfig(col, { variant: 'money' }).then((ok: any) => {
+          void saveConfig(col, { variant: 'money' }).then((ok: boolean | void) => {
             if (!ok) return
             replaceMenu(entriesFor({ ...col, config: { ...col.config, variant: 'money' } }, true))
           })
@@ -310,7 +258,7 @@ export function useTableMenus(scope: Scope) {
     event.stopPropagation()
     const point = anchor(event)
     const list = rowsRef.current
-    const index = list.findIndex((item: any) => item.id === row.id)
+    const index = list.findIndex((item: RowRecord) => item.id === row.id)
     openMenu(
       event,
       dataReadOnly
@@ -332,7 +280,7 @@ export function useTableMenus(scope: Scope) {
               label: t('selectRow'),
               icon: ListChecks,
               onSelect: () =>
-                setChecked((current: any) =>
+                setChecked((current: string[]) =>
                   current.includes(row.id) ? current : [...current, row.id],
                 ),
             },
@@ -379,7 +327,7 @@ export function useTableMenus(scope: Scope) {
               label: t('selectRow'),
               icon: ListChecks,
               onSelect: () =>
-                setChecked((current: any) =>
+                setChecked((current: string[]) =>
                   current.includes(row.id) ? current : [...current, row.id],
                 ),
             },
@@ -454,7 +402,7 @@ export function useTableMenus(scope: Scope) {
 
   function openTitleMenu(event: ReactMouseEvent) {
     const point = anchor(event)
-    const hidden = columns.filter((column: any) => column.hidden)
+    const hidden = columns.filter((column: Column) => column.hidden)
     openMenu(event, [
       {
         id: 'undo',
@@ -500,7 +448,7 @@ export function useTableMenus(scope: Scope) {
         onSelect: () => void toggleActivity(),
       },
       { id: 'import', label: t('import'), icon: Upload, onSelect: () => setCsvImportOpen(true) },
-      ...(views.data?.views ?? []).map((view: any) => ({
+      ...(views.data?.views ?? []).map((view: SavedView) => ({
         id: view.id,
         label: view.name,
         icon: Bookmark,
@@ -512,7 +460,7 @@ export function useTableMenus(scope: Scope) {
         icon: Save,
         onSelect: () => setPopover({ kind: 'view', ...point }),
       },
-      ...hidden.map((column: any) => ({
+      ...hidden.map((column: Column) => ({
         id: `show-${column.id}`,
         label: `${t('showColumn')}: ${column.name}`,
         icon: Eye,

@@ -498,7 +498,7 @@ export async function createTableFromConnector(
   const name = input.name?.trim() || (await nextTableName(db, projectId))
   const preview = await previewConnector(db, env, subject, connector.id, 1)
   const table = await db.transaction(async (tx) => {
-    const position = await nextTablePosition(tx as unknown as AppDatabase, projectId)
+    const position = await nextTablePosition(tx, projectId)
     const [created] = await tx
       .insert(tables)
       .values({ projectId, name, icon, description: '', position, createdBy: subject.id })
@@ -529,7 +529,7 @@ export async function createTableFromConnector(
       columnMap,
       syncMode,
     })
-    await writeAudit(tx as unknown as AppDatabase, subject, {
+    await writeAudit(tx, subject, {
       action: 'table.create',
       resourceType: 'table',
       resourceId: created.id,

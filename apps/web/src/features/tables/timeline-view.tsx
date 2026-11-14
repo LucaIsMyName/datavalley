@@ -35,6 +35,7 @@ import { type FormatLabels } from './format-values'
 
 const DAY = 86_400_000
 const LANE = 40
+const TIMELINE_UNSCHEDULED_LIMIT = 50
 
 type DragEdge = 'start' | 'end' | 'point' | 'move'
 
@@ -144,9 +145,13 @@ export function TimelineView({
   const points = useMemo(() => [timelineNow(includeTime), ...spans.flatMap((span) => [span.start, span.end])], [includeTime, spans])
   const baseWindow = useMemo(() => timelineWindow({ points, step, includeTime }), [includeTime, points, step])
   const [frame, setFrame] = useState<{ start: number; end: number } | null>(null)
+  const [showAllUnscheduled, setShowAllUnscheduled] = useState(false)
   useEffect(() => {
     setFrame(null)
   }, [includeTime, step])
+  useEffect(() => {
+    setShowAllUnscheduled(false)
+  }, [dateColumn?.id, rows])
   const bounds = useMemo(() => {
     if (!frame) return baseWindow
     return { start: Math.min(frame.start, baseWindow.start), end: Math.max(frame.end, baseWindow.end) }
@@ -546,7 +551,7 @@ export function TimelineView({
           {unscheduled.length > 0 ? (
             <div className="h-40 shrink-0 overflow-auto border-t border-border">
               <p className="sticky top-0 border-b border-border bg-card px-3 py-2 text-sm text-muted-foreground">{t('timelineUnscheduled')}</p>
-              {unscheduled.map((row) => {
+              {(showAllUnscheduled ? unscheduled : unscheduled.slice(0, TIMELINE_UNSCHEDULED_LIMIT)).map((row) => {
                 const raw = dateColumn ? row.cells[dateColumn.id] : null
                 return (
                 <div key={row.id} className="flex min-h-12 items-center gap-3 border-b border-border px-3">
@@ -582,6 +587,15 @@ export function TimelineView({
                 </div>
                 )
               })}
+              {unscheduled.length > TIMELINE_UNSCHEDULED_LIMIT && !showAllUnscheduled ? (
+                <button
+                  type="button"
+                  className="w-full px-3 py-2 text-left text-sm text-primary hover:underline"
+                  onClick={() => setShowAllUnscheduled(true)}
+                >
+                  {t('loadMore', { defaultValue: 'Load more' })}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </>

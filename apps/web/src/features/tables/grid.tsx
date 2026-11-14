@@ -1,11 +1,10 @@
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   type Column,
   type RowRecord,
   type MediaFile,
-  type TableRecord,
   type CatalogItem,
 } from '@datavalley/api-client'
 import {
@@ -15,7 +14,6 @@ import {
   moveSelection,
   normalizeMediaCellValue,
   normalizeTableDisplay,
-  type FilterNode,
   type FormatRule,
   type TableDisplayState,
 } from '@datavalley/shared'
@@ -67,7 +65,7 @@ import { MEDIA_UPLOAD_ACCEPT } from '../../lib/media'
 import { mergeColumnOption } from './select-options-utils'
 import { registerTableMenu } from './table-menu'
 import { ConnectConnectorDialog } from './connect-connector-dialog'
-import { isTableReadOnly, tableReadOnlyReason } from './table-read-only'
+import { tableReadOnlyReason } from './table-read-only'
 import { ChartView } from './chart-view'
 import { KanbanView } from './kanban-view'
 import { TimelineView } from './timeline-view'
@@ -90,57 +88,19 @@ import { clearCellEditing, setCellEditing, splitCellKey } from '../realtime/edit
 import { rowRemoteKey } from '../realtime/presence'
 import { reportPresence, usePresencePeople } from '../realtime/presence-store'
 import { GridPopovers } from './grid-popovers'
+import {
+  ADD_COLUMN_WIDTH,
+  formatConnectorSync,
+  type ConfirmState,
+  type PopoverState,
+  type SavedView,
+} from './table-screen-types'
+import { useTableScreenQueries } from './use-table-screen-queries'
 
-const ADD_COLUMN_WIDTH = 40
 const EMPTY_COLUMNS: Column[] = []
 const EMPTY_RULES: FormatRule[] = []
 const EMPTY_TAGS: CatalogItem[] = []
 const EMPTY_MEMBERS: { userId: string; username: string }[] = []
-const ROWS_STALE_MS = 30_000
-
-function formatConnectorSync(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    date,
-  )
-}
-
-type PopoverState = {
-  kind:
-    | 'filter'
-    | 'row-color'
-    | 'cell-color'
-    | 'relation'
-    | 'find'
-    | 'view'
-    | 'icon'
-    | 'new-column'
-    | 'select-options'
-  beforeId?: string
-  columnId?: string
-  rowId?: string
-} & ViewportAnchor
-
-type ConfirmState = {
-  title: string
-  body: string
-  confirmLabel?: string
-  tone?: 'danger' | 'default'
-  run: () => Promise<void>
-}
-
-type SavedView = {
-  id: string
-  name: string
-  definition: {
-    filter?: FilterNode | null
-    sort?: string | { columnId: string; direction?: string } | null
-    direction?: string
-    formatting?: FormatRule[]
-    display?: unknown
-  }
-}
 
 function writable(column: Column) {
   return isColumnWritable(column)
@@ -217,18 +177,36 @@ export function TableScreen({ tableId }: { tableId: string }) {
   const filter = useMemo(() => activeFilter(filters), [filters])
   const filterKey = JSON.stringify(filter)
 
-  const tableQuery = useQuery({
-    queryKey: ['table', tableId],
-    queryFn: () => api.request<{ table: TableRecord }>(`/tables/${tableId}`),
-  })
-  const table = tableQuery.data?.table
-  const dataReadOnly = isTableReadOnly(table)
-  const readOnlyReason = tableReadOnlyReason(table)
-  const cellWritable = (column: Column) => !dataReadOnly && writable(column)
   const [lockPending, setLockPending] = useState(false)
   const [syncPending, setSyncPending] = useState(false)
   const [connectOpen, setConnectOpen] = useState(false)
   const [connectPending, setConnectPending] = useState(false)
+  const {
+    tableQuery,
+    table,
+    dataReadOnly,
+    rowsQuery,
+    membersQuery,
+    footerQuery,
+    summaryQuery,
+    viewsQuery,
+    tableStateQuery,
+    projectTablesQuery,
+    targetRowsQuery,
+    relationIcons,
+    footerConfig,
+    summaryUsesServer,
+  } = useTableScreenQueries({
+    tableId,
+    search,
+    sort,
+    filterKey,
+    filter,
+    display,
+    editing,
+  })
+  const readOnlyReason = tableReadOnlyReason(table)
+  const cellWritable = (column: Column) => !dataReadOnly && writable(column)
   const columns = table?.columns ?? EMPTY_COLUMNS
   const mainColumnId = typeof table?.headerConfig?.['mainColumnId'] === 'string' ? table.headerConfig['mainColumnId'] : null
   const gridColumns = useMemo(() => orderMainColumnFirst(columns, mainColumnId), [columns, mainColumnId])
@@ -277,27 +255,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }
   }
 
-  const rowsQuery = useInfiniteQuery({
-    queryKey: ['rows', tableId, search, sort, filterKey],
-    initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '50' })
-      if (pageParam) params.set('cursor', pageParam)
-      if (search) params.set('q', search)
-      if (sort) {
-        params.set('sort', sort.columnId)
-        params.set('direction', sort.direction)
-      }
-      if (filter) params.set('filter', JSON.stringify(filter))
-      return api.request<{ rows: RowRecord[]; nextCursor: string | null }>(
-        `/tables/${tableId}/rows?${params}`,
-      )
-    },
-    getNextPageParam: (last) => last.nextCursor,
-    placeholderData: (previous) => previous,
-    staleTime: ROWS_STALE_MS,
-    refetchOnWindowFocus: false,
-  })
   const rowPages = rowsQuery.data?.pages
   const rows = useMemo(() => rowPages?.flatMap((page) => page.rows) ?? [], [rowPages])
   const people = usePresencePeople()
@@ -341,89 +298,10 @@ export function TableScreen({ tableId }: { tableId: string }) {
       setWidths({})
     }
   }, [widthKey])
-  const membersQuery = useQuery({
-    queryKey: ['members', projectId],
-    enabled: Boolean(projectId),
-    queryFn: () =>
-      api.request<{ members: { userId: string; username: string }[] }>(
-        `/projects/${projectId}/members`,
-      ),
-  })
-  const footerConfig = (table?.footerConfig ?? {}) as {
-    enabled?: boolean
-    columns?: Record<string, string>
-  }
-  const footerColumnIds = Object.entries(footerConfig.columns ?? {})
-    .filter(([, calc]) => Boolean(calc))
-    .map(([id]) => id)
-  const footerQuery = useQuery({
-    queryKey: ['footer', tableId, filterKey, footerColumnIds.join(',')],
-    enabled: Boolean(footerConfig.enabled) && footerColumnIds.length > 0,
-    queryFn: () => {
-      const params = new URLSearchParams()
-      if (filter) params.set('filter', JSON.stringify(filter))
-      params.set('columns', footerColumnIds.join(','))
-      return api.request<{
-        footer: Record<
-          string,
-          {
-            count: number
-            filled: number
-            empty: number
-            unique: number
-            sum: number | null
-            avg: number | null
-            median: number | null
-            min: unknown
-            max: unknown
-          }
-        >
-      }>(`/tables/${tableId}/footer?${params}`)
-    },
-  })
-  const summaryValueIds = display.mode === 'chart' ? display.chart.valueIds : []
-  const summaryHasFormula = summaryValueIds.some((id) => columns.some((column) => column.id === id && column.type === 'formula'))
-  const summaryDimensionId =
-    display.mode === 'chart' &&
-    !display.chart.perRow &&
-    display.chart.dimensionIds.length === 1 &&
-    !display.chart.ownerUserId &&
-    !summaryHasFormula
-      ? display.chart.dimensionIds[0]
-      : display.mode === 'kanban'
-        ? display.kanban.statusColumnId
-        : null
-  const summaryUsesServer = Boolean(summaryDimensionId)
-  const summaryQuery = useQuery({
-    queryKey: ['summary', tableId, filterKey, summaryDimensionId, summaryValueIds.join(',')],
-    enabled: summaryUsesServer,
-    queryFn: () => {
-      const params = new URLSearchParams()
-      params.set('dimension', summaryDimensionId ?? '')
-      if (summaryValueIds.length > 0) params.set('values', summaryValueIds.join(','))
-      if (filter) params.set('filter', JSON.stringify(filter))
-      return api.request<{ groups: { key: string; count: number; sums: Record<string, number> }[] }>(
-        `/tables/${tableId}/summary?${params}`,
-      )
-    },
-  })
-  const views = useQuery({
-    queryKey: ['views', tableId],
-    queryFn: () => api.request<{ views: SavedView[] }>(`/tables/${tableId}/views`),
-  })
-  const tableState = useQuery({
-    queryKey: ['table-state', tableId],
-    queryFn: () =>
-      api.request<{
-        sort: { columnId: string; direction: 'asc' | 'desc' } | null
-        filter: FilterNode | null
-        display: unknown
-      }>(`/tables/${tableId}/state`),
-  })
   useEffect(() => {
-    if (!tableState.isSuccess || !table || appliedState.current === tableId) return
+    if (!tableStateQuery.isSuccess || !table || appliedState.current === tableId) return
     appliedState.current = tableId
-    const savedSort = tableState.data.sort
+    const savedSort = tableStateQuery.data.sort
     const known =
       savedSort && (table.columns ?? []).some((column) => column.id === savedSort.columnId)
         ? savedSort
@@ -433,12 +311,12 @@ export function TableScreen({ tableId }: { tableId: string }) {
         ? { columnId: known.columnId, direction: known.direction === 'desc' ? 'desc' : 'asc' }
         : null,
     )
-    const next = filtersFrom(tableState.data.filter)
+    const next = filtersFrom(tableStateQuery.data.filter)
     setFilters(next)
     setFilterInput(next)
-    setDisplay(normalizeTableDisplay(tableState.data.display, table.columns ?? []))
+    setDisplay(normalizeTableDisplay(tableStateQuery.data.display, table.columns ?? []))
     setStateReady(true)
-  }, [table, tableId, tableState.data, tableState.isSuccess])
+  }, [table, tableId, tableStateQuery.data, tableStateQuery.isSuccess])
   useEffect(() => {
     if (!stateReady || appliedState.current !== tableId) return
     const timer = window.setTimeout(() => {
@@ -451,30 +329,6 @@ export function TableScreen({ tableId }: { tableId: string }) {
     }, 300)
     return () => window.clearTimeout(timer)
   }, [display, filter, sort, stateReady, t, tableId])
-  const projectTables = useQuery({
-    queryKey: ['tables', projectId],
-    enabled: Boolean(projectId),
-    queryFn: () => api.request<{ tables: TableRecord[] }>(`/projects/${projectId}/tables`),
-  })
-  const relationIcons = useMemo(() => {
-    const tables = projectTables.data?.tables ?? []
-    const icons: Record<string, string> = {}
-    for (const column of columns) {
-      if (column.type !== 'relation') continue
-      const icon = tables.find((item) => item.id === String(column.config.toTableId ?? ''))?.icon
-      if (icon) icons[column.id] = icon
-    }
-    return icons
-  }, [columns, projectTables.data?.tables])
-  const editingColumn = visible.find((column) => editing?.endsWith(`:${column.id}`))
-  const targetTableId =
-    editingColumn?.type === 'relation' ? String(editingColumn.config.toTableId ?? '') : ''
-  const targetRows = useQuery({
-    queryKey: ['rows', targetTableId, 'link'],
-    enabled: Boolean(targetTableId),
-    queryFn: () => api.request<{ rows: RowRecord[] }>(`/tables/${targetTableId}/rows?limit=50`),
-  })
-
   const titleMenuRef = useRef<(event: ReactMouseEvent) => void>(() => undefined)
   useEffect(() => registerTableMenu((event) => titleMenuRef.current(event)), [])
 
@@ -757,8 +611,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     scheduleCell,
     applyMediaCell,
     footerConfig,
-    views,
-    projectTables,
+    views: viewsQuery,
+    projectTables: projectTablesQuery,
     flags,
     // table,
     tableId,
@@ -823,8 +677,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     scheduleCell,
     applyMediaCell,
     footerConfig,
-    views,
-    projectTables,
+    views: viewsQuery,
+    projectTables: projectTablesQuery,
     flags,
     tableId,
     refresh,
@@ -889,8 +743,8 @@ export function TableScreen({ tableId }: { tableId: string }) {
     scheduleCell,
     applyMediaCell,
     footerConfig,
-    views,
-    projectTables,
+    views: viewsQuery,
+    projectTables: projectTablesQuery,
     flags,
     tableId,
     refresh,
@@ -1112,7 +966,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
             kanban: { ...current.kanban, statusColumnId: statusColumn?.id ?? null },
           }
         }),
-      views: (views.data?.views ?? []).map((view) => ({
+      views: (viewsQuery.data?.views ?? []).map((view) => ({
         id: view.id,
         name: view.name,
         active: view.id === activeViewId,
@@ -1144,7 +998,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
       onConnect: () => setConnectOpen(true),
       tableId,
     }
-  }, [activeViewId, columns, display.mode, table, tableId, t, views.data?.views, lockPending, syncPending])
+  }, [activeViewId, columns, display.mode, table, tableId, t, viewsQuery.data?.views, lockPending, syncPending])
 
   useRegisterTableToolbar(toolbarActions)
 
@@ -1170,7 +1024,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
     (membersQuery.data?.members ?? []).map((member) => [member.userId, member.username]),
   ])
   const rulesSignature = JSON.stringify(table?.formatRules ?? [])
-  const targetSignature = JSON.stringify((targetRows.data?.rows ?? []).map((row) => row.id))
+  const targetSignature = JSON.stringify((targetRowsQuery.data?.rows ?? []).map((row) => row.id))
   const invalidSignature = JSON.stringify(invalidCells)
   const tableColumns = useMemo<ColumnDef<RowRecord>[]>(
     () =>
@@ -1209,7 +1063,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         focusCell,
         activateCell,
         tableId,
-        targetRows,
+        targetRows: targetRowsQuery,
         scheduleCell,
         clearInvalid,
         releaseEdit,
@@ -1579,7 +1433,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                 people={people}
                 renamingColumn={renamingColumn}
                 dataReadOnly={dataReadOnly}
-                projectTables={projectTables.data?.tables ?? []}
+                projectTables={projectTablesQuery.data?.tables ?? []}
                 dragItem={dragItem}
                 dropTarget={dropTarget}
                 pressOrigin={pressOrigin}
@@ -1691,7 +1545,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
                       }
                       readOnly={dataReadOnly}
                       relationRows={
-                        editingColumnId ? (targetRows.data?.rows ?? EMPTY_ROWS) : EMPTY_ROWS
+                        editingColumnId ? (targetRowsQuery.data?.rows ?? EMPTY_ROWS) : EMPTY_ROWS
                       }
                       relationIcons={relationIcons}
                       tableId={tableId}
@@ -1807,7 +1661,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
         relationTarget={relationTarget}
         setRelationTarget={setRelationTarget}
         saveRelation={saveRelation}
-        projectTables={projectTables}
+        projectTables={projectTablesQuery}
         saveConfig={saveConfig}
         setPopover={setPopover}
         viewName={viewName}
@@ -1866,7 +1720,7 @@ export function TableScreen({ tableId }: { tableId: string }) {
           }
         }}
         onClose={() => setDrawerRowId(null)}
-        tables={projectTables.data?.tables ?? []}
+        tables={projectTablesQuery.data?.tables ?? []}
       />
       <MediaLibraryDialog
         open={Boolean(mediaLibrary)}

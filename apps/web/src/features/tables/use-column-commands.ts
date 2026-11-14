@@ -2,6 +2,7 @@ import { nextLabel } from './grid-model'
 import { editFailureMessage } from './edit-error'
 import { showEditError } from './grid-edit'
 import { type Column, type RowRecord, type TableRecord } from '@datavalley/api-client'
+import type { FormatRule } from '@datavalley/shared'
 import { api } from '../../lib/api'
 import { sync } from '../../lib/sync'
 import { invalidateRowTitles, patchCachedTable } from './cache'
@@ -13,32 +14,9 @@ import {
 } from '@datavalley/shared'
 import { countSelectRowsWithMultipleValues } from './select-options-utils'
 import { pushCommand, type ColumnSnap } from './history'
+import type { TableColumnCommandScope } from './table-command-scope'
 
-type Scope = Record<string, any> & {
-  t: any
-  queryClient: any
-  selectedColumns: any
-  setSelectedColumns: any
-  selected: any
-  setRenamingColumn: any
-  popover: any
-  setPopover: any
-  setConfirm: any
-  relationTarget: any
-  setRelationTarget: any
-  relationCardinality: any
-  filter: any
-  dataReadOnly: any
-  columns: any
-  rows: any
-  footerConfig: any
-  tableId: any
-  refresh: any
-  fetchRows: any
-  loadEveryRow: any
-}
-
-export function useColumnCommands(scope: Scope) {
+export function useColumnCommands(scope: TableColumnCommandScope & Record<string, unknown>) {
   const {
     t,
     queryClient,
@@ -74,7 +52,7 @@ export function useColumnCommands(scope: Scope) {
       method: 'POST',
       body: JSON.stringify({
         name: nextLabel(
-          columns.map((column: any) => column.name),
+          columns.map((column: Column) => column.name),
           t('columnName'),
         ),
         type,
@@ -170,7 +148,7 @@ export function useColumnCommands(scope: Scope) {
         ...(draft.background ? { background: draft.background } : {}),
       },
     }))
-    const after = [...rules.filter((rule: any) => rule.columnId !== columnId), ...next]
+    const after = [...rules.filter((rule: FormatRule) => rule.columnId !== columnId), ...next]
     const saved = await api.request<{ table: TableRecord }>(`/tables/${tableId}`, {
       method: 'PATCH',
       body: JSON.stringify({ formatRules: after }),
@@ -190,7 +168,7 @@ export function useColumnCommands(scope: Scope) {
     })
     const run = async () => {
       const current = await fetchRows()
-      const cells = current.map((row: any) => ({
+      const cells = current.map((row: RowRecord) => ({
         rowId: row.id,
         value: row.cells[column.id] ?? null,
       }))
@@ -317,9 +295,9 @@ export function useColumnCommands(scope: Scope) {
     const loaded = await loadEveryRow()
     const removed = new Set(ids)
     const snaps: ColumnSnap[] = columns
-      .filter((column: any) => removed.has(column.id))
-      .map((column: any) => {
-        const index = columns.findIndex((item: any) => item.id === column.id)
+      .filter((column: Column) => removed.has(column.id))
+      .map((column: Column) => {
+        const index = columns.findIndex((item: Column) => item.id === column.id)
         let nextId: string | null = null
         for (let cursor = index + 1; cursor < columns.length; cursor += 1) {
           if (!removed.has(columns[cursor].id)) {
@@ -337,11 +315,11 @@ export function useColumnCommands(scope: Scope) {
           hidden: column.hidden,
           width: column.width,
           frozen: column.frozen,
-          options: column.options.map((option: any) => ({
+          options: column.options.map((option) => ({
             label: option.label,
             color: option.color,
           })),
-          cells: loaded.map((row: any) => ({
+          cells: loaded.map((row: RowRecord) => ({
             rowId: row.id,
             value: row.cells[column.id] ?? null,
             background: row.backgrounds?.[column.id] ?? null,
@@ -356,18 +334,18 @@ export function useColumnCommands(scope: Scope) {
 
   async function duplicateSelectedColumns(ids = selectedColumns) {
     if (dataReadOnly) return
-    const selected = columns.filter((column: any) => ids.includes(column.id))
+    const selected = columns.filter((column: Column) => ids.includes(column.id))
     if (selected.length === 0) return
     const result = await api.request<{ columns: Column[] }>(
       `/tables/${tableId}/columns/duplicate`,
       {
         method: 'POST',
-        body: JSON.stringify({ columnIds: selected.map((column: any) => column.id) }),
+        body: JSON.stringify({ columnIds: selected.map((column: Column) => column.id) }),
       },
     )
     const snaps: ColumnSnap[] = result.columns.map((column, index) => {
       const source = selected[index]
-      const sourceIndex = columns.findIndex((item: any) => item.id === source.id)
+      const sourceIndex = columns.findIndex((item: Column) => item.id === source.id)
       return {
         id: column.id,
         name: column.name,
@@ -379,7 +357,7 @@ export function useColumnCommands(scope: Scope) {
         width: column.width,
         frozen: column.frozen,
         options: column.options.map((option) => ({ label: option.label, color: option.color })),
-        cells: rows.map((row: any) => ({
+        cells: rows.map((row: RowRecord) => ({
           rowId: row.id,
           value: row.cells[source.id] ?? null,
           background: row.backgrounds?.[source.id] ?? null,
@@ -393,7 +371,7 @@ export function useColumnCommands(scope: Scope) {
 
   async function reorderColumns(nextIds: string[]) {
     if (dataReadOnly) return
-    const before = columns.map((column: any) => column.id)
+    const before = columns.map((column: Column) => column.id)
     if (before.join() === nextIds.join()) return
     try {
       await api.request(`/tables/${tableId}/columns/order`, {

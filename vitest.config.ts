@@ -6,5 +6,12 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: 'coverage',
+      reporter: ['text-summary', 'json-summary'],
+      include: ['apps/**/src/**/*.{ts,tsx}', 'packages/**/src/**/*.{ts,tsx}'],
+      exclude: ['**/*.test.ts', '**/dist/**'],
+    },
   },
 })

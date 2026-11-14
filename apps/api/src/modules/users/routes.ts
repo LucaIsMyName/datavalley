@@ -3,7 +3,8 @@ import type { Action } from '@datavalley/shared'
 import type { FastifyInstance } from 'fastify'
 import type { Env } from '../../config/env.js'
 import type { AppDatabase } from '../../database/client.js'
-import { AppError, unauthorized } from '../../errors.js'
+import { requireAdmin } from '../../http/guards.js'
+import { unauthorized } from '../../errors.js'
 import { userResponse } from '../auth/schema.js'
 import { createUser, getUser, listUsers, removeUser, resetPassword, setDisabled, setSystemGrants, updateUser } from './service.js'
 import {
@@ -14,13 +15,9 @@ import {
   userIdParams,
 } from './schema.js'
 
-function admin(request: { subject: { role: string } | null }) {
-  if (request.subject?.role !== 'admin') throw new AppError(403, 'forbidden', 'Admin access is required')
-}
-
 export function registerUserRoutes(app: FastifyInstance, db: AppDatabase, env: Env) {
   app.get('/users', { schema: { querystring: listUsersQuery } }, async (request) => {
-    admin(request)
+    requireAdmin(request)
     const query = request.query as { offset?: string; limit?: string }
     const users = await listUsers(db, Number(query.offset ?? 0), Math.min(Number(query.limit ?? 50), 100))
     return { users }
@@ -40,7 +37,7 @@ export function registerUserRoutes(app: FastifyInstance, db: AppDatabase, env: E
       },
     },
     async (request) => {
-      admin(request)
+      requireAdmin(request)
       if (!request.subject) throw unauthorized()
       const user = await createUser(db, env, request.subject, request.body as never)
       return { user }

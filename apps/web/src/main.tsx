@@ -15,7 +15,8 @@ applyTheme((localStorage.getItem('theme') as 'light' | 'dark' | 'system' | null)
 void restoreSession()
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, refetchOnWindowFocus: true } },
+  // Table screens use SSE + targeted invalidation; avoid refetching every query on tab focus.
+  defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
 })
 
 createRoot(document.getElementById('root')!).render(

@@ -804,14 +804,14 @@ export async function createRow(
       const column = columns.find((item) => item.id === columnId)
       if (!column || !isWritable(column.type)) throw badRequest('Unknown column')
       await assertReferences(
-        tx as unknown as AppDatabase,
+        tx,
         subject,
         dataTableId,
         table.projectId,
         column,
         value,
       )
-      await writeCell(tx as unknown as AppDatabase, dataTableId, created.id, column, value)
+      await writeCell(tx, dataTableId, created.id, column, value)
     }
     return created
   })
@@ -932,14 +932,14 @@ export async function patchRow(
     ...Object.keys(input.formats ?? {}).map(rowFieldKeys.format),
   ]
   await db.transaction(async (tx) => {
-    const advanced = await advanceRowVersion(tx as unknown as AppDatabase, row.id, input.version, writtenKeys, {
+    const advanced = await advanceRowVersion(tx, row.id, input.version, writtenKeys, {
       ...('color' in input ? { color: input.color ?? null } : {}),
       ...('notes' in input ? { notes: input.notes ?? '' } : {}),
     })
     if (advanced.status === 'missing') throw notFound()
     if (advanced.status === 'conflict') {
       const current = await presentRowRecord(
-        tx as unknown as AppDatabase,
+        tx,
         subject,
         table.id,
         table.projectId,
@@ -950,25 +950,25 @@ export async function patchRow(
     for (const [columnId, value] of Object.entries(cells)) {
       const column = columns.find((item) => item.id === columnId)!
       await assertReferences(
-        tx as unknown as AppDatabase,
+        tx,
         subject,
         table.id,
         table.projectId,
         column,
         value,
       )
-      await writeCell(tx as unknown as AppDatabase, table.id, row.id, column, value)
+      await writeCell(tx, table.id, row.id, column, value)
     }
     for (const [columnId, background] of Object.entries(input.backgrounds ?? {})) {
       const column = columns.find((item) => item.id === columnId)
       if (!column) throw badRequest('Unknown column')
-      await setBackground(tx as unknown as AppDatabase, table.id, row.id, column.id, background)
+      await setBackground(tx, table.id, row.id, column.id, background)
     }
     for (const [columnId, rules] of Object.entries(input.formats ?? {})) {
       const column = columns.find((item) => item.id === columnId)
       if (!column) throw badRequest('Unknown column')
       const prepared = await canonicalizeFormatRules(
-        tx as unknown as AppDatabase,
+        tx,
         subject,
         table.id,
         rules,
@@ -976,7 +976,7 @@ export async function patchRow(
       if (prepared.some((rule) => !rule.expression))
         throw badRequest('A cell condition needs a formula')
       await setCellFormats(
-        tx as unknown as AppDatabase,
+        tx,
         table.id,
         row.id,
         column.id,
@@ -1122,7 +1122,7 @@ export async function bulkPatch(
     ),
   )
   await db.transaction(async (tx) => {
-    const database = tx as unknown as AppDatabase
+    const database = tx
     for (const update of updates) {
       const row = rowById.get(update.rowId)!
       const advanced = await advanceRowVersion(database, row.id, update.version, Object.keys(update.cells))
@@ -1265,7 +1265,7 @@ export async function bulkDelete(
     : []
   const notes = Object.fromEntries(existing.map((row) => [row.id, row.notes ?? '']))
   await db.transaction(async (tx) => {
-    const database = tx as unknown as AppDatabase
+    const database = tx
     for (const rowId of rowIds) await deleteRow(database, subject, rowId, false)
     await writeAudit(database, subject, {
       action: 'row.bulk_delete',
@@ -1289,7 +1289,7 @@ export async function duplicateRows(
   const notes: Record<string, string> = {}
   const columns = await loadColumns(db, tableId)
   await db.transaction(async (tx) => {
-    const database = tx as unknown as AppDatabase
+    const database = tx
     for (const rowId of rowIds) {
       const { row } = await assertRow(database, subject, rowId, 'view')
       notes[row.id] = row.notes ?? ''
@@ -1349,7 +1349,7 @@ export async function fillDown(
   const sourceCell = source.find((cell) => cell.columnId === column.id)
   const value = readCell(column, sourceCell)
   await db.transaction(async (tx) => {
-    const database = tx as unknown as AppDatabase
+    const database = tx
     for (const rowId of input.rowIds.slice(1)) {
       const { row } = await assertRow(database, subject, rowId, 'edit')
       if (row.tableId !== dataTableId) throw notFound()
@@ -1486,7 +1486,7 @@ export async function importCsv(
             const coerced = coerceImport(column, raw)
             if (coerced) cells[column.id] = readCell(column, coerced)
           })
-          const row = await createRow(tx as unknown as AppDatabase, subject, table.id, cells, {}, false)
+          const row = await createRow(tx, subject, table.id, cells, {}, false)
           rows.push({ id: row.id, cells })
         }
         return rows

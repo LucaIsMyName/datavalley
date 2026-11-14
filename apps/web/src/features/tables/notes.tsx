@@ -127,6 +127,21 @@ function activateBlock(readOnly: boolean, onActivate: () => void) {
   onActivate()
 }
 
+function blockActivationProps(readOnly: boolean, onActivate: () => void) {
+  if (readOnly) return {}
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => activateBlock(readOnly, onActivate),
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        activateBlock(readOnly, onActivate)
+      }
+    },
+  }
+}
+
 function BlockText({ text }: { text: string }) {
   if (!text) return <span className="text-muted-foreground">{'\u00a0'}</span>
   return <InlineContent text={text} />
@@ -176,20 +191,20 @@ function EditableBlock({
       const level = Math.min(6, Math.max(1, block.level ?? 1)) - 1
       const Tag = HEADING_TAGS[level]
       return (
-        <Tag className={className} onClick={() => activateBlock(readOnly, onActivate)}>
+        <Tag className={className} {...blockActivationProps(readOnly, onActivate)}>
           <BlockText text={block.text} />
         </Tag>
       )
     }
     if (block.type === 'code') {
       return (
-        <pre className={className} onClick={() => activateBlock(readOnly, onActivate)}>
+        <pre className={className} {...blockActivationProps(readOnly, onActivate)}>
           <code>{block.text || '\u00a0'}</code>
         </pre>
       )
     }
     return (
-      <div className={className} onClick={() => activateBlock(readOnly, onActivate)}>
+      <div className={className} {...blockActivationProps(readOnly, onActivate)}>
         <BlockText text={block.text} />
       </div>
     )

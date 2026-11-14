@@ -546,7 +546,7 @@ export async function fillFormulas(
   }))
   await db.transaction(async (tx) => {
     for (const rowId of targets) {
-      await saveFormula(tx as unknown as AppDatabase, subject, column.id, expression, rowId, false)
+      await saveFormula(tx, subject, column.id, expression, rowId, false)
     }
   })
   await publishTableSignal(db, subject.id, table.id, 'rows.changed')

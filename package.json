@@ -1,6 +1,6 @@
 {
   "name": "datavalley",
-  "version": "0.0.185",
+  "version": "0.0.192",
   "private": true,
   "type": "module",
   "description": "Self-hosted modular CRM",
@@ -26,6 +26,8 @@
     "dev:worker": "npm run dev -w @datavalley/worker",
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check:api-client": "vitest run scripts/check-api-client-paths.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/formula-engine/tsconfig.json --noEmit && tsc -p packages/plugin-sdk/tsconfig.json --noEmit && tsc -p packages/api-client/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/worker/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "lint": "eslint .",
@@ -41,8 +43,10 @@
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@types/node": "^22.15.21",
+    "@vitest/coverage-v8": "^5.0.5",
     "concurrently": "^9.1.2",
     "eslint": "^9.28.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "happy-dom": "^21.0.4",
     "prettier": "^3.5.3",
     "tsx": "^4.19.4",

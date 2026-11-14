@@ -196,7 +196,7 @@ async function syncBinding(
             .limit(1)
           if (link) {
             await writeMappedCells(
-              tx as unknown as AppDatabase,
+              tx,
               table.id,
               link.rowId,
               columns,
@@ -227,7 +227,7 @@ async function syncBinding(
           })
           .returning()
         await writeMappedCells(
-          tx as unknown as AppDatabase,
+          tx,
           table.id,
           row.id,
           columns,

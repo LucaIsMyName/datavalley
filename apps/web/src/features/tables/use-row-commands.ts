@@ -10,39 +10,9 @@ import { fillTargets } from './fill-range'
 import { mergeMediaIntoCell } from './media-cell'
 import { fetchMediaDetails, uploadMedia } from '../../lib/media'
 import { pushCommand, type RowSnap } from './history'
+import type { TableRowCommandScope } from './table-command-scope'
 
-type Scope = Record<string, any> & {
-  t: any
-  queryClient: any
-  parentRef: any
-  mediaUploadRef: any
-  setCsvImportOpen: any
-  setCsvImportBusy: any
-  setCsvImportErrors: any
-  setCsvImportDuplicates: any
-  mediaUploadTarget: any
-  checked: any
-  setChecked: any
-  selected: any
-  fill: any
-  setFill: any
-  setEditing: any
-  setPopover: any
-  setMediaPreview: any
-  filter: any
-  dataReadOnly: any
-  cellWritable: any
-  visible: any
-  rows: any
-  rowsRef: any
-  applyMediaCell: any
-  tableId: any
-  refresh: any
-  undo: any
-  fetchRows: any
-}
-
-export function useRowCommands(scope: Scope) {
+export function useRowCommands(scope: TableRowCommandScope & Record<string, unknown>) {
   const {
     t,
     queryClient,
@@ -141,7 +111,7 @@ export function useRowCommands(scope: Scope) {
     }
     const row =
       readCachedRow(queryClient, tableId, rowId) ??
-      rowsRef.current.find((item: any) => item.id === rowId)
+      rowsRef.current.find((item: RowRecord) => item.id === rowId)
     if (!row) {
       showEditError(t('error'))
       throw new Error('Row not found')
@@ -207,7 +177,7 @@ export function useRowCommands(scope: Scope) {
   }
 
   async function paintRows(color: string | null) {
-    const targets = rows.filter((row: any) => checked.includes(row.id))
+    const targets = rows.filter((row: RowRecord) => checked.includes(row.id))
     const undo = []
     const redo = []
     try {
@@ -291,7 +261,7 @@ export function useRowCommands(scope: Scope) {
   }
 
   function nextKept(id: string, removed: Set<string>) {
-    const index = rows.findIndex((row: any) => row.id === id)
+    const index = rows.findIndex((row: RowRecord) => row.id === id)
     for (let cursor = index + 1; cursor < rows.length; cursor += 1) {
       if (!removed.has(rows[cursor].id)) return rows[cursor].id
     }
@@ -306,8 +276,8 @@ export function useRowCommands(scope: Scope) {
       body: JSON.stringify({ rowIds: ids }),
     })
     const snaps = rows
-      .filter((row: any) => removed.has(row.id))
-      .map((row: any) => rowSnap({ ...row, notes: result.notes?.[row.id] ?? row.notes ?? '' }, nextKept(row.id, removed)))
+      .filter((row: RowRecord) => removed.has(row.id))
+      .map((row: RowRecord) => rowSnap({ ...row, notes: result.notes?.[row.id] ?? row.notes ?? '' }, nextKept(row.id, removed)))
     pushCommand(tableId, { kind: 'rows-deleted', rows: snaps })
     setChecked([])
     await refresh()
@@ -315,11 +285,11 @@ export function useRowCommands(scope: Scope) {
 
   async function duplicateSelectedRows(ids = checked) {
     if (dataReadOnly) return
-    const ordered = rows.filter((row: any) => ids.includes(row.id))
+    const ordered = rows.filter((row: RowRecord) => ids.includes(row.id))
     if (ordered.length === 0) return
     const result = await api.request<{ rowIds: string[]; notes?: Record<string, string> }>(`/tables/${tableId}/rows/duplicate`, {
       method: 'POST',
-      body: JSON.stringify({ rowIds: ordered.map((row: any) => row.id) }),
+      body: JSON.stringify({ rowIds: ordered.map((row: RowRecord) => row.id) }),
     })
     pushCommand(tableId, {
       kind: 'rows-created',
@@ -333,7 +303,7 @@ export function useRowCommands(scope: Scope) {
 
   async function reorderRow(rowId: string, beforeId: string) {
     if (dataReadOnly) return
-    const index = rows.findIndex((row: any) => row.id === rowId)
+    const index = rows.findIndex((row: RowRecord) => row.id === rowId)
     const beforeNextId = rows[index + 1]?.id ?? null
     try {
       await api.request(`/tables/${tableId}/rows/move`, {
@@ -349,16 +319,16 @@ export function useRowCommands(scope: Scope) {
 
   async function fillDown(columnId: string) {
     if (dataReadOnly) return
-    const ordered = rows.filter((row: any) => checked.includes(row.id))
+    const ordered = rows.filter((row: RowRecord) => checked.includes(row.id))
     if (ordered.length < 2) return
     const source = ordered[0].cells[columnId] ?? null
     const targets = ordered.slice(1)
-    const previous = targets.map((row: any) => ({ rowId: row.id, value: row.cells[columnId] ?? null }))
-    const versions = Object.fromEntries(targets.map((row: any) => [row.id, row.version ?? 1]))
+    const previous = targets.map((row: RowRecord) => ({ rowId: row.id, value: row.cells[columnId] ?? null }))
+    const versions = Object.fromEntries(targets.map((row: RowRecord) => [row.id, row.version ?? 1]))
     try {
       await api.request(`/tables/${tableId}/fill`, {
         method: 'POST',
-        body: JSON.stringify({ columnId, rowIds: ordered.map((row: any) => row.id), versions }),
+        body: JSON.stringify({ columnId, rowIds: ordered.map((row: RowRecord) => row.id), versions }),
       })
     } catch (error) {
       if (error instanceof ApiClientError && error.code === 'version_conflict') {
@@ -372,14 +342,14 @@ export function useRowCommands(scope: Scope) {
     const fresh = await fetchRows()
     pushCommand(tableId, {
       kind: 'patch',
-      undo: previous.map((item: any) => ({
+      undo: previous.map((item: { rowId: string; value: unknown }) => ({
         rowId: item.rowId,
-        version: fresh.find((row: any) => row.id === item.rowId)?.version ?? 1,
+        version: fresh.find((row: RowRecord) => row.id === item.rowId)?.version ?? 1,
         cells: { [columnId]: item.value },
       })),
-      redo: previous.map((item: any) => ({
+      redo: previous.map((item: { rowId: string; value: unknown }) => ({
         rowId: item.rowId,
-        version: fresh.find((row: any) => row.id === item.rowId)?.version ?? 1,
+        version: fresh.find((row: RowRecord) => row.id === item.rowId)?.version ?? 1,
         cells: { [columnId]: source },
       })),
     })
@@ -464,11 +434,11 @@ export function useRowCommands(scope: Scope) {
     }
     const value = source.cells[column.id] ?? null
     const updates = ids.map((rowId) => {
-      const row = rows.find((item: any) => item.id === rowId)
+      const row = rows.find((item: RowRecord) => item.id === rowId)
       return { rowId, version: row?.version ?? 1, cells: { [column.id]: value } }
     })
     const previous = ids.map((rowId) => {
-      const row = rows.find((item: any) => item.id === rowId)
+      const row = rows.find((item: RowRecord) => item.id === rowId)
       return {
         rowId,
         version: row?.version ?? 1,
@@ -484,7 +454,7 @@ export function useRowCommands(scope: Scope) {
       const stamp = (items: { rowId: string; version: number; cells: Record<string, unknown> }[]) =>
         items.map((item) => ({
           ...item,
-          version: fresh.find((row: any) => row.id === item.rowId)?.version ?? item.version,
+          version: fresh.find((row: RowRecord) => row.id === item.rowId)?.version ?? item.version,
         }))
       pushCommand(tableId, { kind: 'patch', undo: stamp(previous), redo: stamp(updates) })
       await refresh()

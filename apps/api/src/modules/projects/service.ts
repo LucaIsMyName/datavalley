@@ -112,15 +112,15 @@ export async function createProject(
       })),
     )
     if (input.template === 'crm') {
-      await seedCrm(tx as unknown as AppDatabase, project.id, subject.id)
+      await seedCrm(tx, project.id, subject.id)
     } else if (input.template === 'quotes') {
-      await seedQuotes(tx as unknown as AppDatabase, project.id, subject.id)
+      await seedQuotes(tx, project.id, subject.id)
     } else {
-      await seedStarter(tx as unknown as AppDatabase, project.id, subject.id)
-      if (input.template === 'customers') await seedCustomers(tx as unknown as AppDatabase, project.id, subject.id)
+      await seedStarter(tx, project.id, subject.id)
+      if (input.template === 'customers') await seedCustomers(tx, project.id, subject.id)
     }
-    await writeAudit(tx as unknown as AppDatabase, subject, { action: 'project.create', resourceType: 'project', resourceId: project.id })
-    const stats = await projectTableStats(tx as unknown as AppDatabase, [project.id])
+    await writeAudit(tx, subject, { action: 'project.create', resourceType: 'project', resourceId: project.id })
+    const stats = await projectTableStats(tx, [project.id])
     invalidateGrantsCache(subject)
     return present(project, stats.get(project.id))
   })

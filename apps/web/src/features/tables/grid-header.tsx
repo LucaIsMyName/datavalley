@@ -208,12 +208,15 @@ export function GridHeader({
               <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                 <span
                   role="button"
-                  tabIndex={-1}
+                  tabIndex={0}
                   draggable
                   aria-label={t('reorder')}
                   className="inline-flex shrink-0 cursor-grab text-muted-foreground"
                   onMouseDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') event.preventDefault()
+                  }}
                   onDragStart={(event) => {
                     event.stopPropagation()
                     dragItem.current = { kind: 'column', id: column.id }

@@ -11,6 +11,11 @@ import * as schema from './schema.js'
 
 export type AppDatabase = PgliteDatabase<typeof schema>
 
+export type DbTransaction = Parameters<Parameters<AppDatabase['transaction']>[0]>[0]
+
+/** Root drizzle client or an open transaction callback handle. */
+export type DbExecutor = AppDatabase | DbTransaction
+
 export type DatabaseHandle = {
   db: AppDatabase
   close: () => Promise<void>

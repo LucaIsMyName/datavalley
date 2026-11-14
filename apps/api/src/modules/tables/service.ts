@@ -512,13 +512,13 @@ export async function createTableFromCsv(
   try {
     return await db
       .transaction(async (tx) => {
-        const position = await nextTablePosition(tx as unknown as AppDatabase, projectId)
+        const position = await nextTablePosition(tx, projectId)
         const [table] = await tx
           .insert(tables)
           .values({ projectId, name, description: '', position, createdBy: subject.id })
           .returning()
         const columns = await ensureTextColumns(
-          tx as unknown as AppDatabase,
+          tx,
           table.id,
           parsed.names,
         )
@@ -542,7 +542,7 @@ export async function createTableFromCsv(
           rowNumber += 1
         }
         await tx.update(tables).set({ nextRowNumber: rowNumber }).where(eq(tables.id, table.id))
-        await writeAudit(tx as unknown as AppDatabase, subject, {
+        await writeAudit(tx, subject, {
           action: 'table.create',
           resourceType: 'table',
           resourceId: table.id,

@@ -8,6 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '../../componen
 import { displayCellValue } from './cell-display'
 import { kanbanLanes } from './kanban-board'
 
+/** Initial cards per lane; use “load more” on busy boards so the DOM stays responsive. */
+const KANBAN_LANE_CARD_LIMIT = 80
+
 function statusValue(column: Column, value: unknown) {
   if (typeof value === 'string' && value.length > 0) return value
   return null
@@ -54,6 +57,7 @@ export function KanbanView({
 }) {
   const { t, i18n } = useTranslation()
   const [dragging, setDragging] = useState<string | null>(null)
+  const [expandedLanes, setExpandedLanes] = useState<Record<string, boolean>>({})
   const statusColumns = columns.filter((column) => column.type === 'select' || column.type === 'status')
   const statusColumn = statusColumns.find((column) => column.id === kanban.statusColumnId) ?? null
   const options = useMemo(() => {
@@ -138,7 +142,10 @@ export function KanbanView({
                 <span className="ml-2 text-muted-foreground">{counts?.[lane.id] ?? lane.rowIds.length}</span>
               </h2>
               <div className="flex min-h-24 flex-col gap-2">
-                {lane.rowIds.map((rowId) => {
+                {(expandedLanes[lane.id || 'unset']
+                  ? lane.rowIds
+                  : lane.rowIds.slice(0, KANBAN_LANE_CARD_LIMIT)
+                ).map((rowId) => {
                   const row = rows.find((item) => item.id === rowId)
                   if (!row) return null
                   const title = titleColumn
@@ -170,6 +177,15 @@ export function KanbanView({
                     </article>
                   )
                 })}
+                {lane.rowIds.length > KANBAN_LANE_CARD_LIMIT && !expandedLanes[lane.id || 'unset'] ? (
+                  <button
+                    type="button"
+                    className="text-left text-sm text-primary hover:underline"
+                    onClick={() => setExpandedLanes((current) => ({ ...current, [lane.id || 'unset']: true }))}
+                  >
+                    {t('loadMore', { defaultValue: 'Load more' })}
+                  </button>
+                ) : null}
               </div>
             </section>
           ))}

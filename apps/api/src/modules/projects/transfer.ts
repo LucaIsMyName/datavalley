@@ -587,7 +587,7 @@ export async function importProject(
   const usernameToId = new Map(orgUsers.map((user) => [user.username.toLowerCase(), user.id]))
 
   return db.transaction(async (tx) => {
-    const database = tx as unknown as AppDatabase
+    const database = tx
     const [project] = await tx
       .insert(projects)
       .values({
